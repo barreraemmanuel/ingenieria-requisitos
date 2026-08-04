@@ -181,7 +181,7 @@ def comprobar_lateral(page, datos, ancho):
                 }""",
                 arg=flujo["id"],
             )
-    elif not page.locator("#menuIzq .menu-vacio").is_visible():
+    elif not page.locator("#menuIzq .menu-vacio").first.is_visible():
         raise AssertionError(
             "el lateral vacío no explica que todavía no hay flujos"
         )

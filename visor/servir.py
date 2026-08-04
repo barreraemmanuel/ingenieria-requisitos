@@ -56,7 +56,14 @@ def hacer_handler(ruta_datos, estado):
     class Visor(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
             estado["ultimo"] = time.time()
-            pedida = urlsplit(self.path).path
+            try:
+                self._servir(urlsplit(self.path).path)
+            except Exception as exc:
+                # El visor es de solo lectura: un endpoint que falla informa,
+                # nunca tumba la conexión (dejaba la página en "Cargando…").
+                self._json(500, {"error": str(exc)})
+
+        def _servir(self, pedida):
             if pedida in ("/", "/index.html"):
                 self._fichero(PLANTILLA, "text/html; charset=utf-8")
             elif pedida == "/meta.json":
