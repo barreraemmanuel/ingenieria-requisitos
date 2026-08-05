@@ -84,7 +84,13 @@ def git(repo, *args):
                            encoding="utf-8", errors="replace", check=False)
     except OSError:
         return 1, ""
-    return p.returncode, (p.stdout + p.stderr).strip()
+    # En éxito solo vale stdout: git escribe avisos por stderr (en Windows, uno
+    # por fichero con core.autocrlf), y pegarlos a la respuesta corrompía todo
+    # lo que se parsea después —SHAs, listados -z, contadores—. En fallo sí se
+    # devuelven juntos: ahí stderr ES el diagnóstico que se enseña.
+    if p.returncode:
+        return p.returncode, (p.stdout + p.stderr).strip()
+    return p.returncode, p.stdout.strip()
 
 
 def rutas_sucias(workspace):
