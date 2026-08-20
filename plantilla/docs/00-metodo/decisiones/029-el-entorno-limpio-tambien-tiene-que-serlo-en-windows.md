@@ -1,4 +1,4 @@
-# ADR-027 · El entorno limpio del launcher también tiene que serlo en Windows
+# ADR-029 · El entorno limpio del launcher también tiene que serlo en Windows
 
 **Fecha:** 2026-08-16 · **Estado:** aceptada · Corrige `ejecucion.py` (ADR-022, ADR-024) sin
 tocar su diseño · Decidida por el usuario en sesión, con la evidencia delante

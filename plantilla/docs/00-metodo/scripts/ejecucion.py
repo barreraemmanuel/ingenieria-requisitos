@@ -68,7 +68,7 @@ HEREDAR_ENV = {
     # `claude auth status` da loggedIn=false pese a heredar HOME real (verificado en
     # sesión, unidad 012 — no es HOME lo que faltaba, es esto).
     "USER", "LOGNAME",
-    # ADR-027: sin SystemRoot un ejecutable NATIVO de Windows no encuentra las DLL del
+    # ADR-029: sin SystemRoot un ejecutable NATIVO de Windows no encuentra las DLL del
     # sistema y el proceso se aborta antes de main() con 0xC0000409 (exit 3221226505),
     # sin un solo mensaje. Medido: la misma allowlist sin SystemRoot da 3221226505 y
     # añadiendo SOLO esa variable da exit 0. Las demás son el mínimo para que el CLI

@@ -722,7 +722,7 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
             self.assertIn(variable, modulo.HEREDAR_ENV)
 
     def test_heredar_env_incluye_el_minimo_de_windows(self):
-        # ADR-027: un ejecutable NATIVO de Windows sin SystemRoot no encuentra las DLL
+        # ADR-029: un ejecutable NATIVO de Windows sin SystemRoot no encuentra las DLL
         # del sistema y se aborta antes de main() con 0xC0000409 (exit 3221226505), sin
         # un solo mensaje. Medido con el mismo binario y el mismo entorno: sin SystemRoot
         # da 3221226505, añadiendo SOLO esa variable da exit 0. En Linux y macOS estas
@@ -732,7 +732,7 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
             self.assertIn(
                 variable, modulo.HEREDAR_ENV,
                 f"{variable} es parte del mínimo que necesita un proceso nativo de "
-                "Windows para arrancar (ADR-027)",
+                "Windows para arrancar (ADR-029)",
             )
 
     # --- Defecto 9 (unidad 012: adaptado a HOME real, ya no aislado)

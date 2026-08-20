@@ -122,6 +122,7 @@ DECISIONES = (
     "026-guiar-no-bloquear.md",
     "027-sin-tope-numerico-de-paralelismo.md",
     "028-ci-es-guia-no-gate.md",
+    "029-el-entorno-limpio-tambien-tiene-que-serlo-en-windows.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
