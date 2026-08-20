@@ -607,8 +607,14 @@ def revisar_cola_peticiones():
         ]
         if datos.get("resultado") == "entregada" and not satisface:
             fail(f"{pid}: entregada sin ningún proceso que la satisfaga")
+        # ADR-030: un enfoque abandonado se marca `cancelado` (con motivo, autor y fecha)
+        # y no debe dejar la peticion en FAIL para siempre. Los mismos tres estados que ya
+        # tratan como acabados la comprobacion de `abiertos` doce lineas mas arriba y
+        # peticion.py en sus tres filtros. Lo que SI debe seguir fallando es un proceso
+        # vivo (`evaluando`, `en obra`): esa garantia queda entera.
+        ACABADOS = {"terminal", "sustituido", "cancelado"}
         if datos.get("resultado") == "entregada" and any(
-            proceso.get("estado") != "terminal" for proceso in satisface
+            proceso.get("estado") not in ACABADOS for proceso in satisface
         ):
             fail(f"{pid}: entregada con procesos no terminales")
         if datos.get("estado") in {"capturada", "evaluando"}:

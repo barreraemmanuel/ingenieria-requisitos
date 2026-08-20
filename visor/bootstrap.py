@@ -123,6 +123,7 @@ DECISIONES = (
     "027-sin-tope-numerico-de-paralelismo.md",
     "028-ci-es-guia-no-gate.md",
     "029-el-entorno-limpio-tambien-tiene-que-serlo-en-windows.md",
+    "030-los-guardianes-no-pueden-encerrar-al-usuario.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
