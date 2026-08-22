@@ -54,9 +54,9 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
 - **Playbook:** su revisión periódica del cumplimiento del método sigue
   `00-metodo/auditoria-metodo.md` (checklist con comando exacto y veredicto por check).
 
-### Entrevista de arranque (una vez) — `<HARD-GATE>`
+### Entrevista de arranque (una vez)
 
-`<HARD-GATE>` **Sin `docs/conocimiento/plano-observabilidad.md` escrito, este rol no mira
+**Sin `docs/conocimiento/plano-observabilidad.md` escrito, este rol no mira
 nada y no informa de nada.** Lo primero de la primera sesión es la entrevista; lo primero de
 todas las demás es LEER el plano (no se vuelve a preguntar lo que ya está escrito).
 
@@ -103,9 +103,9 @@ Reglas de la entrevista:
 - **Cadencia:** solo cuando hay algo que desplegar. Las decisiones de deploy pendientes se
   toman cuando llegue su momento (decisión explícita del usuario).
 
-### Entrevista de arranque (una vez) — `<HARD-GATE>`
+### Entrevista de arranque (una vez)
 
-`<HARD-GATE>` **Sin `docs/conocimiento/plano-deploy.md` escrito, este rol no toca ninguna
+**Sin `docs/conocimiento/plano-deploy.md` escrito, este rol no toca ninguna
 máquina.** Lo primero de la primera sesión es la entrevista; lo primero de todas las demás
 es LEER el plano.
 

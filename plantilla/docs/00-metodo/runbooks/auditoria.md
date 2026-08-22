@@ -21,7 +21,7 @@ de código ni worktree.
    - `Deltas al mapa`: normalmente ninguno; si se audita drift, se declaran candidatos,
      nunca se modifica el mapa durante la auditoría.
    - `Verificación`: comandos de solo lectura y formato final del informe.
-3. `<HARD-GATE>` **El usuario lee y aprueba el alcance.** Se anota la fecha en `aprobado:`.
+3. **El usuario lee y aprueba el alcance.** Se anota la fecha en `aprobado:`.
    Sin ella no se abre la auditoría.
 4. **Elegir lentes independientes.** El padre lanza uno o varios subagentes auditores. Cada
    uno recibe una lente sin solapamiento y escribe en una sección o informe distinto dentro

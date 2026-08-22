@@ -678,7 +678,7 @@ def _cmd_nueva(args, autoridad):
         print(f"\n  Siguientes pasos (en este orden — el worktree NO se crea todavía):")
     print(f"    1. Rellena el contrato en {rel(fichero_contrato)}\n"
           f"       ({contrato}).\n"
-          f"    2. <HARD-GATE> El usuario lee, anota y APRUEBA el contrato; su OK se escribe\n"
+          f"    2. El usuario lee, anota y APRUEBA el contrato; su OK se escribe\n"
           f"       como 'aprobado: YYYY-MM-DD' en el frontmatter. Sin esa fecha no hay despacho.\n"
           f"    3. Rellena Contexto para el constructor y Plan de trabajo.\n"
           f"    4. python3 {rel(__file__)} despachar {nombre}\n"
@@ -1445,6 +1445,45 @@ def mensaje_sin_recibo_revisor(nombre):
     )
 
 
+def acredita_revision(recibo):
+    """Motivo por el que este recibo NO acredita una revisión, o None si la acredita.
+
+    `ejecucion.py` escribe el recibo ANTES de lanzar el harness y lo va completando: nace
+    con `exit_code: null` y sin `resultado`, y solo al terminar guarda `resultado` (`ok`,
+    `ok_sin_trabajo` o `fail`) y el código de salida. Aceptar cualquier JSON con
+    `rol: revisor` habilitaba el cierre con una revisión que falló, que se quedó a medias
+    o que ni siquiera arrancó — exactamente lo que la puerta existe para impedir.
+    """
+    identificador = str(recibo.get("id") or "sin id")
+    resultado = str(recibo.get("resultado") or "").strip()
+    exit_code = recibo.get("exit_code")
+    if not resultado:
+        return (f"el recibo {identificador} no tiene `resultado`: nació al arrancar la "
+                f"ejecución y nunca se cerró, así que esa revisión no terminó")
+    if resultado != "ok":
+        return (f"el recibo {identificador} terminó con `resultado: {resultado}`: la "
+                f"revisión no salió bien" +
+                ("" if resultado != "ok_sin_trabajo" else
+                 ", y un revisor que no escribe su veredicto no ha revisado"))
+    if exit_code != 0:
+        return (f"el recibo {identificador} declara `exit_code: {exit_code}`: el proceso "
+                f"de revisión no terminó en cero")
+    if not sesion_de(recibo):
+        return (f"el recibo {identificador} no tiene identidad de sesión: sin ella no se "
+                f"puede demostrar que el revisor no fuera el constructor")
+    return None
+
+
+def mensaje_recibo_no_acredita(nombre, motivos):
+    return (
+        f"el recibo de revisión de {nombre} no acredita que la revisión ocurriera: "
+        + "; ".join(motivos)
+        + f". Un recibo existe desde que la ejecución arranca; lo que prueba una revisión "
+        f"es cómo TERMINÓ. {SALIDA} vuelve a lanzarla con `{comando_revision(nombre)}` y "
+        f"cierra cuando su recibo salga en `resultado: ok`"
+    )
+
+
 def mensaje_auto_sello(nombre, sesion):
     return (
         f"el recibo de revisión de {nombre} tiene la MISMA identidad de sesión que el del "
@@ -1461,9 +1500,14 @@ def puerta_recibo_revisor(nombre):
     revisores = [r for r in recibos if str(r.get("rol") or "").strip() == "revisor"]
     if not revisores:
         return [mensaje_sin_recibo_revisor(nombre)], []
+    motivos = [(r, acredita_revision(r)) for r in revisores]
+    validos = [r for r, motivo in motivos if motivo is None]
+    if not validos:
+        return [mensaje_recibo_no_acredita(
+            nombre, [motivo for _, motivo in motivos if motivo])], []
     constructores = [r for r in recibos if str(r.get("rol") or "").strip() == "constructor"]
     sesiones_constructor = {sesion_de(r) for r in constructores} - {""}
-    limpios = [r for r in revisores if sesion_de(r) not in sesiones_constructor]
+    limpios = [r for r in validos if sesion_de(r) not in sesiones_constructor]
     if not limpios:
         return [mensaje_auto_sello(nombre, sorted(sesiones_constructor)[0])], []
     avisos = []
@@ -1484,7 +1528,7 @@ LIMITE_DIRECTO_FICHEROS = 3
 LIMITE_DIRECTO_LINEAS = 250
 
 
-def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera):
+def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera, contra=""):
     razones = []
     if ficheros > LIMITE_DIRECTO_FICHEROS:
         razones.append(f"{ficheros} ficheros (el tope directo son {LIMITE_DIRECTO_FICHEROS})")
@@ -1495,6 +1539,7 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera):
     return (
         f"{nombre} se despachó por el carril DIRECTO, pero su cambio mide "
         + "; ".join(razones)
+        + (f" (medido desde su base de despacho hasta {contra})" if contra else "")
         + ". Eso no era un trabajo directo: un directo es un contrato de una pantalla que se "
         f"deshace revirtiendo. {SALIDA} reencuadra la petición al carril que le corresponde "
         f"con `python3 docs/00-metodo/scripts/peticion.py reencuadrar-orden {nombre} "
@@ -1502,23 +1547,35 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera):
     )
 
 
-def medida_del_cambio(repo, base_sha, rama):
-    """(ficheros tocados, líneas movidas) entre la base de despacho y la punta de la rama.
+def punta_a_medir(repo, rama, principal, sha_fusion=""):
+    """La referencia contra la que medir el cambio de una unidad, de más a menos precisa.
 
-    Devuelve None cuando no hay con qué medir: sin base registrada o sin rama viva, medir
-    sería inventarse el dato — y una puerta que se inventa el dato es peor que no tenerla.
+    Que la rama ya no exista NO puede ser la forma de saltarse la puerta: el cierre real
+    borra la rama, y borrarla a mano antes de cerrar dejaba pasar cualquier tamaño. Con la
+    base de despacho registrada, la punta fusionada sirve igual de bien:
+
+      1. la rama local, que es la que tiene el trabajo más nuevo,
+      2. `origin/<rama>`, que el cierre ya no borra,
+      3. el commit con el que la Puerta 5 acaba de PROBAR la fusión (el propio commit de
+         la unidad, o el squash que lo metió),
+      4. como último recurso, la punta de la principal — mide de más si otras unidades
+         entraron por medio, y por eso va la última y el mensaje dice contra qué midió.
     """
-    if not base_sha:
-        return None
-    punta = next(
-        (
-            referencia for referencia in (rama, f"origin/{rama}")
-            if git(repo, "rev-parse", "--verify", "--quiet", referencia,
-                   silencioso=True)[0] == 0
-        ),
-        None,
-    )
-    if punta is None:
+    for referencia in (rama, f"origin/{rama}", sha_fusion, base_principal(repo, principal)):
+        if referencia and git(repo, "rev-parse", "--verify", "--quiet", referencia,
+                              silencioso=True)[0] == 0:
+            return referencia
+    return None
+
+
+def medida_del_cambio(repo, base_sha, punta):
+    """(ficheros tocados, líneas movidas) entre la base de despacho y la punta medible.
+
+    Devuelve None solo cuando no hay con qué medir: sin base de despacho registrada
+    (unidades legacy) medir sería inventarse el dato, y una puerta que se inventa el dato
+    es peor que no tenerla.
+    """
+    if not base_sha or not punta:
         return None
     codigo, salida = git(repo, "diff", "--numstat", base_sha, punta, silencioso=True)
     if codigo != 0:
@@ -1534,7 +1591,7 @@ def medida_del_cambio(repo, base_sha, rama):
     return tocados, lineas
 
 
-def puerta_carril_directo(repo, nombre, fm, referencias):
+def puerta_carril_directo(repo, nombre, fm, referencias, principal, sha_fusion=""):
     """R5 — un directo que se pasó de tamaño se canta solo al cerrar."""
     if (fm.get("carril") or "").strip().lower() != "directo":
         return None, f"carril {(fm.get('carril') or 'normal').strip()}: sin límites de directo"
@@ -1542,10 +1599,12 @@ def puerta_carril_directo(repo, nombre, fm, referencias):
         base_sha = gestion_peticiones.base_despacho(referencias, "unidad", nombre)
     except gestion_peticiones.ErrorPeticion:
         base_sha = None
-    medida = medida_del_cambio(repo, base_sha, nombre)
+    punta = punta_a_medir(repo, nombre, principal, sha_fusion)
+    medida = medida_del_cambio(repo, base_sha, punta)
     if medida is None:
-        return None, (f"{nombre}: sin base de despacho o sin rama viva, el tamaño del carril "
-                      f"directo no se puede medir; se cierra sin esa comprobación")
+        return None, (f"{nombre}: sin base de despacho registrada, el tamaño del carril "
+                      f"directo no se puede medir contra nada; se cierra sin esa "
+                      f"comprobación (unidad anterior a que el despacho anotara su origen)")
     tocados, lineas = medida
     declarados = ficheros_de(fm)
     fuera = sorted(
@@ -1553,9 +1612,9 @@ def puerta_carril_directo(repo, nombre, fm, referencias):
         if posixpath.normpath(ruta).casefold() not in declarados
     )
     if (len(tocados) > LIMITE_DIRECTO_FICHEROS or lineas > LIMITE_DIRECTO_LINEAS or fuera):
-        return mensaje_directo_desbordado(nombre, len(tocados), lineas, fuera), None
+        return mensaje_directo_desbordado(nombre, len(tocados), lineas, fuera, punta), None
     return None, (f"carril directo dentro de sus límites: {len(tocados)} fichero(s), "
-                  f"{lineas} línea(s), todos declarados")
+                  f"{lineas} línea(s), todos declarados (medido contra {punta})")
 
 
 # Tres entregas pueden compartir de verdad una tarde de validación. La cuarta ya no es una
@@ -1592,12 +1651,43 @@ def mensaje_ok_en_lote(nombre, fecha, ya_firmadas):
     )
 
 
+# Lo que el contrato pide del acta es una FILA POR UNIDAD, no una mención: una lista de
+# nombres o una frase suelta no dice qué probó el usuario en CADA entrega, que es lo único
+# que distingue tres validaciones de una firma masiva.
+CELDA_SIN_CONTENIDO = re.compile(r"^[\s\-—:./|\d]*$")
+
+
+def fila_de_validacion(acta, unidad):
+    """¿Hay en el acta una fila de tabla que sea de esta unidad Y diga cómo se validó?
+
+    Una fila vale cuando es una fila de tabla markdown de verdad (no la separadora), una
+    de sus celdas nombra a la unidad, y otra celda distinta lleva contenido: texto, no un
+    hueco ni solo la fecha.
+    """
+    nombrada = re.compile(rf"\b{re.escape(unidad)}\b")
+    for linea in acta.splitlines():
+        recortada = linea.strip()
+        if not (recortada.startswith("|") and recortada.endswith("|")):
+            continue
+        celdas = [celda.strip() for celda in recortada.strip("|").split("|")]
+        if len(celdas) < 2:
+            continue
+        if not any(nombrada.search(celda) for celda in celdas):
+            continue                      # incluye la fila separadora `|---|---|`
+        if any(not nombrada.search(celda) and not CELDA_SIN_CONTENIDO.fullmatch(celda)
+               for celda in celdas):
+            return True
+    return False
+
+
 def mensaje_lote_incompleto(ruta, faltan):
     return (
-        f"el documento de validación {ruta} no tiene una fila por unidad: falta(n) "
+        f"el documento de validación {ruta} no tiene una fila de tabla con qué se validó "
+        f"cada unidad: falta(n) "
         + ", ".join(faltan)
-        + f". {SALIDA} añade una fila por cada unidad que comparte la fecha —con qué probó "
-        f"el usuario en cada una— y vuelve a cerrar con `--validacion-lote {ruta}`"
+        + f". Nombrarlas en una lista no acredita nada: hace falta una fila POR unidad, y "
+        f"que la fila diga qué probó el usuario en ELLA. {SALIDA} añade esa fila por cada "
+        f"unidad que comparte la fecha y vuelve a cerrar con `--validacion-lote {ruta}`"
     )
 
 
@@ -1617,13 +1707,12 @@ def puerta_ok_en_lote(nombre, fecha, validacion_lote):
         return (f"no puedo leer el documento de validación {validacion_lote}: {exc}. "
                 f"{SALIDA} escribe el acta con una fila por unidad y pásala con "
                 f"`--validacion-lote <ruta>`"), None
-    faltan = [
-        unidad for unidad in [*companeras, nombre]
-        if not re.search(rf"^.*\b{re.escape(unidad)}\b.*$", acta, flags=re.M)
-    ]
+    faltan = [unidad for unidad in [*companeras, nombre]
+              if not fila_de_validacion(acta, unidad)]
     if faltan:
         return mensaje_lote_incompleto(validacion_lote, faltan), None
-    return None, (f"OK en lote acreditado: {validacion_lote} tiene una fila por cada una de "
+    return None, (f"OK en lote acreditado: {validacion_lote} tiene una fila de validación "
+                  f"por cada una de "
                   f"las {len(companeras) + 1} unidades que comparten el {fecha}")
 
 
@@ -2087,7 +2176,7 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
     # --- Puerta 6 (033/R5): un directo que se pasó de tamaño no era un directo -------------
     if clase == "unidad":
         problema_directo, nota_directo = puerta_carril_directo(
-            repo, nombre, fm, referencias_peticion
+            repo, nombre, fm, referencias_peticion, principal, sha_fusion
         )
         if problema_directo:
             problemas.append(problema_directo)

@@ -14,7 +14,7 @@ fecha: YYYY-MM-DD
 > la máquina, 4-5 después. Vive en `docs/05-trabajo/NNN-slug/despliegue.md`; para un hotfix,
 > vive como ficha lateral en `docs/bugs/NNN-slug/despliegue.md`. No se incrusta ni se mueve:
 > esa ruta canónica permite que el inbox compruebe su contrato al cerrar.
-> `<HARD-GATE>` Credenciales, tokens, IPs privadas y datos personales JAMÁS aquí: viven en
+> Credenciales, tokens, IPs privadas y datos personales JAMÁS aquí: viven en
 > `.private/` y se referencian POR RUTA.
 
 ## 1 · Qué se despliega
@@ -26,7 +26,7 @@ fecha: YYYY-MM-DD
 - **Suite completa sobre este commit:** <VERDE + ruta `.runtime/pre-deploy/full-suite.log`>
 - **Seguridad sobre este commit:** <VERDE + ruta `.runtime/pre-deploy/security.log`>
 
-## 2 · Backup verificado (restaurado de prueba) — `<HARD-GATE>`
+## 2 · Backup verificado (restaurado de prueba)
 
 - **Qué se copió y adónde:** <BD, ficheros subidos, config → destino que NO es la misma máquina>
 - **Volcado — comando y salida:** `<pegada, no resumida>`

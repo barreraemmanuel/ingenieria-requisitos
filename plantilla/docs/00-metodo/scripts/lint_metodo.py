@@ -325,14 +325,13 @@ def campos_ficha_deploy(texto):
 def ficha_deploy_terminal_valida(ruta):
     fm = frontmatter(ruta) or {}
     texto = ruta.read_text(encoding="utf-8")
-    sin_reglas = texto.replace("<HARD-GATE>", "")
     if fm.get("proceso") != "deploy" or fm.get("estado") != "desplegado":
         return False
     if fm.get("etapa") not in {"0-local", "1-lan", "2-vps"}:
         return False
     if not fecha_iso_valida(fm.get("fecha", "")):
         return False
-    if re.search(r"<[^>]+>|PENDIENTE|DESPLEGADO\s*\|", sin_reglas):
+    if re.search(r"<[^>]+>|PENDIENTE|DESPLEGADO\s*\|", texto):
         return False
     campos = campos_ficha_deploy(texto)
     if any(len(campos.get(nombre, "").strip(" .:·-")) < 3 for nombre in CAMPOS_DEPLOY_OBLIGATORIOS):

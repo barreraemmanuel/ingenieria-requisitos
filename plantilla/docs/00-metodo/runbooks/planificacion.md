@@ -17,7 +17,7 @@ construcción con el esqueleto andante primero.
    (**Los informes y la `SINTESIS.md` los produce la fase 3**, `runbooks/investigacion.md`; aún
    no existen: si faltan, correr la fase 3 es el paso previo y esta fase no arranca. En
    brownfield la fase 3 va acotada — `runbooks/adopcion.md` §6 — pero va.)
-2. **Preparar las decisiones.** `<HARD-GATE>` **Antes de proponer tecnología, mirar la
+2. **Preparar las decisiones.** **Antes de proponer tecnología, mirar la
    máquina:** `python3 docs/00-metodo/scripts/doctor.py --escribir`. **El ROADMAP no fija una
    herramienta que el doctor no haya visto en verde** — si no hay Docker, el plan no dice
    "se desarrolla con contenedores"; si no hay `gh`, el cierre va por el camino B de
@@ -41,7 +41,7 @@ construcción con el esqueleto andante primero.
    que sí le llega es lo que queda encendido en su máquina cuando el agente se va, y eso es lo
    que se pesa.
 
-   **Antes de proponer NADA, mirar qué ya existe.** `<HARD-GATE>` Buscar en el código
+   **Antes de proponer NADA, mirar qué ya existe.** Buscar en el código
    (`main/`) si YA hay un módulo o componente que haga eso o algo parecido: **no se duplica
    código ni responsabilidades**. Si lo hay, la funcionalidad se encaja ahí (refactorizando
    ese módulo si hace falta), JAMÁS levantando un sistema paralelo; solo se propone módulo
@@ -59,7 +59,7 @@ construcción con el esqueleto andante primero.
    arquitectura ha dejado de ser un contrato.
 3. **Debatir con el usuario, ping-pong.** Las decisiones se presentan DE UNA EN UNA:
    "he encontrado esta tecnología, tiene estos pros, estos contras, se haría así".
-   El usuario pregunta, el padre responde, y el usuario decide. `<HARD-GATE>` Nada queda
+   El usuario pregunta, el padre responde, y el usuario decide. Nada queda
    decidido sin su OK. Una decisión gorda (contradice el bias, elimina algo) → ADR.
 4. **Escribir el ROADMAP** con la estructura FIJA de la plantilla, siempre igual:
    ① resumen al principio (qué se construye y con qué, para leer en 30 segundos) ·
@@ -72,7 +72,7 @@ construcción con el esqueleto andante primero.
    matriz exhaustiva de roles/grupos → unitario; entrada protegida real → integración;
    recorrido completo o frontera que solo aparece al cablear la app → end-to-end. Los planos deciden qué conducta
    importa; el stack ya investigado decide cómo demostrarla (ADR-019).
-5. `<HARD-GATE>` **El usuario aprueba el documento final.** Actualizar `ESTADO.md` →
+5. **El usuario aprueba el documento final.** Actualizar `ESTADO.md` →
    fase 5: especificar y despachar la primera unidad de la tanda (runbook de su tipo).
 
 ## El bias de la planificación (fijo; se aplica a TODA decisión)

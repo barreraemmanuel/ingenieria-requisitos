@@ -7,7 +7,7 @@
 El método declara su propia jerarquía de confianza (`00-metodo/README.md`):
 **script/hook > plantilla > prosa**. Medido contra esa jerarquía, el método se contradecía:
 
-- Toda la **ceremonia** estaba en `<HARD-GATE>` y en scripts que bloquean.
+- Toda la **ceremonia** estaba en marcas de puerta infranqueable y en scripts que bloquean.
 - Todo el **freno** —"iteración corta", "resolver el problema de hoy y no los futuros",
   "unidades pequeñas y contratos breves"— era **prosa, en el último párrafo de un README de 175
   líneas**. Por su propia regla, perdía siempre.
@@ -37,7 +37,7 @@ paso que se cumple marcando la casilla sin escribir nada no es un paso, es un pe
 diseña el código", y valen para toda unidad. Ninguna spec las repite ni las re-argumenta. En la
 spec queda sólo lo específico: dónde vive ya esto y cómo se encaja ahí.
 
-**3. `<HARD-GATE>` Si no cabe en el módulo que le corresponde, se PARA.** Eso es un refactor con
+**3. Si no cabe en el módulo que le corresponde, se PARA.** Eso es un refactor con
 su propia unidad y su propia aprobación, nunca un rodeo dentro de otra tarea. Antes, "encajar
 refactorizando si hace falta" autorizaba a cualquier constructor a abrir la caja entera sin que
 nadie lo aprobara.

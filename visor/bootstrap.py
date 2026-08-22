@@ -455,7 +455,7 @@ actualizado: PENDIENTE
 
 > **Este fichero está vacío a propósito y no se rellena de memoria ni "a ojo".** Es la salida
 > escrita de la entrevista de arranque del rol (ADR-008), y mientras siga así:
-> `<HARD-GATE>` **{ficha['gate']}**.
+> **{ficha['gate']}**.
 
 ## Cómo se llena (una vez, y ya)
 

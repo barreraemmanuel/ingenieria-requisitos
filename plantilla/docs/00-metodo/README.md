@@ -92,8 +92,8 @@ actualizado: YYYY-MM-DD
 ---
 ```
 
-**`aprobado:` lo pone el USUARIO, nunca el agente.** Es el rastro comprobable del
-`<HARD-GATE>` de la especificación: `no` mientras no lo haya leído y aceptado, y la **fecha
+**`aprobado:` lo pone el USUARIO, nunca el agente.** Es el rastro comprobable de la puerta
+de aprobación de la especificación: `no` mientras no lo haya leído y aceptado, y la **fecha
 del día en que lo aprueba** cuando da su OK (se exige fecha y no un "sí" porque una fecha dice
 *cuándo* se leyó). Sin esa fecha, `unidad.py despachar` **bloquea** y el linter da FAIL si
 encuentra una unidad `en_obra`/`en_revision` sin ella. Única excepción: el hotfix P0
@@ -148,7 +148,7 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
   AGENTS.md que la primera unidad deja DENTRO del repo de código, con los comandos exactos de
   entorno, suite, e2e, instancia para el usuario y seguridad).
 - `roles.md` — los roles del padre (analista de flujos, constructor, observabilidad, deploy),
-  con la entrevista de arranque `<HARD-GATE>` de los dos operativos (ADR-008).
+  con la entrevista de arranque de los dos operativos (ADR-008).
 - `decisiones/` — **los ADR DEL MÉTODO**: el porqué de estas reglas. El índice es el listado
   de la carpeta (`ls`), no una lista escrita a mano que se queda atrás. Se leen, no se editan;
   cuando un runbook cita "ADR-005", está aquí. Las decisiones de TU proyecto van en

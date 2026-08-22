@@ -30,7 +30,7 @@ añade cosas que hay que mantener. Subir de etapa después es una unidad tipo `m
 | Dónde corre | su ordenador | un ordenador encendido de la oficina | máquina alquilada |
 | Cómo entra la gente | no entra | la dirección interna de ese ordenador | un dominio |
 | Copias de seguridad | las suyas | copia a otro disco | copia FUERA de esa máquina |
-| Auditoría de seguridad | no | recomendable | `<HARD-GATE>` obligatoria antes de salir |
+| Auditoría de seguridad | no | recomendable | obligatoria antes de salir |
 
 ## 3 · Si eligió `internet`: se investiga HOY, no se recita de memoria
 

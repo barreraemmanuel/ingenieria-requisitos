@@ -108,9 +108,9 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    hace read-only el código y solo permite como escritura persistente la firma derivada de esa
    unidad; cwd, rama y el probe quedan en el recibo `ejecucion/v1` (ADR-022).
 
-   `<HARD-GATE>` **El revisor no puede ser quien construyó.** Esto no lo relaja ningún carril:
+   **El revisor no puede ser quien construyó.** Esto no lo relaja ningún carril:
    lo que los carriles cambian es cuánto papeleo hay, no que la revisión exista.
-   `<HARD-GATE>` **Una firma que falta no se rellena después.** Si al cerrar `revisor:` sigue
+   **Una firma que falta no se rellena después.** Si al cerrar `revisor:` sigue
    vacío, ya nadie puede saber quién revisó: se vuelve a revisar con un agente fresco. El padre
    escribiendo un nombre plausible es justo el auto-sello que este campo existe para impedir.
 
@@ -135,7 +135,7 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    llena el contexto de salida irrelevante. Y si el proyecto **no tiene forma de saber qué
    depende de qué**, no se adivina: se corre la suite completa y se anota la deuda en
    `hallazgos.md`.
-   `<HARD-GATE>` Un rojo NO se negocia, sea del nivel que sea.
+   Un rojo NO se negocia, sea del nivel que sea.
 
    Después del merge, `quality-security` debe quedar verde sobre el commit de la principal.
    Con GitHub se espera y verifica ese check; sin GitHub se ejecutan desde `main/`
@@ -147,7 +147,7 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    matriz exhaustiva que vive en tests rápidos (ADR-019).
 5. **Cuando la política exige app, lanzarla y hacer que el usuario la pruebe** (mismo
    `AGENTS.md`), con los
-   ejemplos reales de sus criterios. `<HARD-GATE>` **Sin su OK no hay cierre**; "no es lo que
+   ejemplos reales de sus criterios. **Sin su OK no hay cierre**; "no es lo que
    pedí" no se discute: se abre una unidad tipo `bug`. La fecha de ese OK es lo que se le
    pasa al comando del paso 6.
 

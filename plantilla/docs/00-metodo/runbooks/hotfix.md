@@ -60,19 +60,19 @@ pegada en la ficha. La urgencia acorta la espera, jamás la verificación. Todo 
    escrito el traspaso: qué commit va a producción, quién dio el OK y a qué hora.
 7. **Verificación en caliente (DEPLOY, con el usuario).** Comprobar sobre producción que la
    sangría paró — el síntoma real, no el test — y anotarlo en la sección Cierre, junto al
-   estado desplegado. `<HARD-GATE>` **Sin el OK del usuario sobre producción no hay cierre**:
+   estado desplegado. **Sin el OK del usuario sobre producción no hay cierre**:
    el estado NO pasa a `mergeada` y el hotfix sigue abierto. Con el OK → `mergeada`
    (**Validación del usuario: OK**, con fecha) y la deuda de spec queda corriendo. ¿Sigue
    sangrando? → se REABRE la misma ficha: estado vuelve a `en_obra` y se repite desde el paso 3
    con un test nuevo en rojo.
 
-## `<HARD-GATE>` La deuda se paga
+## La deuda se paga
 
 En las **24 horas** siguientes a estabilizar se completa la ficha: reproducción determinista,
 causa raíz de verdad (sección 3) y tests de regresión **contraprobados** — rojo sin el arreglo,
 verde con él. Solo entonces se borra la marca de deuda.
 
-`<HARD-GATE>` **Mientras exista una ficha con la marca de deuda sin pagar, no se abre trabajo
+**Mientras exista una ficha con la marca de deuda sin pagar, no se abre trabajo
 nuevo que no sea otro hotfix.** Ni features, ni refactors, ni exprés.
 
 > **Puerta automática.** `scripts/lint_metodo.py` y `scripts/unidad.py` comprueban la deuda

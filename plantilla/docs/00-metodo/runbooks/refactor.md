@@ -12,7 +12,7 @@ demostrada.
 1. **Justificar.** El padre identifica el problema concreto: duplicación, módulo demasiado
    grande, acoplamiento, deuda o cuello medido. “Limpiar un poco” no abre una unidad.
 2. **Buscar cobertura.** Ejecutar la suite actual y localizar qué tests protegen la zona.
-   `<HARD-GATE>` Sin cobertura suficiente, primero se crea una unidad separada de tests de
+   Sin cobertura suficiente, primero se crea una unidad separada de tests de
    caracterización que documenten lo que hace hoy.
 3. **Crear la unidad:**
    `python3 docs/00-metodo/scripts/unidad.py nueva refactor <slug> --desde P-ID`.
@@ -22,7 +22,7 @@ demostrada.
    - Métrica antes/después si el motivo es rendimiento.
    - `Fuera de alcance`: cualquier cambio funcional.
    - Ficheros exactos; hotspots compartidos hacen la unidad secuencial.
-5. `<HARD-GATE>` **El usuario aprueba** el alcance y entiende que no ganará una función
+5. **El usuario aprueba** el alcance y entiende que no ganará una función
    nueva.
 6. **Despachar** con `unidad.py despachar NNN-slug`. El script crea la rama desde la `main`
    más reciente y el worktree.
@@ -30,7 +30,7 @@ demostrada.
    Si ya está roja, para: no se atribuyen fallos heredados al refactor.
 8. **Transformar en pasos pequeños.** Un cambio estructural por commit lógico. Después de
    cada paso, ejecutar las pruebas de la zona.
-9. `<HARD-GATE>` **Los tests existentes no se editan, debilitan ni eliminan.** Si uno impide
+9. **Los tests existentes no se editan, debilitan ni eliminan.** Si uno impide
    el cambio porque el comportamiento debe variar, esto dejó de ser refactor: parar y volver
    al usuario como feature o bug.
 10. **Verificación final.** Suite completa, lint y comprobaciones de tipos en verde. Para

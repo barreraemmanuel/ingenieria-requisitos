@@ -879,7 +879,7 @@ else:
             "---\nproceso: deploy\nestado: desplegado\n"
             f"peticiones: [{pid}@1]\netapa: 1-lan\ncommit: {self.sha}\n"
             "fecha: 2026-08-04\n---\n\n"
-            "# Despliegue verificado\n\n> `<HARD-GATE>` sin secretos.\n\n"
+            "# Despliegue verificado\n\n> Sin secretos.\n\n"
             "- **Commit/tag:** " + self.sha + " · ya en main\n"
             "- **Etapa destino y máquina exacta:** 1 LAN — servidor de pruebas\n"
             "- **Qué cambia para el usuario, en una frase:** terminal corregida\n"
@@ -1519,7 +1519,7 @@ else:
         ficha = self.ws / "docs/05-trabajo/despliegues/release-42.md"
         ficha.parent.mkdir(parents=True)
         cuerpo_evidencia = (
-            "\n\n# Despliegue verificado\n\n> `<HARD-GATE>` sin secretos.\n\n"
+            "\n\n# Despliegue verificado\n\n> Sin secretos.\n\n"
             "- **Commit/tag:** " + self.sha + " · ya en main\n"
             "- **Etapa destino y máquina exacta:** 2 VPS — producción\n"
             "- **Qué cambia para el usuario, en una frase:** lote de 3 unidades\n"

@@ -917,8 +917,7 @@ def validar_ficha_deploy_terminal(ruta):
         raise ErrorPeticion("la ficha de deploy no referencia un commit/tag existente")
     if git(repo, "merge-base", "--is-ancestor", commit, principal)[0] != 0:
         raise ErrorPeticion(f"el commit desplegado todavía no pertenece a {principal}")
-    sin_reglas = texto.replace("<HARD-GATE>", "")
-    if re.search(r"<[^>]+>|PENDIENTE|DESPLEGADO\s*\|", sin_reglas):
+    if re.search(r"<[^>]+>|PENDIENTE|DESPLEGADO\s*\|", texto):
         raise ErrorPeticion("la ficha de deploy conserva huecos o decisiones pendientes")
     campos = campos_ficha_deploy(texto)
     faltan = [

@@ -2,7 +2,7 @@
 
 **Cuándo:** el workspace se provisiona sobre un repo que YA tiene implementación real
 (`main/` contiene algo más que README/CI; el bootstrap lo detecta y viaja
-`bias/brownfield.md`). `<HARD-GATE>` **Ninguna unidad de código se despacha antes de tener
+`bias/brownfield.md`). **Ninguna unidad de código se despacha antes de tener
 una adopción demostrable**: primero conocer, después tocar.
 **Tipo y carril:** unidad `investigacion` + `auditoria`, carril **completo**
 (`especificacion.md` + `investigacion.md`). **NO toca el repo de código**: solo lectura de
@@ -39,7 +39,7 @@ principal integra y responde por el mapa final.
    copiados del README (el README miente con frecuencia). Se pega el output. Si un comando
    documentado no funciona, eso es un hallazgo: se anota el comando que SÍ funciona.
 3. **Estado de la suite de tests:** ¿existe? ¿corre? ¿está en verde? Output real pegado,
-   incluidos los fallos. `<HARD-GATE>` **Sin suite (o con suite en rojo) = deuda declarada
+   incluidos los fallos. **Sin suite (o con suite en rojo) = deuda declarada
    nº 1: no se toca comportamiento sin red de tests.** La primera unidad después de la
    adopción es añadir **tests de caracterización** de la zona que se vaya a tocar (fijan lo
    que el código hace HOY, no lo que debería hacer) — antes de eso no se modifica nada.
@@ -58,7 +58,7 @@ principal integra y responde por el mapa final.
    pendientes). El mínimo de 10 enfoques es de la fase 3 de cero: aquí el número lo fija el
    gap-map. Los informes van a `03-investigacion/` como siempre y se integran en la
    `SINTESIS.md` ya escrita.
-   `<HARD-GATE>` **Si el gap-map no revela nada desconocido, se escribe "fase 3 sin temas"**
+   **Si el gap-map no revela nada desconocido, se escribe "fase 3 sin temas"**
    en `SINTESIS.md` (sección homónima: por qué, quién y cuándo) y se pasa a la 4. Es una
    decisión escrita y aprobada por el usuario, **nunca un salto silencioso**.
 7. **Cierre.** El usuario revisa el gap-map y decide qué entra al ROADMAP y en qué orden;

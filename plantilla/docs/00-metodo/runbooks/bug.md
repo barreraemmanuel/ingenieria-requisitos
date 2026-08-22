@@ -12,7 +12,7 @@ instancia corriendo.
 
 ## Regla de carril
 
-`<HARD-GATE>` Un bug cambia comportamiento (restaura el prometido) → **nunca es exprés, sin
+Un bug cambia comportamiento (restaura el prometido) → **nunca es exprés, sin
 excepciones**: una errata que ve el usuario es comportamiento (`expres.md`, columna NO). No hay
 bug "micro": todo bug lleva ficha, `NNN`, test rojo y OK del usuario. Un bug que revele un
 problema de diseño transversal → escalar a decisión con el usuario.
@@ -45,8 +45,8 @@ recorta nada—, pero el nivel de test es el que demuestra ESTE bug y construye 
    `docs/bugs/NNN-slug.md`. Después,
    `ESTADO.md` (lo escribe el padre).
 3. **Reproducir (primera misión del subagente).** Crear un test end-to-end que reproduzca el
-   bug: debe estar **ROJO**. `<HARD-GATE>` Sin test rojo no se toca código: un fix sin
-   reproducción no es verificable. `<HARD-GATE>` **El output literal del test en ROJO se pega
+   bug: debe estar **ROJO**. Sin test rojo no se toca código: un fix sin
+   reproducción no es verificable. **El output literal del test en ROJO se pega
    en la sección 2 de la ficha** (pegado, no resumido ni parafraseado): el hard-gate no lo
    satisface la afirmación "está rojo", lo satisface el output. Sin ese texto en la ficha, para
    el cierre el test rojo no existió (evidencia, no afirmación — regla 12 de `AGENTS.md`).
@@ -55,7 +55,7 @@ recorta nada—, pero el nivel de test es el que demuestra ESTE bug y construye 
    aquí.)
 4. **Diagnosticar.** La causa raíz, al fichero del bug (siempre), mediante el bucle
    Observación → Hipótesis falsable → Experimento discriminante → Conclusión. El resultado de
-   cada experimento se conserva aunque refute la hipótesis. `<HARD-GATE>` Mientras la causa
+   cada experimento se conserva aunque refute la hipótesis. Mientras la causa
    raíz siga abierta **no se implementa** una solución: cambiar código sería probar remedios,
    no depurar.
 5. **¿La solución es directa?** (no toca contrato ni mapa, no elimina nada, una sola vía
@@ -87,7 +87,7 @@ recorta nada—, pero el nivel de test es el que demuestra ESTE bug y construye 
 9. **Cierre (el padre, a petición del usuario).** Es el ritual indivisible de
    `runbooks/cierre.md`, cerrado con `unidad.py cerrar`. Resumen de
    `00-metodo/README.md`; aquí solo lo específico del bug.
-   `<HARD-GATE>` **Puerta de evidencia, antes de todo lo demás:** si la ficha no lleva pegados
+   **Puerta de evidencia, antes de todo lo demás:** si la ficha no lleva pegados
    el output del test en ROJO (sección 2) **y** el del mismo test en VERDE (sección 5), el
    cierre NO empieza — la ficha vuelve al subagente. Sin ese par no hay nada que revisar: el
    arreglo no está demostrado.
@@ -101,7 +101,7 @@ recorta nada—, pero el nivel de test es el que demuestra ESTE bug y construye 
    Limpio → merge del PR → **tests sobre main al nivel del carril** (ADR-016; tabla en
    `runbooks/cierre.md`) → **lanzar una instancia
    de la app** (comando de arranque: el `AGENTS.md` del repo de código) y el usuario la prueba.
-   `<HARD-GATE>` **Sin ese OK no hay cierre**: el estado NO pasa a `mergeada` y el bug sigue
+   **Sin ese OK no hay cierre**: el estado NO pasa a `mergeada` y el bug sigue
    ABIERTO (`en_revision`). Con el OK → estado `mergeada`, sección Cierre rellenada
    (**Validación del usuario: OK**, con fecha), borrar worktree y rama, actualizar `ESTADO.md`
    + linter. La ficha **no se archiva**: se queda en `docs/bugs/`. ¿"Sigue mal"? → se REABRE en

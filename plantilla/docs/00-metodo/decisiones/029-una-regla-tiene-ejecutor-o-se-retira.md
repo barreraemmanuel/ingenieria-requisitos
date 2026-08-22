@@ -83,13 +83,23 @@ Ahora se compara, y si el workspace todavía no tiene planos se dice, en vez de 
 
 Se retira aquello cuya ausencia de ejecutor está medida Y cuyo daño no lo está:
 
-- **La marca `<HARD-GATE>` como señal de puerta infranqueable.** Aparece 60 veces en 23
-  documentos; en los scripts aparece cuatro veces, y dos de ellas son para BORRARLA antes de
-  imprimir (`lint_metodo.py`, `peticion.py`). Ya se descubrió una vez que una de esas marcas
-  era prosa que nadie ejecutaba (comentario en `unidad.py`). *Motivo de la retirada:* una
-  marca que se estampa a mano y se borra al imprimir no acredita nada; lo que hace
-  infranqueable a una puerta es el script que la ejecuta y el test que lo demuestra, y ahora
-  esa es la única forma admitida de declararlo. Las puertas siguen; la etiqueta se va.
+- **La marca `<HARD-GATE>` como señal de puerta infranqueable.** Aparecía 62 veces en 25
+  ficheros (este ADR aparte): 56 en 20 documentos del método, cuatro en los scripts —dos de
+  ellas para BORRARLA antes de imprimir (`lint_metodo.py`, `peticion.py`), una para
+  imprimirla (`unidad.py nueva`) y otra para escribirla en cada plano operativo sin
+  entrevistar (`bootstrap.py`)— y dos en fichas de prueba. Ya se descubrió una vez que una
+  de esas marcas era prosa que nadie ejecutaba (comentario en `unidad.py`).
+  *Motivo de la retirada:* una marca que se estampa a mano y se borra al imprimir no acredita
+  nada; lo que hace infranqueable a una puerta es el script que la ejecuta y el test que lo
+  demuestra, y ahora esa es la única forma admitida de declararlo. Las puertas siguen; la
+  etiqueta se va.
+
+  **Aplicado:** las 62 están fuera. Ninguna frase perdió su fuerza —el texto en negrita que
+  la marca acompañaba sigue entero—; las dos únicas reescrituras son las de `README.md` y
+  el ADR-015, donde la marca era el sujeto de la frase. Lo comprueba
+  `test_r8_la_marca_retirada_no_queda_en_el_texto_del_metodo`, que barre el método y el
+  visor y deja este documento como única excepción: quien retira una regla es el único que
+  puede seguir nombrándola.
 
 Las otras 54 reglas huérfanas NO se retiran aquí. Se abordan después, ordenadas por daño y
 una a una, bajo esta misma doctrina: ejecutor, declaración de inejecutable, o retirada con
@@ -106,6 +116,11 @@ nada, y esta unidad quedaría además imposible de revisar.
 - `peticion.py` compara la huella declarada con la real y publica `huella-planos` para que la
   vía de salida sea teclear un comando, no adivinar una cadena.
 - `revision.aprobar` exige el rastro del visor; `requisitos.py abrir` lo deja fechado.
+- El recibo del revisor solo acredita la revisión si dice cómo TERMINÓ: `resultado: ok`,
+  `exit_code` cero e identidad de sesión. `ejecucion.py` lo escribe al arrancar, así que su
+  mera existencia no prueba nada — probaba que alguien lanzó el comando, no que revisara.
+- El tamaño del carril directo se mide aunque la rama ya no exista: con la base de despacho
+  anotada, la punta fusionada sirve igual. Borrar la rama era la forma de saltarse la puerta.
 - Cerrar una unidad antigua cuyo revisor no dejó recibo ahora falla. Es el efecto buscado y
   su salida está escrita: se vuelve a revisar con un agente fresco, y el mensaje da el comando.
 

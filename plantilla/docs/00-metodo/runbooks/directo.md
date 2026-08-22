@@ -19,10 +19,10 @@ la app corriendo.
 | **Cabe** | 1-3 ficheros del repo de código, ninguno de ellos un hotspot (migraciones, rutas, modelos compartidos, lockfiles) |
 | **Se deshace** | revertir el commit lo deja como estaba: no migra datos ni toca dinero |
 
-`<HARD-GATE>` **Ante la duda, no es directo: es normal.** La duda ya es la prueba de que el
+**Ante la duda, no es directo: es normal.** La duda ya es la prueba de que el
 cambio es más grande de lo que parece.
 
-`<HARD-GATE>` **Dos directos seguidos sobre lo mismo no eran dos directos**: era una unidad
+**Dos directos seguidos sobre lo mismo no eran dos directos**: era una unidad
 disfrazada. Se para y se especifica por `feature.md`.
 
 ## Qué se ahorra (y qué NO)
@@ -47,7 +47,7 @@ la revisión firmada por alguien que no construyó, y tu OK sobre la app corrien
    ficha corta, y te lo enseño funcionando"*. Si dudas u objetas, se degrada a normal.
 2. **Ficha.** `python3 docs/00-metodo/scripts/unidad.py nueva <tipo> <slug> --directo --desde P-ID`.
    Se rellenan sus cinco huecos: Qué · Criterios · Cómo lo pruebas tú · ficheros · Verificación.
-   `<HARD-GATE>` **El usuario aprueba la ficha** y su OK se escribe como `aprobado: YYYY-MM-DD`.
+   **El usuario aprueba la ficha** y su OK se escribe como `aprobado: YYYY-MM-DD`.
    Sin esa fecha, `despachar` bloquea igual que en el carril normal.
 3. **Obra: la hace el PADRE, a la vista del usuario** (ADR-017). `unidad.py despachar NNN-slug`
    crea la rama y el worktree, y el padre trabaja ahí él mismo — **sin subagente**. Delegar un
@@ -69,6 +69,6 @@ la revisión firmada por alguien que no construyó, y tu OK sobre la app corrien
 
 ## Escalada
 
-`<HARD-GATE>` Si a mitad de obra el cambio **crece más allá de los ficheros declarados**,
+Si a mitad de obra el cambio **crece más allá de los ficheros declarados**,
 **toca un hotspot** o **hay que mover el mapa**: PARA y devuelve la tarea. La unidad se re-abre
 por `feature.md` con su contrato completo; el trabajo hecho no se tira, se re-encuadra.
