@@ -316,7 +316,7 @@ class EscenariosModoD(Escenario):
 
 class EscenariosBrownfield(Escenario):
     """D_vega (08-08): «se ha saltado totalmente el paso brownfield». La adopción
-    era un HARD-GATE en prosa que nada ejecutaba y ninguna señal nombraba."""
+    era una puerta en prosa que nada ejecutaba y ninguna señal nombraba."""
 
     def bare_con_codigo(self, base):
         origen = base / "codigo-origen"

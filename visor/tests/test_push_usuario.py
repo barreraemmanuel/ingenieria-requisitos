@@ -300,6 +300,22 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
             text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
 
+    def recibos_de_ejecucion(self, nombre):
+        """Los recibos que el control plane deja al lanzar constructor y revisor."""
+        carpeta = self.ws / ".runtime/ejecuciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for rol in ("constructor", "revisor"):
+            (carpeta / f"{nombre}-{rol}.json").write_text(json.dumps({
+                "schema": "ejecucion/v1",
+                "id": rol,
+                "unidad": nombre,
+                "harness": "claude",
+                "rol": rol,
+                "lease": {"session_id": f"{rol}-{nombre}", "fencing": {}},
+                "exit_code": 0,
+                "resultado": "ok",
+            }, ensure_ascii=False), encoding="utf-8")
+
     def cerrar_bug_fusionado(self, slug="hook-post-cierre"):
         """Lleva un bug hasta `unidad.py cerrar` en verde, con el trabajo YA fusionado en
         `main` como lo dejaría el padre antes de cerrar. Devuelve (resultado_cerrar, nombre)."""
@@ -357,6 +373,11 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
             "- **Revisión (revisor fresco, ANTES del merge):** LIMPIO · Fecha: 2026-08-18",
         )
         ficha.write_text(texto, encoding="utf-8")
+
+        # Desde el bug 034 (R4) las puertas del recibo y del carril aplican también a los
+        # bugs: entregan código por una rama exactamente igual que una unidad. Los recibos
+        # de constructor y revisor son los que `ejecucion.py` deja en cada lanzamiento.
+        self.recibos_de_ejecucion(nombre)
 
         resultado = self.ejecutar_script(
             self.unidad, "cerrar", nombre, "--ok-usuario", "2026-08-18",

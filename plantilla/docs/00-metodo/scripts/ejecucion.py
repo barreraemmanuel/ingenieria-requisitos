@@ -32,6 +32,17 @@ RAIZ = Path(__file__).resolve().parents[3]
 MAIN = RAIZ / "main"
 WORKTREES = RAIZ / "worktrees"
 ESTADOS_EJECUTABLES = {"en_obra", "en_revision"}
+
+# R2 (034): `en_validacion` es ejecutable SOLO para el revisor. Una unidad que espera el OK
+# del usuario y a la que el cierre le reclama un recibo de revisión no tenía forma de
+# producirlo: la puerta pedía una evidencia que solo se generaba en un estado anterior al
+# que la unidad ya tiene. Ocho unidades de este workspace quedaron así. Para el constructor
+# sigue cerrado: lo entregado no se sigue construyendo por la puerta de atrás.
+ESTADOS_REVISABLES = ESTADOS_EJECUTABLES | {"en_validacion"}
+
+# Toda puerta escribe su vía de salida (ADR-029), y esa vía tiene que ARRANCAR: es lo que
+# comprueba el test de R1 contra el argparse real de cada script.
+SALIDA = "SALIDA:"
 RE_NOMBRE = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*$")
 RE_SKILL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 
@@ -151,10 +162,24 @@ def ficha_unidad(nombre, rol=None):
                 raise ErrorEjecucion(str(exc)) from exc
             datos = frontmatter(ruta)
             estado = (datos.get("estado") or "").strip()
-            if estado not in ESTADOS_EJECUTABLES:
+            admitidos = ESTADOS_REVISABLES if rol == "revisor" else ESTADOS_EJECUTABLES
+            if estado not in admitidos:
                 raise ErrorEjecucion(
-                    f"la unidad {nombre} está en estado {estado or 'vacío'}; "
-                    "solo en_obra/en_revision se ejecutan"
+                    f"la unidad {nombre} está en estado {estado or 'vacío'} y el rol "
+                    f"{rol or 'constructor'} solo se lanza sobre "
+                    f"{'/'.join(sorted(admitidos))}. {SALIDA} "
+                    + (
+                        f"una unidad en {estado} ya está entregada: lo que cabe sobre ella "
+                        f"es REVISARLA, con `python3 docs/00-metodo/scripts/ejecucion.py "
+                        f"lanzar {nombre} --harness claude --rol revisor --prompt \"Revisa "
+                        f"el diff contra el contrato y firma hallazgos.md\"`. Si de verdad "
+                        f"hace falta volver a construir, el padre la devuelve a en_obra y lo "
+                        f"deja escrito en la ficha"
+                        if estado == "en_validacion" and rol != "revisor"
+                        else f"el padre pasa la ficha de {nombre} al estado que le toca "
+                             f"antes de lanzar nada: el estado lo escribe quien despacha, "
+                             f"no quien ejecuta"
+                    )
                 )
             carril = (datos.get("carril") or "normal").strip().lower()
             # Solo el CONSTRUCTOR queda vetado en directo/exprés (regla 1: en esos

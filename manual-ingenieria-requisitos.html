@@ -3036,7 +3036,6 @@ python3 visor/proyectos.py contexto --todos</code></pre>
           <table>
             <thead><tr><th>Marca</th><th>Significa</th><th>Quién lo hace cumplir</th></tr></thead>
             <tbody>
-              <tr><td><span class="chip c-fail">HARD-GATE</span></td><td>Puerta que no se negocia: sin ella no se pasa</td><td>Un script bloquea, o el runbook lo escribe y el linter lo detecta después</td></tr>
               <tr><td><span class="chip c-fail">FAIL</span></td><td>Salida <code>exit 1</code>: se arregla antes de seguir</td><td><code>lint_metodo.py</code> · <code>lint_deploy.py</code> · <code>unidad.py</code></td></tr>
               <tr><td><span class="chip c-warn">WARN</span></td><td>Se dice en cada arranque, no bloquea</td><td>Los mismos scripts</td></tr>
               <tr><td><span class="chip c-ok">OK</span></td><td>Comprobado con evidencia real</td><td>Output pegado, no afirmación</td></tr>
@@ -3643,10 +3642,10 @@ actualizado: YYYY-MM-DD
 
         <ol class="steps">
           <li><strong>Verificar con evidencia.</strong> El output real de los checks, pegado en <code>hallazgos.md</code> (o en la ficha, si es un bug).</li>
-          <li><strong>Revisor fresco.</strong> Sesión o subagente nuevo, solo lectura: cada criterio implementado, casos límite con test, nada fuera de los ficheros declarados, <strong>los tests no tocados después de crearse</strong> y <strong>ningún módulo duplicado</strong> de lo que ya existía. <span class="chip c-fail">HARD-GATE</span> el revisor no puede ser quien construyó.</li>
+          <li><strong>Revisor fresco.</strong> Sesión o subagente nuevo, solo lectura: cada criterio implementado, casos límite con test, nada fuera de los ficheros declarados, <strong>los tests no tocados después de crearse</strong> y <strong>ningún módulo duplicado</strong> de lo que ya existía. El revisor no puede ser quien construyó, y eso lo comprueba <code>unidad.py cerrar</code> contra el recibo de ejecución.</li>
           <li><strong>Fusionar</strong> por el camino A o el B.</li>
           <li><strong>Suite end-to-end completa sobre la rama principal</strong>, con los comandos del <code>AGENTS.md</code> del repo de código.</li>
-          <li><strong>Lanzar una instancia y que tú la pruebes</strong> con los ejemplos reales de tus criterios. <span class="chip c-fail">HARD-GATE</span> sin tu OK no hay cierre; «no es lo que pedí» no se discute: se abre una unidad tipo <code>bug</code>.</li>
+          <li><strong>Lanzar una instancia y que tú la pruebes</strong> con los ejemplos reales de tus criterios. Sin tu OK no hay cierre; «no es lo que pedí» no se discute: se abre una unidad tipo <code>bug</code>.</li>
           <li><strong>Los pasos mecánicos, con el script:</strong> <code>unidad.py cerrar NNN-slug --ok-usuario YYYY-MM-DD</code>.</li>
           <li><strong>Lo que no hace el script, porque es criterio:</strong> aplicar los deltas a <code>02-flujos/</code> y pasar el flujo a <code>entregada</code> · promover hallazgos a <code>conocimiento/</code>, <code>decisiones/</code> o al ROADMAP · actualizar <code>ESTADO.md</code> (e <code>INDICE.md</code> si es un bug).</li>
         </ol>
@@ -3896,7 +3895,7 @@ ninguna de las cuatro ──► CIERRE BLOQUEADO
  8  verificación de negocio: un flujo real de punta a punta con datos seguros
  9  verificación de vigilancia: monitor en verde + un error inocuo visible en el registro
 10  decidir: todo verde → que el usuario pruebe · cualquier rojo → ROLLBACK
-11  OK del usuario sobre la etapa real                ◄── HARD-GATE
+11  OK del usuario sobre la etapa real                ◄── sin esto no se cierra
 12  registrar: commit, etapa, fecha, persona, duración y resultado
       └─ en la ficha · en conocimiento/plano-deploy.md · en ESTADO.md</pre>
         </div>
@@ -4104,7 +4103,7 @@ Solo el método y las piezas que lo ejecutan.</pre>
               <tr><td class="mono">005</td><td>Contrato y plan en una única especificación</td><td>Un solo documento por unidad</td></tr>
               <tr><td class="mono">006</td><td>Un bug es una ficha viva</td><td><code>docs/bugs/NNN-slug.md</code> con todo su ciclo; <strong>no se archiva</strong></td></tr>
               <tr><td class="mono">007</td><td>Planos canónicos y límites del workspace</td><td>La copia de <code>02-flujos/planos/</code> es la fuente de verdad; los <code>.md</code> compilados no se editan a mano</td></tr>
-              <tr><td class="mono">008</td><td>Arranque documentado de roles operativos</td><td>Las dos entrevistas <span class="chip c-fail">HARD-GATE</span> de observabilidad y deploy</td></tr>
+              <tr><td class="mono">008</td><td>Arranque documentado de roles operativos</td><td>Las dos entrevistas obligadas de observabilidad y deploy</td></tr>
               <tr><td class="mono">009</td><td>Cierre scriptado, entorno comprobado, revisor con frontera</td><td><code>unidad.py cerrar</code> · <code>doctor.py</code> · la excepción nombrada de <code>main/</code> en el camino B</td></tr>
               <tr><td class="mono">010</td><td>El estado que faltaba y los guardianes que miraban de menos</td><td><code>en_validacion</code> · el parseo de listas multilínea · el gancho <code>worktree-listo</code></td></tr>
               <tr><td class="mono">011</td><td>La salida del trabajo se prueba y el despliegue deja de presuponer el stack</td><td><code>lint_deploy.py</code> agnóstico + las 5 casillas del plano</td></tr>
