@@ -28,7 +28,7 @@ repositorio de código, operación, API o explicación de un proceso.
    - Idioma y nivel del lector.
    - Documentos creados, actualizados y eliminados.
    - Deltas al mapa si se descubre una contradicción, que no se aplican sin el usuario.
-5. `<HARD-GATE>` **Aprobación del usuario** del alcance y del documento que se sustituirá.
+5. **Aprobación del usuario** del alcance y del documento que se sustituirá.
 6. **Despachar.**
    - Solo meta: `unidad.py despachar NNN-slug --documental`.
    - Código: `unidad.py despachar NNN-slug`; el subagente trabaja en su worktree.

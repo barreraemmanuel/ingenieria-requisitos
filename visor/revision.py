@@ -89,6 +89,46 @@ def huella_planos(mapa):
     return huella_bundle(bundle_planos(mapa))
 
 
+# Unidad 033 — R3. El visor deja rastro de sesión en `.runtime/visor-<puerto>.log` desde
+# que existe; nadie lo leía, así que el mapa de negocio se podía aprobar sin haberlo
+# enseñado (ocurrió dos veces en un día). Aprobar sin mirar es firmar a ciegas.
+COMANDO_VISOR = "python3 docs/00-metodo/requisitos/requisitos.py abrir"
+MENSAJE_SIN_VISOR = (
+    "no consta que el visor se haya abierto sobre estos planos DESPUÉS de su último "
+    "cambio: sin ese rastro, la aprobación firma algo que nadie ha visto. "
+    "SALIDA: ábrelo, míralo y aprueba después con `%s`" % COMANDO_VISOR
+)
+
+
+def rastro_visor(mapa):
+    """Momento del rastro de sesión del visor sobre el workspace de estos planos.
+
+    ``planos.json`` vive en ``<workspace>/docs/02-flujos/planos/``; el rastro, en
+    ``<workspace>/.runtime/``. Sin workspace reconocible no hay rastro que buscar.
+    """
+    mapa = Path(mapa).resolve()
+    if len(mapa.parents) < 4:
+        return None
+    runtime = mapa.parents[3] / ".runtime"
+    momentos = [
+        registro.stat().st_mtime
+        for registro in runtime.glob("visor-*.log")
+        if registro.is_file()
+    ]
+    return max(momentos) if momentos else None
+
+
+def momento_planos(mapa):
+    """Última escritura de cualquiera de los planos del bundle."""
+    return max(Path(ruta).stat().st_mtime for ruta in rutas_planos(mapa))
+
+
+def exigir_visor_visto(mapa):
+    visto = rastro_visor(mapa)
+    if visto is None or visto < momento_planos(mapa):
+        raise ValueError(MENSAJE_SIN_VISOR)
+
+
 def ruta_feedback(mapa):
     return Path(mapa).resolve().parent / "feedback.json"
 
@@ -229,6 +269,7 @@ def aprobar(mapa, por, confirmar_supuestos=False):
     propuestos = supuestos_propuestos(mapa)
     if propuestos and not confirmar_supuestos:
         raise ValueError("hay supuestos propuestos que deben confirmarse")
+    exigir_visor_visto(mapa)
 
     originales = {
         ruta: ruta.read_text(encoding="utf-8") for ruta in rutas_planos(mapa)

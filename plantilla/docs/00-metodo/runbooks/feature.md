@@ -38,7 +38,7 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
    ve al momento en pantalla. El flujo acordado queda ESCRITO en el mapa con estado
    `especificada` (vocabulario del aparato, `00-metodo/README.md`); el cierre lo pasará a
    `entregada`.
-   `<HARD-GATE>` **Solo en los casos (b) y (c) —los que mueven el mapa—: el flujo acordado queda
+   **Solo en los casos (b) y (c) —los que mueven el mapa—: el flujo acordado queda
    ESCRITO en el mapa y APROBADO por el usuario sobre la web ANTES de especificar nada.** Sin eso
    no se pasa al paso 2: no se abre unidad, no se asigna `NNN`, no se escribe spec. En el caso
    (a) esta puerta no existe: no hay nada que aprobar que no esté ya aprobado.
@@ -59,12 +59,12 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
    Las reglas de diseño (responsabilidad única, KISS, una funcionalidad en su módulo) están
    escritas UNA vez en `01-constitucion/bias.md` y valen siempre: no se re-argumentan en cada
    unidad, y esta spec no es el sitio para rediseñar la aplicación (ADR-015).
-   `<HARD-GATE>` **Si la feature no cabe en el módulo que le corresponde, PARA**: eso es un
+   **Si la feature no cabe en el módulo que le corresponde, PARA**: eso es un
    refactor con su propia unidad y su propia aprobación, no un rodeo dentro de esta feature.
    Se comparan 2-3 enfoques cuando haya una decisión material, se recomienda uno y se anotan
    la elección y las alternativas descartadas en `especificacion.md`: diseño, contrato y plan
    son **un único contrato canónico**, no tres documentos ni una spec paralela del harness.
-   `<HARD-GATE>` **El usuario aprueba la planificación.**
+   **El usuario aprueba la planificación.**
 4. **Spec file.** El padre crea la unidad **con el script, no a mano**:
    `python3 docs/00-metodo/scripts/unidad.py nueva feature <slug> --desde P-ID` (asigna el siguiente `NNN`
    desde main y copia `plantillas/especificacion.md` a `docs/05-trabajo/NNN-slug/`).
@@ -89,7 +89,7 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
    incluye el mínimo de autenticación y harness: se crea en greenfield o se adopta la existente
    en brownfield. No se despacha una primera unidad que el `--require-e2e` del cierre haría
    imposible fusionar.
-   `<HARD-GATE>` **El usuario anota el contrato** (lee, corrige, aprueba — su ritual de
+   **El usuario anota el contrato** (lee, corrige, aprueba — su ritual de
    mayor apalancamiento). Su OK lo escribe ÉL como `aprobado: YYYY-MM-DD` en el frontmatter
    (`00-metodo/README.md`): sin esa fecha no hay despacho, y el script lo bloquea.
 5. **Despacho y obra.** Solo después del Diseño conversado y de la aprobación del contrato, el
@@ -137,7 +137,7 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
      funcionalidad que ya existía en otro módulo de `main/`. Reporta solo huecos de
      corrección, no preferencias de estilo."*
    - **La validación del usuario es en modo novato**, probando los ejemplos reales de los
-     R\*. `<HARD-GATE>` Sin ese OK no hay cierre; "no es lo que pedí" → nueva unidad tipo
+     R\*. Sin ese OK no hay cierre; "no es lo que pedí" → nueva unidad tipo
      `bug`.
    - **Al consolidar:** aplicar los Deltas a `02-flujos/` y pasar el flujo del mapa a
      **`entregada`** · cosechar `hallazgos.md` (conocimiento/, ADRs, nuevas unidades al

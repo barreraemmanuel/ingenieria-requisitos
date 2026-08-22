@@ -122,6 +122,7 @@ DECISIONES = (
     "026-guiar-no-bloquear.md",
     "027-sin-tope-numerico-de-paralelismo.md",
     "028-ci-es-guia-no-gate.md",
+    "029-una-regla-tiene-ejecutor-o-se-retira.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
@@ -454,7 +455,7 @@ actualizado: PENDIENTE
 
 > **Este fichero está vacío a propósito y no se rellena de memoria ni "a ojo".** Es la salida
 > escrita de la entrevista de arranque del rol (ADR-008), y mientras siga así:
-> `<HARD-GATE>` **{ficha['gate']}**.
+> **{ficha['gate']}**.
 
 ## Cómo se llena (una vez, y ya)
 

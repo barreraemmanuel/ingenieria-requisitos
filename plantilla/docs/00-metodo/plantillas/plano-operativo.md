@@ -10,7 +10,7 @@ actualizado: YYYY-MM-DD
 > Un rol = una sesión: sin este fichero, cada sesión nueva volvería a interrogar al usuario.
 > Se entrevista UNA vez; las sesiones siguientes ARRANCAN leyendo este plano y solo
 > re-preguntan si detectan drift (ver la última sección).
-> `<HARD-GATE>` **Ningún rol operativo actúa sin su plano escrito.**
+> **Ningún rol operativo actúa sin su plano escrito.**
 > Lo escribe el padre en el rol correspondiente. Credenciales: JAMÁS aquí.
 
 ## 1 · Qué se me preguntó y qué respondió el usuario
@@ -68,7 +68,7 @@ actualizado: YYYY-MM-DD
 
 > Copiables y verificados: el que los escribe los ha ejecutado. Si un comando no se ha
 > probado, se marca `[SIN VERIFICAR]`.
-> `<HARD-GATE>` **Credenciales, tokens, IPs privadas y datos personales JAMÁS aquí.**
+> **Credenciales, tokens, IPs privadas y datos personales JAMÁS aquí.**
 > Viven en `.private/` y se referencian POR RUTA (`.private/<fichero>`), nunca por copia.
 
 | para qué | comando / acceso | dónde se ejecuta | secreto que necesita |

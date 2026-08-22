@@ -13,7 +13,7 @@ auto-sello se rellenó de memoria.
    decía "lo escribe el padre en el cierre" y `runbooks/cierre.md` decía que lo escribe el
    revisor—, y con dos instrucciones opuestas no lo escribía nadie.
 
-2. **Una firma que falta no se rellena después: se vuelve a revisar.** `<HARD-GATE>` Si al
+2. **Una firma que falta no se rellena después: se vuelve a revisar.** Si al
    cerrar `revisor:` sigue vacío, ya nadie puede saber quién revisó. Escribir ahí un nombre
    plausible es exactamente el auto-sello que el campo impide. Lo dicen la plantilla, el
    runbook y el mensaje de error de `unidad.py cerrar`.

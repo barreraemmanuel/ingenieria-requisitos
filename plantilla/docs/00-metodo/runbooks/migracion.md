@@ -25,7 +25,7 @@ probada y destino verificado.
    - Backup y restauración de prueba.
    - Plan de vuelta atrás con comandos y tiempo máximo.
    - Pasos manuales, variables, orden y dueño.
-6. `<HARD-GATE>` **El usuario aprueba** riesgo, ventana, pérdida máxima aceptable y vuelta
+6. **El usuario aprueba** riesgo, ventana, pérdida máxima aceptable y vuelta
    atrás.
 7. **Despachar** con `unidad.py despachar NNN-slug`; rama desde la `main` más reciente y
    worktree aislado.

@@ -18,7 +18,7 @@ Cabe en una frase (si necesitas dos, no es exprés) **y** nadie que use la app n
 | añadir un fichero al `.gitignore` | añadir/borrar ficheros que la app carga |
 | — | **un bug: NUNCA, ni el más pequeño** (runbook `bug.md`) |
 
-`<HARD-GATE>` **Un bug JAMÁS es exprés, sin excepciones.** Un bug restaura comportamiento
+**Un bug JAMÁS es exprés, sin excepciones.** Un bug restaura comportamiento
 prometido, luego cambia comportamiento, y lo que cambia comportamiento nunca es exprés
 (`00-metodo/README.md`, §Los 4 carriles). No importa que el diff quepa en una frase ni que sea
 "solo texto": una errata que ve el usuario es comportamiento observable. Este carril **no
@@ -26,7 +26,7 @@ tiene ficha, ni `NNN`, ni test rojo, ni OK del usuario** — es decir, no tiene 
 tres cosas que hacen verificable el arreglo de un bug. Si lo que llega es "esto está mal" →
 `bug.md`, con su ficha en `docs/bugs/`.
 
-`<HARD-GATE>` **Ante la duda, NO es exprés.** La duda ya es la prueba de que algo cambia. Un
+**Ante la duda, NO es exprés.** La duda ya es la prueba de que algo cambia. Un
 exprés mal clasificado es código sin contrato entrando en main. El escalón de al lado no es el
 ritual completo: es el **carril directo** (`runbooks/directo.md`), ficha de una pantalla y dos
 puertas, que es donde cae casi todo lo que se cuela mal por aquí.
@@ -64,7 +64,7 @@ puertas, que es donde cae casi todo lo que se cuela mal por aquí.
 
 ## Escalada
 
-`<HARD-GATE>` Si el constructor descubre a mitad que **sí cambia comportamiento**, que **el
+Si el constructor descubre a mitad que **sí cambia comportamiento**, que **el
 diff crece** más allá de la frase, o que **detrás había un defecto** (lo que parecía cosmético
 tapaba un bug): PARA, no commitea, devuelve la tarea (regla 8). El trabajo se re-abre por
 carril normal con su `NNN`, su contrato y su aprobación —y si era un defecto, por `bug.md`, con

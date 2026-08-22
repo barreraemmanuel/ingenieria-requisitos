@@ -215,6 +215,22 @@ class PeticionUnidadTest(unittest.TestCase):
         self.aprobar_para_despacho(nombre)
         return nombre
 
+    def recibos_de_revision(self, nombre):
+        """Recibos del control plane como los que deja `ejecucion.py` al delegar.
+
+        Desde la unidad 033 el cierre los LEE: la firma del revisor sin recibo propio no
+        acredita nada. Un cierre en verde necesita, por tanto, haber pasado por aquí.
+        """
+        carpeta = self.ws / ".runtime/ejecuciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for rol, sesion in (("constructor", "sesion-constructor"), ("revisor", "sesion-revisor")):
+            (carpeta / f"{nombre}-{rol}.json").write_text(json.dumps({
+                "schema": "ejecucion/v1", "id": rol, "unidad": nombre,
+                "harness": "claude", "rol": rol, "modelo": f"modelo-{rol}",
+                "lease": {"session_id": sesion, "fencing": {}},
+                "checkpoints": [], "exit_code": 0, "resultado": "ok",
+            }), encoding="utf-8")
+
     def recibo_preparacion(self, nombre):
         ruta = self.ws / ".runtime/worktree-readiness" / f"{nombre}.json"
         self.assertTrue(ruta.is_file(), f"falta recibo de preparación: {ruta}")
@@ -995,6 +1011,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        self.recibos_de_revision("001-cierre-ordenado")
         linter = self.ws / "docs/00-metodo/scripts/lint_metodo.py"
         linter.write_text(
             "from pathlib import Path\n"
@@ -1090,6 +1107,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        self.recibos_de_revision(carpeta.name)
         return carpeta.name
 
     def escribir_legacy(self, unidades=(), bugs=(), modo="estricto"):
@@ -1223,6 +1241,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        self.recibos_de_revision("001-cierre-con-lease")
         (self.ws / "docs/00-metodo/scripts/lint_metodo.py").write_text(
             "raise SystemExit(0)\n", encoding="utf-8"
         )

@@ -879,7 +879,7 @@ else:
             "---\nproceso: deploy\nestado: desplegado\n"
             f"peticiones: [{pid}@1]\netapa: 1-lan\ncommit: {self.sha}\n"
             "fecha: 2026-08-04\n---\n\n"
-            "# Despliegue verificado\n\n> `<HARD-GATE>` sin secretos.\n\n"
+            "# Despliegue verificado\n\n> Sin secretos.\n\n"
             "- **Commit/tag:** " + self.sha + " · ya en main\n"
             "- **Etapa destino y máquina exacta:** 1 LAN — servidor de pruebas\n"
             "- **Qué cambia para el usuario, en una frase:** terminal corregida\n"
@@ -1393,7 +1393,10 @@ else:
         evaluada = self.evaluar_con(pid, "directo", tipo="bug")
 
         self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
-        self.assertEqual(evaluada.stderr, "")
+        # Sin baile evaluar↔nueva: ningún aviso de la forma antigua de --ruta. (El aviso de
+        # "workspace sin planos" de la unidad 033 sí puede salir: no es el baile, es la
+        # huella de flujo diciendo que aquí todavía no hay mapa contra el que contrastar.)
+        self.assertNotIn("forma antigua", evaluada.stderr)
         datos = self.datos(pid)
         self.assertEqual(datos["evaluaciones"][-1]["carril_provisional"], "directo")
         self.assertEqual(datos["evaluaciones"][-1]["tipo_provisional"], "bug")
@@ -1516,7 +1519,7 @@ else:
         ficha = self.ws / "docs/05-trabajo/despliegues/release-42.md"
         ficha.parent.mkdir(parents=True)
         cuerpo_evidencia = (
-            "\n\n# Despliegue verificado\n\n> `<HARD-GATE>` sin secretos.\n\n"
+            "\n\n# Despliegue verificado\n\n> Sin secretos.\n\n"
             "- **Commit/tag:** " + self.sha + " · ya en main\n"
             "- **Etapa destino y máquina exacta:** 2 VPS — producción\n"
             "- **Qué cambia para el usuario, en una frase:** lote de 3 unidades\n"
