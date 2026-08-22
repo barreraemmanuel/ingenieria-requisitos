@@ -6,7 +6,7 @@ ni una sola vez. El máximo alcanzado fue 767k y el umbral está en el 80 % de 1
 turno: uno en el 900 cuesta 8,7× lo que el mismo en el 50.
 
   R1  más de 250 turnos → avisa por posición, con la cuenta y el comando de retomada
-  R2  por debajo de los dos umbrales → silencio (la conducta por defecto no cambia)
+  R2  por debajo de los dos umbrales → sin aviso (la línea de estado «sano» sigue igual)
   R3  turnos + conducta a la vez → manda la conducta, y sale UN solo aviso
   R4  el umbral de turnos se declara en la config del workspace; por defecto 250
   R5  transcripción ilegible o harness desconocido → silencio y salida limpia
@@ -94,8 +94,11 @@ class TurnosTest(BaseCanario):
                                        claude_projects=self.claude,
                                        codex_sessions=self.codex)
         self.assertEqual(informe["veredicto"], "sano")
-        self.assertEqual(canario.texto_veredicto(informe), "",
-                         "por debajo de los dos umbrales el canario calla")
+        texto = canario.texto_veredicto(informe)
+        self.assertNotIn("⚠️", texto,
+                         "por debajo de los dos umbrales no hay AVISO (la línea informativa "
+                         "de estado sí sigue saliendo: es conducta previa y no se toca)")
+        self.assertIn("sano", texto)
 
     def test_r2_el_informe_trae_los_turnos_aunque_calle(self):
         """El dato se publica siempre; lo que cambia es si se dice algo o no."""
@@ -168,7 +171,14 @@ class TurnosTest(BaseCanario):
     # --- la razón de ser de la unidad ---------------------------------------
 
     def test_la_sesion_que_hoy_nunca_dispara_ahora_si(self):
-        """767k tokens en ventana de 1M: el caso real medido. Antes: silencio."""
+        """767k tokens en ventana de 1M: el caso real medido. Antes: silencio.
+
+        La ventana de 1M se declara en la config, que es como el método la conoce hoy
+        para los modelos de ventana grande.
+        """
+        (self.cwd / ".claude").mkdir(parents=True, exist_ok=True)
+        (self.cwd / ".claude/canario.json").write_text(
+            json.dumps({"ventanas": {"claude-opus-5": 1_000_000}}), encoding="utf-8")
         self.sesion_de_turnos(turnos=900, tokens=767_000)
         informe = canario.diagnosticar(raiz=self.cwd, cwd=self.cwd,
                                        claude_projects=self.claude,
