@@ -643,22 +643,41 @@ def enlazar_procesos(referencias, tipo, ref, relacion="satisface",
     return resultados
 
 
-def registrar_base_despacho(referencias, tipo, ref, base_sha, principal):
-    """Fija de qué principal nació una rama normal antes de que pueda recibir trabajo.
+def registrar_despacho(referencias, tipo, ref, *, carril, ejecucion, ficheros,
+                      base_sha=None, principal=None):
+    """Escribe en la petición TODO lo que el despacho decidió sobre este proceso.
 
-    El pre-push usa este recibo para distinguir una rama creada antes del cambio de otra
-    creada después, apuntando a un commit que se hizo directamente en la principal.
+    Fija de qué principal nació la rama —el pre-push lo usa para distinguir una rama creada
+    antes del cambio de otra creada después, apuntando a un commit hecho directamente en la
+    principal— y, desde el bug 034 (R5), también el carril, el modo de ejecución y los
+    ficheros declarados.
+
+    El motivo es de fondo: `carril` y `ejecucion` vivían solo en el frontmatter, y el
+    frontmatter lo escribe el mismo agente al que las puertas del cierre vigilan. Teclear
+    `ejecucion: expres` apagaba la puerta del revisor entera. Aquí el dato queda del lado de
+    quien despacha, que es quien tiene autoridad para decidirlo, y el constructor no lo
+    alcanza. Sin `base_sha` (despacho documental) no se toca el repo de código: esa variante
+    no crea rama por diseño.
     """
     parsed = parsear_referencias(referencias)
     if tipo not in {"unidad", "bug"}:
         raise ErrorPeticion(f"{tipo} no admite recibo de despacho con rama")
-    repo, principal_configurada = repo_codigo()
-    if principal != principal_configurada:
-        raise ErrorPeticion(
-            f"la rama principal del despacho debe ser {principal_configurada}, no {principal}"
-        )
-    if git(repo, "rev-parse", "--verify", "--quiet", f"{base_sha}^{{commit}}")[0] != 0:
-        raise ErrorPeticion(f"SHA base de despacho inexistente: {base_sha}")
+    registro = {
+        "carril": (carril or "normal").strip().lower(),
+        "ejecucion": (ejecucion or "").strip().lower(),
+        "ficheros": [str(ruta).strip() for ruta in (ficheros or []) if str(ruta).strip()],
+    }
+    if base_sha is not None:
+        repo, principal_configurada = repo_codigo()
+        if principal != principal_configurada:
+            raise ErrorPeticion(
+                f"la rama principal del despacho debe ser {principal_configurada}, "
+                f"no {principal}"
+            )
+        if git(repo, "rev-parse", "--verify", "--quiet", f"{base_sha}^{{commit}}")[0] != 0:
+            raise ErrorPeticion(f"SHA base de despacho inexistente: {base_sha}")
+        registro["base_sha"] = base_sha
+        registro["principal"] = principal
     with contextlib.ExitStack() as locks:
         for pid, _ in sorted(parsed):
             locks.enter_context(lock(pid))
@@ -676,7 +695,8 @@ def registrar_base_despacho(referencias, tipo, ref, base_sha, principal):
             if proceso is None:
                 raise ErrorPeticion(f"{pid}@{revision} no enlaza {tipo} {ref}")
             metadata = proceso.get("metadata") or {}
-            if metadata.get("base_sha") and metadata.get("base_sha") != base_sha:
+            if (base_sha is not None and metadata.get("base_sha")
+                    and metadata.get("base_sha") != base_sha):
                 raise ErrorPeticion(f"{pid}@{revision} ya conserva otra base de despacho")
             lote.append((datos, proceso))
         originales = {
@@ -684,16 +704,35 @@ def registrar_base_despacho(referencias, tipo, ref, base_sha, principal):
         }
         try:
             for datos, proceso in lote:
-                proceso["metadata"] = {
-                    **(proceso.get("metadata") or {}),
-                    "base_sha": base_sha,
-                    "principal": principal,
-                }
+                proceso["metadata"] = {**(proceso.get("metadata") or {}), **registro}
                 guardar(datos)
         except Exception:
             for pid, contenido in originales.items():
                 escribir_bytes_atomico(ruta_peticion(pid), contenido)
             raise
+
+
+def despacho_registrado(referencias, tipo, ref):
+    """Lo que el DESPACHO anotó sobre este proceso, o None si no lo anotó nadie.
+
+    Es la fuente que el cierre consulta para saber por qué carril y en qué modo salió el
+    trabajo (bug 034, R5). Devuelve None —y no un diccionario vacío ni un valor por defecto—
+    cuando el registro no existe: las unidades legadas se despacharon antes de que esto se
+    escribiera, y una puerta que se inventa el dato que decide si aplica es peor que no
+    tenerla. Quien llama avisa y sigue.
+    """
+    for pid, revision in parsear_referencias(referencias):
+        try:
+            datos = cargar(pid)
+        except ErrorPeticion:
+            continue
+        for proceso in datos.get("procesos", []):
+            if (proceso.get("tipo") == tipo and proceso.get("ref") == ref
+                    and proceso.get("revision") == revision):
+                metadata = proceso.get("metadata") or {}
+                if metadata.get("carril"):
+                    return dict(metadata)
+    return None
 
 
 def base_despacho(referencias, tipo, ref):

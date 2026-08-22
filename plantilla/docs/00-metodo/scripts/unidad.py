@@ -1195,7 +1195,7 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         ok("no hay ninguna otra unidad en vuelo")
 
     # --- Guía (ADR-026): en un brownfield, la ADOPCIÓN va primero ---------------------------
-    # El HARD-GATE de adopcion.md era prosa que nadie ejecutaba: los despachos de código
+    # La puerta de adopcion.md era prosa que nadie ejecutaba: los despachos de código
     # salían sin gap-map y la fase 3 se comía el repo entero (caso de campo 08-08). Avisa,
     # no encierra: el despacho sigue, con la deuda nombrada.
     if not args.documental:
@@ -1213,6 +1213,22 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         autoridad.assert_owner()
         if not ficha_conserva_huella(ruta, huella_esperada):
             fail(f"{nombre}: la ficha cambió antes de marcarla en obra; no toco nada")
+            return 1
+        tipo_proceso = "bug" if unidad["clase"] == "bug" else "unidad"
+        try:
+            # Una documental no crea rama, pero SÍ deja registro de despacho: es lo que
+            # permite al cierre saber que su modo es documental sin creerse el frontmatter
+            # (R3 y R5 del bug 034).
+            gestion_peticiones.registrar_despacho(
+                revalidar_origenes(fm, proceso=(tipo_proceso, nombre)),
+                tipo_proceso,
+                nombre,
+                carril=(fm.get("carril") or "normal").strip(),
+                ejecucion="documental",
+                ficheros=sorted(ficheros_de(fm)),
+            )
+        except gestion_peticiones.ErrorPeticion as exc:
+            fail(f"no pude registrar el despacho documental; no toco la ficha: {exc}")
             return 1
         marcar_en_obra(ruta, documental=True)
         ok(f"{rel(ruta)}: estado → en_obra · ejecución documental (sin rama ni worktree)")
@@ -1302,12 +1318,17 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         return 1
     tipo_proceso = "bug" if unidad["clase"] == "bug" else "unidad"
     try:
-        gestion_peticiones.registrar_base_despacho(
+        # R5 (034): el despacho registra también CARRIL, MODO y FICHEROS. El cierre los lee
+        # de aquí y no del frontmatter, que lo escribe el agente al que vigila.
+        gestion_peticiones.registrar_despacho(
             revalidar_origenes(fm, proceso=(tipo_proceso, nombre)),
             tipo_proceso,
             nombre,
-            base_sha,
-            rama_principal,
+            carril=(fm.get("carril") or "normal").strip(),
+            ejecucion=(fm.get("ejecucion") or "").strip(),
+            ficheros=sorted(ficheros_de(fm)),
+            base_sha=base_sha,
+            principal=rama_principal,
         )
     except gestion_peticiones.ErrorPeticion as exc:
         git(repo, "worktree", "remove", "--force", str(destino), silencioso=True)
@@ -1430,9 +1451,25 @@ def modelo_de(recibo):
     return str(recibo.get("modelo") or "").strip()
 
 
+# El prompt del revisor no es decorativo: `lanzar` lo exige y es lo que el agente fresco
+# lee como encargo. Se ofrece ya redactado para que la salida se pueda pegar tal cual.
+PROMPT_REVISION = "Revisa el diff contra el contrato y firma hallazgos.md"
+
+# Regla 10: el revisor usa un modelo DISTINTO del que construyó. El valor no se puede
+# adivinar desde aquí (depende de quién construyó), así que queda como hueco declarado.
+HUECO_MODELO = "<modelo-distinto-del-constructor>"
+
+
 def comando_revision(nombre):
-    return (f"python3 docs/00-metodo/scripts/ejecucion.py --unidad {nombre} "
-            f"--rol revisor --harness claude --modelo <modelo distinto del constructor>")
+    """La salida de las tres variantes del bloqueo del revisor, tal como se teclea.
+
+    Se compone contra el `argparse` real de `ejecucion.py`: subcomando `lanzar`, la unidad
+    como POSICIONAL (no existe ningún `--unidad`) y `--prompt`, que es obligatorio. La 033
+    publicó aquí un comando que respondía `invalid choice` (bug 034, hallazgo A).
+    """
+    return (f"python3 docs/00-metodo/scripts/ejecucion.py lanzar {nombre} "
+            f"--harness claude --rol revisor --prompt \"{PROMPT_REVISION}\" "
+            f"--modelo {HUECO_MODELO}")
 
 
 def mensaje_sin_recibo_revisor(nombre):
@@ -1522,6 +1559,56 @@ def puerta_recibo_revisor(nombre):
     return [], avisos
 
 
+def despacho_de(referencias, tipo_proceso, nombre):
+    """(registro de despacho, aviso) — lo que el despacho dejó escrito sobre esta entrega."""
+    try:
+        registro = gestion_peticiones.despacho_registrado(referencias, tipo_proceso, nombre)
+    except gestion_peticiones.ErrorPeticion:
+        registro = None
+    if registro is None:
+        return None, (
+            f"{nombre}: sin registro de despacho en sus peticiones, así que el carril y el "
+            f"modo se leen del frontmatter, que lo escribe el mismo agente al que las puertas "
+            f"vigilan. Se cierra con esa reserva escrita: inventarse el dato que decide si una "
+            f"puerta aplica sería peor que no tenerla (unidad despachada antes de que el "
+            f"registro existiera)"
+        )
+    return registro, None
+
+
+def cotejar_con_el_despacho(nombre, fm, registro):
+    """(carril, modo, ficheros efectivos, notas) — manda el registro, no el frontmatter (R5).
+
+    El interruptor no puede estar junto a la cerradura: `carril: normal` sobre un trabajo
+    despachado como directo apagaba la medida del carril, y `ejecucion: expres` apagaba la
+    puerta del revisor entera. Los dos campos los teclea el constructor. El despacho, no.
+    """
+    carril_ficha = (fm.get("carril") or "normal").strip().lower()
+    modo_ficha = (fm.get("ejecucion") or "").strip().lower()
+    if registro is None:
+        return carril_ficha, modo_ficha, ficheros_de(fm), []
+    carril = (registro.get("carril") or "normal").strip().lower()
+    modo = (registro.get("ejecucion") or "").strip().lower()
+    ficheros = {
+        posixpath.normpath(str(ruta).replace("\\", "/")).casefold()
+        for ruta in registro.get("ficheros") or []
+        if str(ruta).strip()
+    } or ficheros_de(fm)
+    notas = []
+    if carril != carril_ficha:
+        notas.append(
+            f"la ficha declara `carril: {carril_ficha or 'vacío'}` y el registro de despacho "
+            f"dice {carril}: manda el despacho, que es quien lo decidió, y las puertas se "
+            f"aplican con ese carril"
+        )
+    if modo != modo_ficha:
+        notas.append(
+            f"la ficha declara `ejecucion: {modo_ficha or 'vacío'}` y el registro de despacho "
+            f"dice {modo or 'sin modo especial'}: manda el despacho"
+        )
+    return carril, modo, ficheros, notas
+
+
 # Los tres límites que definen el carril directo en `runbooks/directo.md`. Estaban escritos
 # como norma y nadie los medía: se declaraban al despachar y jamás se comprobaban.
 LIMITE_DIRECTO_FICHEROS = 3
@@ -1541,9 +1628,14 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera, contra=""):
         + "; ".join(razones)
         + (f" (medido desde su base de despacho hasta {contra})" if contra else "")
         + ". Eso no era un trabajo directo: un directo es un contrato de una pantalla que se "
-        f"deshace revirtiendo. {SALIDA} reencuadra la petición al carril que le corresponde "
-        f"con `python3 docs/00-metodo/scripts/peticion.py reencuadrar-orden {nombre} "
-        f"--ruta normal` y cierra por el ritual de `runbooks/feature.md`"
+        f"deshace revirtiendo. {SALIDA} el reencuadre de carril NO tiene comando: "
+        f"`peticion.py reencuadrar-orden` hace otra cosa (que una orden adopte una revisión "
+        f"material ya reevaluada) y `reabrir` solo toca peticiones ya cerradas. Es un paso "
+        f"de mano, en tres tiempos: (1) no cierres {nombre} y pasa al padre esta misma "
+        f"medida; (2) el padre reevalúa la petición y la vuelve a despachar por el carril "
+        f"que le corresponde, que es quien escribe el registro de despacho; (3) se cierra "
+        f"por el ritual de `runbooks/feature.md`. Si el cambio sí cabía en directo, la otra "
+        f"salida es dejarlo dentro de los topes y volver a cerrar"
     )
 
 
@@ -1591,12 +1683,19 @@ def medida_del_cambio(repo, base_sha, punta):
     return tocados, lineas
 
 
-def puerta_carril_directo(repo, nombre, fm, referencias, principal, sha_fusion=""):
-    """R5 — un directo que se pasó de tamaño se canta solo al cerrar."""
-    if (fm.get("carril") or "").strip().lower() != "directo":
-        return None, f"carril {(fm.get('carril') or 'normal').strip()}: sin límites de directo"
+def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_proceso,
+                         principal, sha_fusion=""):
+    """R5 — un directo que se pasó de tamaño se canta solo al cerrar.
+
+    El carril y los ficheros llegan ya cotejados con el registro de despacho: esta puerta no
+    vuelve a mirar el frontmatter, porque es justo el dato que el vigilado escribe. Y el tipo
+    de proceso viene por argumento porque un BUG entrega código igual que una unidad: la 033
+    lo pedía siempre como "unidad" y por eso los bugs nunca medían nada (bug 034, R4).
+    """
+    if carril != "directo":
+        return None, f"carril {carril or 'normal'}: sin límites de directo"
     try:
-        base_sha = gestion_peticiones.base_despacho(referencias, "unidad", nombre)
+        base_sha = gestion_peticiones.base_despacho(referencias, tipo_proceso, nombre)
     except gestion_peticiones.ErrorPeticion:
         base_sha = None
     punta = punta_a_medir(repo, nombre, principal, sha_fusion)
@@ -1606,7 +1705,6 @@ def puerta_carril_directo(repo, nombre, fm, referencias, principal, sha_fusion="
                       f"directo no se puede medir contra nada; se cierra sin esa "
                       f"comprobación (unidad anterior a que el despacho anotara su origen)")
     tocados, lineas = medida
-    declarados = ficheros_de(fm)
     fuera = sorted(
         ruta for ruta in tocados
         if posixpath.normpath(ruta).casefold() not in declarados
@@ -2019,7 +2117,18 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
     print(f"== Cerrando {nombre} ({fm.get('tipo')}) ==\n")
     print("Puertas (lo que NO se puede saltar):")
     problemas = []
-    ruta_cierre = fm.get("ejecucion") or fm.get("carril") or "normal"
+    # R5 (034): carril, modo y ficheros se leen del registro de despacho. El frontmatter lo
+    # escribe el constructor, que es a quien las puertas vigilan: mientras el dato que decide
+    # SI la puerta aplica lo escriba el vigilado, endurecer la comprobación no cambia nada.
+    registro_despacho, aviso_despacho = despacho_de(referencias_peticion, tipo_proceso, nombre)
+    if aviso_despacho:
+        warn(aviso_despacho)
+    carril_real, modo_real, ficheros_reales, notas_despacho = cotejar_con_el_despacho(
+        nombre, fm, registro_despacho
+    )
+    for nota in notas_despacho:
+        warn(nota)
+    ruta_cierre = modo_real or carril_real or "normal"
     if ruta_cierre == "completo":
         ruta_cierre = "normal"
     try:
@@ -2101,21 +2210,46 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
                 f"contra el contrato; sin eso no hay nada que cerrar")
         else:
             ok(f"revisión con veredicto: {veredicto[:60]}")
+        # Un bug no tiene `hallazgos.md` aparte: su ficha es contrato y bitácora a la vez
+        # (ADR-006), y su veredicto vive en la sección 6. La FIRMA de cabecera solo se le
+        # pide a las unidades; el RECIBO, en cambio, se le pide igual (R4).
+        firma_en_pie = True
         if clase == "unidad":
             revisor = (fm_hallazgos.get("revisor") or "").strip()
             revisado = fecha_ok(fm_hallazgos.get("revisado"))
             if revisor.lower() in {"", "no"} or not revisado:
+                firma_en_pie = False
                 problemas.append(
                     f"{rel(hallazgos)}: falta 'revisor:' y/o 'revisado: YYYY-MM-DD' en su "
                     f"cabecera — es lo que distingue una revisión de verdad de un constructor "
                     f"que se puso un sello a sí mismo. Si la revisión ocurrió pero nadie firmó, "
-                    f"NO rellenes la cabecera de memoria: eso es inventarse la firma. Se vuelve "
-                    f"a revisar con un agente fresco")
+                    f"NO rellenes la cabecera de memoria: eso es inventarse la firma. "
+                    f"{SALIDA} " + (
+                        "esta unidad no tiene worktree (ejecución documental), así que su "
+                        "revisión no se lanza por el control plane: la revisa un agente "
+                        "FRESCO sobre la carpeta de la unidad y firma él mismo la cabecera "
+                        "de hallazgos.md, con su nombre y la fecha del día"
+                        if modo_real == "documental"
+                        else f"vuelve a revisar con un agente fresco: "
+                             f"`{comando_revision(nombre)}`"
+                    ))
             else:
                 ok(f"revisado por {revisor} el {revisado}")
-                # R1/R2 (033): la firma dice quién revisó; el recibo del control plane dice
-                # si esa revisión ocurrió de verdad y si fue OTRO agente. Sin esto, la puerta
-                # más citada del método se salta tecleando un nombre.
+        if firma_en_pie:
+            # R1/R2 (033): la firma dice quién revisó; el recibo del control plane dice si esa
+            # revisión ocurrió de verdad y si fue OTRO agente. Sin esto, la puerta más citada
+            # del método se salta tecleando un nombre.
+            #
+            # R3 (034): salvo cuando la unidad no puede producir ese recibo. Una ejecución
+            # documental no crea rama ni worktree por diseño (regla 2) y `ejecucion.py` exige
+            # worktree para lanzar nada: pedirle el recibo era pedirle una evidencia que su
+            # propio carril le prohíbe generar, y dejaba encerradas dos unidades reales. La
+            # excepción no se calla: se dice aquí, con su motivo.
+            if modo_real == "documental":
+                ok("ejecución documental: sin rama ni worktree por diseño (regla 2), así que "
+                   "no hay recibo de control plane que exigir — la revisión la acredita la "
+                   "firma de hallazgos.md, que es toda la evidencia que este carril puede dar")
+            else:
                 fallos_recibo, avisos_recibo = puerta_recibo_revisor(nombre)
                 problemas.extend(fallos_recibo)
                 for aviso in avisos_recibo:
@@ -2174,14 +2308,17 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             (ok if fuerte else warn)(motivo)
 
     # --- Puerta 6 (033/R5): un directo que se pasó de tamaño no era un directo -------------
-    if clase == "unidad":
-        problema_directo, nota_directo = puerta_carril_directo(
-            repo, nombre, fm, referencias_peticion, principal, sha_fusion
-        )
-        if problema_directo:
-            problemas.append(problema_directo)
-        elif nota_directo:
-            ok(nota_directo)
+    # R4 (034): la puerta ya no vive dentro de `if clase == "unidad"`. Un bug entrega código
+    # por una rama exactamente igual que una unidad, y era la vía por la que cerraba sin
+    # recibo y sin medida — la más usada del método.
+    problema_directo, nota_directo = puerta_carril_directo(
+        repo, nombre, carril_real, ficheros_reales, referencias_peticion, tipo_proceso,
+        principal, sha_fusion
+    )
+    if problema_directo:
+        problemas.append(problema_directo)
+    elif nota_directo:
+        ok(nota_directo)
 
     if problemas:
         err(f"\n  CIERRE BLOQUEADO ({len(problemas)}):")

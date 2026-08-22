@@ -158,7 +158,12 @@ class WorkspaceBase(unittest.TestCase):
 
     # -------------------------------------------------- unidad documental cerrable
     def unidad_documental(self, slug, revisor="agente-fresco"):
-        """Unidad real, en_revision, con revisión firmada. Lista para `cerrar`."""
+        """Unidad documental REAL: despachada con `--documental`, firmada y en_revision.
+
+        Se despacha de verdad, y no se simula editando el frontmatter, porque el cierre ya
+        no se cree lo que la ficha dice de sí misma: el modo documental lo acredita el
+        registro de despacho (bug 034, R5), que solo existe si alguien despachó.
+        """
         pid = self.capturar(f"Documentar {slug}")
         evaluada = self.evaluar(pid, ruta="documentacion")
         self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
@@ -169,10 +174,23 @@ class WorkspaceBase(unittest.TestCase):
         carpeta = next((self.ws / "docs/05-trabajo").glob(f"[0-9][0-9][0-9]-{slug}"))
         spec = carpeta / "especificacion.md"
         texto = spec.read_text(encoding="utf-8")
-        texto = texto.replace("estado: planificada", "estado: en_revision")
-        texto = texto.replace("aprobado: no", f"aprobado: {HOY}")
-        texto = texto.replace("\n---\n", "\nejecucion: documental\n---\n", 1)
-        spec.write_text(texto, encoding="utf-8")
+        cabecera = texto[: texto.find("---", 4) + 3].replace(
+            "aprobado: no", f"aprobado: {HOY}"
+        )
+        spec.write_text(
+            cabecera + self.CUERPO.format(nnn=carpeta.name), encoding="utf-8"
+        )
+        despachada = self.ejecutar(
+            self.unidad, "despachar", carpeta.name, "--documental"
+        )
+        self.assertEqual(
+            despachada.returncode, 0, despachada.stdout + despachada.stderr
+        )
+        spec.write_text(
+            re.sub(r"^estado:\s*\S+", "estado: en_revision",
+                   spec.read_text(encoding="utf-8"), count=1, flags=re.M),
+            encoding="utf-8",
+        )
         self.firmar_revision(carpeta / "hallazgos.md", revisor)
         return carpeta.name
 
