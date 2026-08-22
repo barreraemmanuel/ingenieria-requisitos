@@ -4,10 +4,15 @@ Seis puertas que hoy se saltan tecleando un dato. La evidencia que necesitan YA 
 escribe (recibos de `.runtime/ejecuciones/`, rastro del visor, huella de planos, base
 de despacho de la rama, fecha del OK del usuario): estas pruebas exigen que se lea.
 """
+import argparse
+import contextlib
 import datetime
+import importlib
+import io
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -165,10 +170,161 @@ class WorkspaceBase(unittest.TestCase):
         texto = texto.replace(
             "- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN", "- **Veredicto:** LIMPIO"
         )
+        # La ficha de un bug es a la vez contrato y bitácora (ADR-006): su veredicto no
+        # vive en un hallazgos.md aparte sino en su propia sección 6.
+        texto = texto.replace(
+            "LIMPIO | HUECOS DE CORRECCIÓN → <cuáles;", "LIMPIO ·"
+        )
         hallazgos.write_text(texto, encoding="utf-8")
 
     def cerrar(self, nombre, *extra):
         return self.ejecutar(self.unidad, "cerrar", nombre, *extra)
+
+    # -------------------------------------- unidades y bugs REALES, con rama y worktree
+    CUERPO = """
+
+# {nnn} · Cambio pequeño y localizado
+
+## Qué (en idioma de negocio)
+
+El usuario podrá completar el cambio solicitado sin alterar el comportamiento adyacente.
+La implementación conserva los datos existentes y muestra un resultado verificable en la
+misma entrada que usa hoy, sin pedirle ningún paso nuevo ni mover nada de sitio.
+
+## Criterios de aceptación
+
+- **R1** — Cuando el usuario repite la acción de siempre, el resultado aparece igual.
+- **R2** — (caso límite) Cuando el dato falta, no se pierde el trabajo ya hecho.
+
+## Verificación
+
+- Comando(s) que deben salir en verde: `python3 -m pytest`
+- **Nivel de test:** unitario, porque la conducta es una regla local y no cruza fronteras.
+"""
+
+    CUERPO_BUG = """
+
+# {nnn} · BUG: el listado pierde la última línea
+
+## 1 · Reporte (el padre, con lo que cuenta el usuario)
+
+- **Qué esperaba el usuario:** que al abrir el listado de pedidos apareciesen todas las
+  filas guardadas, incluida la última que acaba de crear desde la misma pantalla.
+- **Qué pasa en realidad:** la última fila no aparece hasta que se recarga la página
+  entera, así que el usuario cree que su pedido no se ha guardado y lo repite.
+- **Severidad: P2.** No hay pérdida de datos, pero genera pedidos duplicados a diario.
+
+## 2 · Reproducción
+
+1. Abre el listado de pedidos. 2. Crea uno nuevo. 3. Vuelve al listado sin recargar.
+La fila recién creada no está; al recargar sí aparece, con sus datos correctos.
+
+## 3 · Diagnóstico
+
+El listado se pinta desde una copia en memoria que no se invalida al guardar, así que la
+vista muestra el estado anterior a la escritura hasta la siguiente carga completa.
+
+## 5 · Resolución
+
+- **R1** — Cuando el usuario crea un pedido, la fila aparece en el listado sin recargar.
+
+## 6 · Cierre (el padre, a petición del usuario)
+
+- **Revisión (revisor fresco, ANTES del merge):** LIMPIO | HUECOS DE CORRECCIÓN → <cuáles;
+  cada uno vuelve al subagente antes del merge> · Fecha: YYYY-MM-DD
+- **Validación del usuario:** PENDIENTE
+"""
+
+    def ficha_de(self, nombre):
+        """(ficha canónica, documento donde firma el revisor) de una unidad o un bug."""
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        if carpeta.is_dir():
+            return carpeta / "especificacion.md", carpeta / "hallazgos.md"
+        ficha = self.ws / "docs/bugs" / f"{nombre}.md"
+        return ficha, ficha
+
+    def unidad_con_rama(self, slug, ficheros, carril="normal", tipo="feature"):
+        """Unidad (o bug) REAL: petición evaluada, ficha aprobada, rama y worktree.
+
+        Es lo que las puertas de esta unidad vigilan de verdad: una entrega con worktree,
+        a diferencia de la documental, que por diseño no tiene ninguno.
+        """
+        pid = self.capturar(f"Trabajo {slug}")
+        evaluada = self.evaluar(pid, ruta=carril, tipo=tipo, ruta_codigo=ficheros[0])
+        self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
+        argumentos = ["nueva", tipo, slug]
+        if carril == "directo":
+            argumentos.append("--directo")
+        argumentos.extend(("--desde", pid))
+        creada = self.ejecutar(self.unidad, *argumentos)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        if tipo == "bug":
+            ruta = next((self.ws / "docs/bugs").glob(f"[0-9][0-9][0-9]-{slug}.md"))
+            nombre = ruta.stem
+        else:
+            carpeta = next((self.ws / "docs/05-trabajo").glob(f"[0-9][0-9][0-9]-{slug}"))
+            ruta, nombre = carpeta / "especificacion.md", carpeta.name
+        texto = ruta.read_text(encoding="utf-8")
+        cabecera = texto[: texto.find("---", 4) + 3]
+        cabecera = cabecera.replace("aprobado: no", f"aprobado: {HOY}")
+        cabecera = re.sub(
+            r"^ficheros:.*$", "ficheros: [" + ", ".join(ficheros) + "]",
+            cabecera, count=1, flags=re.M,
+        )
+        cabecera = re.sub(r"^actividad:.*$", "actividad: pedidos", cabecera,
+                          count=1, flags=re.M)
+        cuerpo = self.CUERPO_BUG if tipo == "bug" else self.CUERPO
+        ruta.write_text(cabecera + cuerpo.format(nnn=nombre), encoding="utf-8")
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(
+            despachada.returncode, 0, despachada.stdout + despachada.stderr
+        )
+        return nombre
+
+    def trabajar_y_fusionar(self, nombre, cambios, quitar_worktree=True,
+                            estado="en_revision", recibos=True):
+        worktree = self.ws / "worktrees" / nombre
+        for fichero, lineas in cambios.items():
+            (worktree / fichero).write_text(
+                "".join(f"print({indice})\n" for indice in range(lineas)),
+                encoding="utf-8",
+            )
+        self.git(worktree, "add", "-A")
+        self.git(worktree, "commit", "-m", f"trabajo de {nombre}")
+        self.git(self.repo, "merge", "--ff-only", nombre)
+        if quitar_worktree:
+            self.git(self.repo, "worktree", "remove", str(worktree))
+        ficha, firma = self.ficha_de(nombre)
+        ficha.write_text(
+            re.sub(r"^estado:\s*\S+", f"estado: {estado}",
+                   ficha.read_text(encoding="utf-8"), count=1, flags=re.M),
+            encoding="utf-8",
+        )
+        self.firmar_revision(firma)
+        if recibos:
+            self.recibo_ejecucion(nombre, "constructor", f"c-{nombre}")
+            self.recibo_ejecucion(nombre, "revisor", f"r-{nombre}")
+
+    def borrar_rama(self, nombre):
+        """Borra la rama ya fusionada: el cierre real la borra, y sin ella la medida
+        tenía que salir igual de la punta que la base de despacho ya identifica."""
+        self.git(self.repo, "branch", "-D", nombre)
+
+    def olvidar_base_de_despacho(self, nombre):
+        """Deja la unidad como una legacy: sin `base_sha` anotado en su petición."""
+        self.reescribir_despacho(nombre, lambda metadata: metadata.pop("base_sha", None))
+
+    def reescribir_despacho(self, nombre, mutar):
+        """Aplica `mutar` sobre la metadata de despacho que la petición conserva."""
+        for ruta in (self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"):
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+            tocado = False
+            for proceso in datos.get("procesos", []):
+                if proceso.get("ref") == nombre:
+                    mutar(proceso.setdefault("metadata", {}))
+                    tocado = True
+            if tocado:
+                ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
 
 
 # ===================================================================== R1 y R2
@@ -478,95 +634,8 @@ class HuellaDeFlujoTest(WorkspaceBase):
 class CarrilDirectoMedidoTest(WorkspaceBase):
     """R5 — el carril directo se mide contra el punto de partida de su rama."""
 
-    CUERPO = """
-
-# {nnn} · Cambio pequeño y localizado
-
-## Qué (en idioma de negocio)
-
-El usuario podrá completar el cambio solicitado sin alterar el comportamiento adyacente.
-La implementación conserva los datos existentes y muestra un resultado verificable en la
-misma entrada que usa hoy, sin pedirle ningún paso nuevo ni mover nada de sitio.
-
-## Criterios de aceptación
-
-- **R1** — Cuando el usuario repite la acción de siempre, el resultado aparece igual.
-- **R2** — (caso límite) Cuando el dato falta, no se pierde el trabajo ya hecho.
-
-## Verificación
-
-- Comando(s) que deben salir en verde: `python3 -m pytest`
-- **Nivel de test:** unitario, porque la conducta es una regla local y no cruza fronteras.
-"""
-
     def unidad_directa(self, slug, ficheros):
-        pid = self.capturar(f"Directo {slug}")
-        evaluada = self.evaluar(
-            pid, ruta="directo", tipo="feature", ruta_codigo=ficheros[0]
-        )
-        self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
-        creada = self.ejecutar(
-            self.unidad, "nueva", "feature", slug, "--directo", "--desde", pid
-        )
-        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
-        carpeta = next((self.ws / "docs/05-trabajo").glob(f"[0-9][0-9][0-9]-{slug}"))
-        spec = carpeta / "especificacion.md"
-        texto = spec.read_text(encoding="utf-8")
-        cabecera = texto[: texto.find("---", 4) + 3]
-        cabecera = cabecera.replace("aprobado: no", f"aprobado: {HOY}")
-        cabecera = re.sub(
-            r"^ficheros:.*$", "ficheros: [" + ", ".join(ficheros) + "]",
-            cabecera, count=1, flags=re.M,
-        )
-        cabecera = re.sub(r"^actividad:.*$", "actividad: pedidos", cabecera,
-                          count=1, flags=re.M)
-        spec.write_text(
-            cabecera + self.CUERPO.format(nnn=carpeta.name), encoding="utf-8"
-        )
-        despachada = self.ejecutar(self.unidad, "despachar", carpeta.name)
-        self.assertEqual(
-            despachada.returncode, 0, despachada.stdout + despachada.stderr
-        )
-        return carpeta.name
-
-    def trabajar_y_fusionar(self, nombre, cambios):
-        worktree = self.ws / "worktrees" / nombre
-        for fichero, lineas in cambios.items():
-            (worktree / fichero).write_text(
-                "".join(f"print({indice})\n" for indice in range(lineas)),
-                encoding="utf-8",
-            )
-        self.git(worktree, "add", "-A")
-        self.git(worktree, "commit", "-m", f"trabajo de {nombre}")
-        self.git(self.repo, "merge", "--ff-only", nombre)
-        self.git(self.repo, "worktree", "remove", str(worktree))
-        carpeta = self.ws / "docs/05-trabajo" / nombre
-        spec = carpeta / "especificacion.md"
-        spec.write_text(
-            re.sub(r"^estado:\s*\S+", "estado: en_revision",
-                   spec.read_text(encoding="utf-8"), count=1, flags=re.M),
-            encoding="utf-8",
-        )
-        self.firmar_revision(carpeta / "hallazgos.md")
-        self.recibo_ejecucion(nombre, "constructor", f"c-{nombre}")
-        self.recibo_ejecucion(nombre, "revisor", f"r-{nombre}")
-
-    def borrar_rama(self, nombre):
-        """Borra la rama ya fusionada: el cierre real la borra, y sin ella la medida
-        tenía que salir igual de la punta que la base de despacho ya identifica."""
-        self.git(self.repo, "branch", "-D", nombre)
-
-    def olvidar_base_de_despacho(self, nombre):
-        """Deja la unidad como una legacy: sin `base_sha` anotado en su petición."""
-        for ruta in (self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"):
-            datos = json.loads(ruta.read_text(encoding="utf-8"))
-            tocado = False
-            for proceso in datos.get("procesos", []):
-                if proceso.get("ref") == nombre:
-                    (proceso.get("metadata") or {}).pop("base_sha", None)
-                    tocado = True
-            if tocado:
-                ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+        return self.unidad_con_rama(slug, ficheros, carril="directo")
 
     def test_r5_directo_desbordado_con_la_rama_ya_borrada_sigue_fallando(self):
         """Borrar la rama antes de cerrar no puede ser la forma de saltarse la puerta:
@@ -698,6 +767,34 @@ class VisorAntesDeAprobarTest(unittest.TestCase):
 
 
 # =========================================================================== R7
+def mensajes_de_bloqueo(caso):
+    """Todo mensaje de bloqueo que una puerta del método puede imprimir.
+
+    Vive fuera de las clases porque lo usan dos requisitos: R7 exige que cada uno nombre
+    una salida y R1 (034) exige que esa salida ARRANQUE.
+    """
+    sys.path.insert(0, str(SCRIPTS))
+    sys.path.insert(0, str(VISOR))
+    caso.addCleanup(lambda: sys.path.remove(str(SCRIPTS)))
+    caso.addCleanup(lambda: sys.path.remove(str(VISOR)))
+    unidad = importlib.import_module("unidad")
+    peticion = importlib.import_module("peticion")
+    revision = importlib.import_module("revision")
+    return {
+        "R1": unidad.mensaje_sin_recibo_revisor("001-x"),
+        "R1-recibo": unidad.mensaje_recibo_no_acredita(
+            "001-x", ["el recibo revisor-1 terminó con exit_code 2"]
+        ),
+        "R2": unidad.mensaje_auto_sello("001-x", "sesion-unica"),
+        "R3": revision.MENSAJE_SIN_VISOR,
+        "R4": peticion.mensaje_huella_discrepante("a" * 8, "b" * 64),
+        "R4-sin-planos": peticion.mensaje_sin_planos(),
+        "R5": unidad.mensaje_directo_desbordado("001-x", 5, 400, ["app/otro.py"]),
+        "R6": unidad.mensaje_ok_en_lote("001-x", "2026-08-22", 3),
+        "R6-acta": unidad.mensaje_lote_incompleto("docs/acta.md", ["001-x"]),
+    }
+
+
 class SalidaEscritaTest(unittest.TestCase):
     """R7 — ninguna puerta nueva bloquea sin nombrar su comando o su vía de salida.
 
@@ -708,27 +805,7 @@ class SalidaEscritaTest(unittest.TestCase):
     ACCIONABLE = re.compile(r"(python3 \S+\.py|`[^`]+`)")
 
     def mensajes(self):
-        sys.path.insert(0, str(SCRIPTS))
-        sys.path.insert(0, str(VISOR))
-        self.addCleanup(lambda: sys.path.remove(str(SCRIPTS)))
-        self.addCleanup(lambda: sys.path.remove(str(VISOR)))
-        import importlib
-        unidad = importlib.import_module("unidad")
-        peticion = importlib.import_module("peticion")
-        revision = importlib.import_module("revision")
-        return {
-            "R1": unidad.mensaje_sin_recibo_revisor("001-x"),
-            "R1-recibo": unidad.mensaje_recibo_no_acredita(
-                "001-x", ["el recibo revisor-1 terminó con exit_code 2"]
-            ),
-            "R2": unidad.mensaje_auto_sello("001-x", "sesion-unica"),
-            "R3": revision.MENSAJE_SIN_VISOR,
-            "R4": peticion.mensaje_huella_discrepante("a" * 8, "b" * 64),
-            "R5": unidad.mensaje_directo_desbordado(
-                "001-x", 5, 400, ["app/otro.py"]
-            ),
-            "R6": unidad.mensaje_ok_en_lote("001-x", "2026-08-22", 3),
-        }
+        return mensajes_de_bloqueo(self)
 
     def test_r7_cada_mensaje_de_bloqueo_nombra_su_salida(self):
         for requisito, mensaje in self.mensajes().items():
@@ -739,6 +816,120 @@ class SalidaEscritaTest(unittest.TestCase):
                     self.ACCIONABLE.search(cola),
                     f"{requisito}: la salida no nombra nada accionable: {cola!r}",
                 )
+
+
+# ==================================================================== 034 · R1 y R7
+# Dónde vive de verdad cada script que un mensaje de bloqueo puede nombrar. Los scripts
+# se publican en `docs/00-metodo/scripts/` y el kit del visor en
+# `docs/00-metodo/requisitos/` (bootstrap.py), pero en ESTE repo son `plantilla/` y
+# `visor/`: la traducción se hace aquí para poder importar el módulo REAL.
+CARPETAS_PUBLICADAS = {
+    "docs/00-metodo/scripts": SCRIPTS,
+    "docs/00-metodo/requisitos": VISOR,
+}
+RE_COMANDO = re.compile(r"`(python3 [^`]+)`")
+RE_HUECO = re.compile(r"<[^>]+>")
+
+
+class _ParserCapturado(Exception):
+    """Transporta el parser real de un script sin dejar que su `main()` siga."""
+
+    def __init__(self, parser):
+        super().__init__("parser capturado")
+        self.parser = parser
+
+
+def parser_real(ruta_script):
+    """El `argparse` REAL del script publicado en `ruta_script`, o None si no existe.
+
+    No se reimplementa ni se aproxima: se importa el módulo tal cual se publica y se le
+    deja construir su parser, interceptando la llamada a `parse_args()` que hace su
+    `main()`. Comprobar un comando contra una expresión regular de comillas es lo que
+    dejó pasar dos comandos rotos con 26 tests en verde (bug 034, hallazgo H).
+    """
+    carpeta, _, fichero = ruta_script.rpartition("/")
+    raiz = CARPETAS_PUBLICADAS.get(carpeta)
+    if raiz is None or not (raiz / fichero).is_file():
+        return None
+    sys.path.insert(0, str(raiz))
+    try:
+        modulo = importlib.import_module(fichero[: -len(".py")])
+    finally:
+        sys.path.remove(str(raiz))
+    original = argparse.ArgumentParser.parse_args
+
+    def interceptar(self, args=None, namespace=None):
+        raise _ParserCapturado(self)
+
+    argparse.ArgumentParser.parse_args = interceptar
+    try:
+        modulo.main()
+    except _ParserCapturado as capturado:
+        return capturado.parser
+    finally:
+        argparse.ArgumentParser.parse_args = original
+    return None
+
+
+def comandos_de(mensaje):
+    """Los comandos que un mensaje ofrece como salida, listos para el analizador.
+
+    Los huecos `<así>` son un ARGUMENTO que el lector rellena, así que se sustituyen por
+    un token único antes de trocear: sin eso, `<modelo distinto del constructor>` se leería
+    como cuatro argumentos sueltos.
+    """
+    cola = mensaje.split(SALIDA, 1)[1] if SALIDA in mensaje else mensaje
+    return [crudo.strip() for crudo in RE_COMANDO.findall(cola)]
+
+
+class ComandosDeSalidaTest(unittest.TestCase):
+    """R1/R7 (034) — todo comando ofrecido como salida ARRANCA de verdad.
+
+    La 033 comprobó la FORMA del mensaje (que hubiera algo entre comillas) en vez de su
+    EFECTO, y publicó dos llaves que no abren: una invocaba `ejecucion.py` sin subcomando
+    y con un `--unidad` que no existe, y la otra pedía a `peticion.py` un reencuadre de
+    carril que ese comando no hace. Aquí cada comando pasa por el analizador de argumentos
+    del script al que invoca.
+    """
+
+    def comandos(self):
+        encontrados = []
+        for requisito, mensaje in mensajes_de_bloqueo(self).items():
+            for comando in comandos_de(mensaje):
+                encontrados.append((requisito, comando))
+        return encontrados
+
+    def test_r1_las_puertas_ofrecen_comandos_como_salida(self):
+        """Si esto se queda a cero, el resto del test no comprueba nada."""
+        self.assertGreaterEqual(len(self.comandos()), 5, self.comandos())
+
+    def test_r1_cada_comando_de_salida_apunta_a_un_script_que_existe(self):
+        for requisito, comando in self.comandos():
+            with self.subTest(requisito=requisito, comando=comando):
+                piezas = shlex.split(RE_HUECO.sub("HUECO", comando))
+                self.assertEqual(piezas[0], "python3", comando)
+                self.assertIsNotNone(
+                    parser_real(piezas[1]),
+                    f"{requisito}: {piezas[1]} no es un script publicado del método",
+                )
+
+    def test_r1_cada_comando_de_salida_parsea_contra_su_argparse_real(self):
+        for requisito, comando in self.comandos():
+            with self.subTest(requisito=requisito, comando=comando):
+                piezas = shlex.split(RE_HUECO.sub("HUECO", comando))
+                parser = parser_real(piezas[1])
+                if parser is None:
+                    continue          # lo cubre el test de arriba, con su propio mensaje
+                quejas = io.StringIO()
+                try:
+                    with contextlib.redirect_stderr(quejas):
+                        parser.parse_args(piezas[2:])
+                except SystemExit:
+                    self.fail(
+                        f"{requisito}: la salida ofrecida no arranca contra el argparse "
+                        f"real de {piezas[1]}:\n      {comando}\n    "
+                        + quejas.getvalue().strip().replace("\n", "\n    ")
+                    )
 
 
 # =========================================================================== R8
