@@ -53,6 +53,7 @@ DEFECTOS = {
     "umbral_default": 80,     # % de la ventana a partir del cual el veredicto es `aviso`
     "umbrales": {},           # {modelo: %} — la tabla que Nate toca a mano
     "ventanas": {},           # {modelo: tokens} — ventana declarada para modelos no conocidos
+    "turnos_aviso": 250,      # turnos del asistente a partir de los cuales conviene cortar
     "repeticiones": 3,        # repeticiones del mismo comando+fallo que ya son `sintomas`
     "ventana_eventos": 60,    # cuántos pares comando/fallo recientes se miran
 }
@@ -80,6 +81,15 @@ AVISO_CAPACIDAD = (
     "   Esta sesión lleva {pct} % de su ventana ({tokens} de {ventana} tokens, {modelo}).\n"
     "   Planifica el corte AL TERMINAR ESTE PASO: escribe la retomada y sigue en una\n"
     "   sesión nueva. No se bloquea nada; decides tú.\n"
+    "     python3 docs/00-metodo/scripts/canario.py retomada\n"
+    "   Señal leída en {fichero}"
+)
+
+AVISO_POSICION = (
+    "⚠️  CANARIO DE CONTEXTO — la sesión se ha hecho larga\n"
+    "   Van {turnos} turnos. El coste de cada turno crece con su POSICIÓN, no con lo llena que\n"
+    "   esté la ventana: uno en el turno 900 cuesta unas 8 veces lo que el mismo en el 50.\n"
+    "   Corta AL TERMINAR ESTE PASO y sigue en una sesión nueva. No se bloquea nada.\n"
     "     python3 docs/00-metodo/scripts/canario.py retomada\n"
     "   Señal leída en {fichero}"
 )
@@ -131,7 +141,7 @@ def cargar_config(raiz):
         return config
     if not isinstance(datos, dict):
         return config
-    for clave in ("umbral_default", "repeticiones", "ventana_eventos"):
+    for clave in ("umbral_default", "repeticiones", "ventana_eventos", "turnos_aviso"):
         valor = datos.get(clave)
         if isinstance(valor, (int, float)) and valor > 0:
             config[clave] = int(valor)
@@ -382,7 +392,7 @@ def leer_claude(fichero):
     El contexto de la petición es lo que el modelo vuelve a leer entero en cada turno:
     entrada + caché leída + caché escrita. La salida no ocupa ventana de entrada.
     """
-    modelo, tokens = None, None
+    modelo, tokens, turnos = None, None, 0
     comandos, fallos = {}, []
     for dato in _lineas(fichero):
         mensaje = dato.get("message")
@@ -396,6 +406,11 @@ def leer_claude(fichero):
             if suma:
                 tokens = suma
                 modelo = mensaje.get("model") or modelo
+                # Solo cuentan los turnos del ASISTENTE. Un registro de usuario puede traer
+                # `usage` y no es un turno: contarlo infla la cuenta y adelanta el aviso.
+                # Las dos señales, porque el harness usa una u otra según la versión.
+                if dato.get("type") == "assistant" or mensaje.get("role") == "assistant":
+                    turnos += 1
         contenido = mensaje.get("content")
         if not isinstance(contenido, list):
             continue
@@ -413,7 +428,8 @@ def leer_claude(fichero):
                     fallos.append((orden, _firma(_texto_de(bloque.get("content")))))
     if tokens is None:
         return None
-    return {"modelo": modelo, "tokens": tokens, "ventana": None, "fallos": fallos}
+    return {"modelo": modelo, "tokens": tokens, "ventana": None, "fallos": fallos,
+            "turnos": turnos}
 
 
 def leer_codex(fichero):
@@ -423,7 +439,7 @@ def leer_codex(fichero):
     vivo; `total_token_usage` es acumulado de toda la sesión y supera la ventana sin que
     eso signifique nada. La ventana la declara el propio rollout: aquí no hace falta tabla.
     """
-    tokens, ventana, modelo = None, None, None
+    tokens, ventana, modelo, turnos = None, None, None, 0
     comandos, fallos = {}, []
     for dato in _lineas(fichero):
         payload = dato.get("payload")
@@ -436,6 +452,7 @@ def leer_codex(fichero):
                 ultimo = info.get("last_token_usage") or info.get("total_token_usage") or {}
                 if isinstance(ultimo, dict) and ultimo.get("total_tokens"):
                     tokens = int(ultimo["total_tokens"])
+                    turnos += 1     # cada recuento de tokens marca un turno
                 if info.get("model_context_window"):
                     ventana = int(info["model_context_window"])
         elif tipo in ("function_call", "custom_tool_call"):
@@ -450,7 +467,8 @@ def leer_codex(fichero):
             modelo = payload.get("model") or modelo
     if tokens is None:
         return None
-    return {"modelo": modelo, "tokens": tokens, "ventana": ventana, "fallos": fallos}
+    return {"modelo": modelo, "tokens": tokens, "ventana": ventana, "fallos": fallos,
+            "turnos": turnos}
 
 
 def _orden(crudo):
@@ -501,6 +519,7 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     informe = {"harness": None, "fichero": None, "modelo": None, "tokens": None,
                "ventana": None, "porcentaje": None, "umbral": config["umbral_default"],
                "veredicto": "sin_datos", "sintoma": None, "candidatos": 0,
+               "turnos": None, "turnos_aviso": config["turnos_aviso"],
                "ventana_incoherente": None,
                "config": str(raiz / CONFIG)}
 
@@ -518,6 +537,7 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
 
     informe["modelo"] = señal["modelo"]
     informe["tokens"] = señal["tokens"]
+    informe["turnos"] = señal.get("turnos")
     informe["ventana"] = señal["ventana"] or ventana_de(señal["modelo"], config)
     informe["umbral"] = umbral_de(señal["modelo"], config)
     if informe["ventana"]:
@@ -534,10 +554,15 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     informe["sintoma"] = detectar_sintomas(señal["fallos"], config)
     if informe["sintoma"]:
         informe["veredicto"] = "sintomas"           # la conducta manda sobre la capacidad
+    elif informe["porcentaje"] is not None and informe["porcentaje"] >= informe["umbral"]:
+        informe["veredicto"] = "aviso"
+    elif (informe["turnos"] or 0) >= informe["turnos_aviso"]:
+        # Medido el 22-08-2026: 0 disparos por capacidad en 63 sesiones y 4 Gtok, porque
+        # el umbral es un % de una ventana de 1M. Lo que sí predice el coste es la
+        # posición del turno. Esta rama es la que de verdad frena el gasto.
+        informe["veredicto"] = "largo"
     elif informe["porcentaje"] is None:
         informe["veredicto"] = "incierto"
-    elif informe["porcentaje"] >= informe["umbral"]:
-        informe["veredicto"] = "aviso"
     else:
         informe["veredicto"] = "sano"
     return informe
@@ -555,6 +580,8 @@ def texto_veredicto(informe):
                                      comando=informe["sintoma"]["comando"],
                                      fallo=informe["sintoma"]["fallo"][:120],
                                      contexto=contexto, fichero=informe["fichero"])
+    if veredicto == "largo":
+        return AVISO_POSICION.format(turnos=informe["turnos"], fichero=informe["fichero"])
     if veredicto == "incierto":
         if informe.get("ventana_incoherente"):
             return AVISO_VENTANA_RARA.format(
