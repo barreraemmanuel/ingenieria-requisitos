@@ -745,12 +745,15 @@ class SalidaEscritaTest(unittest.TestCase):
 class MarcaRetiradaTest(unittest.TestCase):
     """R8 — lo que el ADR-029 declara retirado tiene que estar retirado DEL TEXTO.
 
-    La marca `<HARD-GATE>` se estampaba a mano y se borraba antes de imprimir: no
-    acreditaba nada. Lo que hace infranqueable a una puerta es el script que la ejecuta
-    y el test que lo demuestra. Las puertas siguen; la etiqueta se va.
+    La marca retirada se estampaba a mano y se borraba antes de imprimir: no acreditaba
+    nada. Lo que hace infranqueable a una puerta es el script que la ejecuta y el test que
+    lo demuestra. Las puertas siguen; la etiqueta se va.
+
+    La marca se compone en trozos a propósito: este fichero entra en el barrido y escribirla
+    entera aquí haría que la prueba se señalara a sí misma. La comprobación es la misma.
     """
 
-    MARCA = "<HARD-GATE>"
+    MARCA = "<HARD" + "-GATE>"
     ADR = "029-una-regla-tiene-ejecutor-o-se-retira.md"
 
     def ficheros_del_metodo(self):
