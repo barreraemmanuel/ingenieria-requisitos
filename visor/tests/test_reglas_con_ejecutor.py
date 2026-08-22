@@ -42,12 +42,13 @@ class WorkspaceBase(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "lease.py", "peticion.py", "repo_config.py",
-            "unidad.py", "workspace_paths.py",
+            "control_plane.py", "ejecucion.py", "lease.py", "peticion.py",
+            "repo_config.py", "unidad.py", "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
         self.unidad = scripts / "unidad.py"
+        self.ejecucion = scripts / "ejecucion.py"
 
         plantillas = self.ws / "docs/00-metodo/plantillas"
         plantillas.mkdir(parents=True)
@@ -86,12 +87,24 @@ class WorkspaceBase(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         return resultado.stdout.strip()
 
-    def ejecutar(self, script, *args):
+    def ejecutar(self, script, *args, entorno=None):
         return subprocess.run(
             [sys.executable, str(script), *args],
             cwd=self.ws, text=True, encoding="utf-8", errors="replace",
-            capture_output=True,
+            capture_output=True, env=entorno,
         )
+
+    def sin_harness(self):
+        """Entorno con `git` a mano y NINGÚN harness: `lanzar` llega hasta el final.
+
+        `ejecucion.py` comprueba el estado de la ficha mucho antes de buscar el binario del
+        harness. Recortar el PATH deja que la prueba atraviese de verdad toda la puerta de
+        estado —que es lo que R2 mide— y se pare justo en el `shutil.which` siguiente, sin
+        arrancar ningún agente en la máquina de quien ejecuta los tests.
+        """
+        entorno = dict(os.environ)
+        entorno["PATH"] = str(Path(shutil.which("git")).parent)
+        return entorno
 
     def capturar(self, resumen="Cambio solicitado"):
         resultado = self.ejecutar(
@@ -162,6 +175,22 @@ class WorkspaceBase(unittest.TestCase):
         spec.write_text(texto, encoding="utf-8")
         self.firmar_revision(carpeta / "hallazgos.md", revisor)
         return carpeta.name
+
+    # ------------------------------------- unidad con worktree: donde la puerta SÍ aplica
+    def unidad_revisable(self, slug, revisor="agente-fresco"):
+        """Unidad REAL con rama y worktree, fusionada y firmada, sin recibos todavía.
+
+        Las puertas del recibo se prueban aquí y ya no sobre una documental: una unidad
+        documental no crea worktree por diseño (regla 2) y `ejecucion.py` lo exige, así
+        que pedirle el recibo era pedirle una evidencia que su carril le prohíbe producir
+        (bug 034, hallazgo D). R3 la deja fuera de la puerta; la puerta se sigue midiendo
+        donde tiene sentido, que es una entrega con código.
+        """
+        nombre = self.unidad_con_rama(slug, ["app/modulo1.py"])
+        self.trabajar_y_fusionar(nombre, {"app/modulo1.py": 10}, recibos=False)
+        ficha, firma = self.ficha_de(nombre)
+        self.firmar_revision(firma, revisor)
+        return nombre
 
     def firmar_revision(self, hallazgos, revisor="agente-fresco", fecha=HOY):
         texto = hallazgos.read_text(encoding="utf-8")
@@ -332,9 +361,9 @@ class RecibosDeRevisionTest(WorkspaceBase):
     """R1/R2 — la firma del revisor no vale sin recibo de ejecución propio."""
 
     def test_r1_cierre_sin_recibo_de_revisor_falla_y_nombra_el_comando(self):
-        nombre = self.unidad_documental("revision-sin-recibo")
+        nombre = self.unidad_revisable("revision-sin-recibo")
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 1, salida)
@@ -345,22 +374,22 @@ class RecibosDeRevisionTest(WorkspaceBase):
         self.assertFalse((self.ws / "docs/05-trabajo/archivo" / nombre).exists())
 
     def test_r1_cierre_con_recibo_de_revisor_pasa_la_puerta(self):
-        nombre = self.unidad_documental("revision-con-recibo")
+        nombre = self.unidad_revisable("revision-con-recibo")
         self.recibo_ejecucion(nombre, "constructor", "sesion-constructor")
         self.recibo_ejecucion(nombre, "revisor", "sesion-revisor")
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
         self.assertTrue((self.ws / "docs/05-trabajo/archivo" / nombre).is_dir())
 
     def test_r2_recibo_de_revisor_con_la_sesion_del_constructor_falla(self):
-        nombre = self.unidad_documental("auto-sello")
+        nombre = self.unidad_revisable("auto-sello")
         self.recibo_ejecucion(nombre, "constructor", "sesion-unica")
         self.recibo_ejecucion(nombre, "revisor", "sesion-unica")
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 1, salida)
@@ -370,12 +399,12 @@ class RecibosDeRevisionTest(WorkspaceBase):
 
     def test_r1_recibo_de_revisor_fallido_no_acredita_la_revision(self):
         """Un recibo con `resultado: fail` prueba que la revisión NO salió bien."""
-        nombre = self.unidad_documental("revision-fallida")
+        nombre = self.unidad_revisable("revision-fallida")
         self.recibo_ejecucion(nombre, "constructor", "sesion-constructor")
         self.recibo_ejecucion(nombre, "revisor", "sesion-revisor",
                               resultado="fail", exit_code=2)
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 1, salida)
@@ -387,11 +416,11 @@ class RecibosDeRevisionTest(WorkspaceBase):
     def test_r1_recibo_de_revisor_sin_identidad_de_sesion_no_acredita(self):
         """Sin identidad de sesión no se puede demostrar que el revisor no sea el
         constructor: la puerta de R2 se queda sin dato y el cierre no pasa."""
-        nombre = self.unidad_documental("revision-sin-sesion")
+        nombre = self.unidad_revisable("revision-sin-sesion")
         self.recibo_ejecucion(nombre, "constructor", "sesion-constructor")
         self.recibo_ejecucion(nombre, "revisor", "")
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 1, salida)
@@ -402,12 +431,12 @@ class RecibosDeRevisionTest(WorkspaceBase):
     def test_r1_recibo_de_revisor_abortado_no_acredita_la_revision(self):
         """`ejecucion.py` escribe el recibo ANTES de lanzar el harness: un recibo sin
         `resultado` y con `exit_code: null` es una revisión que ni siquiera terminó."""
-        nombre = self.unidad_documental("revision-abortada")
+        nombre = self.unidad_revisable("revision-abortada")
         self.recibo_ejecucion(nombre, "constructor", "sesion-constructor")
         self.recibo_ejecucion(nombre, "revisor", "sesion-revisor",
                               resultado=None, exit_code=None)
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 1, salida)
@@ -416,11 +445,11 @@ class RecibosDeRevisionTest(WorkspaceBase):
         self.assertFalse((self.ws / "docs/05-trabajo/archivo" / nombre).exists())
 
     def test_r2_mismo_modelo_y_distinta_sesion_avisa_pero_cierra(self):
-        nombre = self.unidad_documental("mismo-modelo")
+        nombre = self.unidad_revisable("mismo-modelo")
         self.recibo_ejecucion(nombre, "constructor", "sesion-a", modelo="opus")
         self.recibo_ejecucion(nombre, "revisor", "sesion-b", modelo="opus")
 
-        resultado = self.cerrar(nombre)
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
@@ -932,6 +961,277 @@ class ComandosDeSalidaTest(unittest.TestCase):
                     )
 
 
+
+# ===================================================== 034 · R2, R3, R4 y R5
+class UnidadEnValidacionTest(WorkspaceBase):
+    """R2 (034) — la salida que se ofrece FUNCIONA sobre la unidad tal como está.
+
+    La 033 dejó ocho unidades atrapadas: `en_validacion` sin recibo de revisión válido no
+    puede cerrarse, y `ejecucion.py` solo admitía `en_obra`/`en_revision`, así que tampoco
+    podía producir el recibo que se le pedía. La puerta miraba hacia atrás sin comprobar
+    que el camino de vuelta existiera.
+    """
+
+    def unidad_en_validacion(self, slug):
+        """Unidad real, fusionada, con worktree vivo y parada en `en_validacion`."""
+        nombre = self.unidad_con_rama(slug, ["app/modulo1.py"])
+        self.trabajar_y_fusionar(
+            nombre, {"app/modulo1.py": 10}, quitar_worktree=False,
+            estado="en_validacion", recibos=False,
+        )
+        return nombre
+
+    def test_r2_el_revisor_se_lanza_sobre_una_unidad_en_validacion(self):
+        """`en_validacion` es un estado ejecutable PARA EL REVISOR y solo para él."""
+        nombre = self.unidad_en_validacion("validacion-revisable")
+
+        resultado = self.ejecutar(
+            self.ejecucion, "lanzar", nombre, "--harness", "claude",
+            "--rol", "revisor", "--prompt", "Revisa el diff contra el contrato",
+            entorno=self.sin_harness(),
+        )
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotIn("solo en_obra", salida, salida)
+        # Que se pare AQUÍ prueba que atravesó entera la puerta de estado: el binario del
+        # harness se busca mucho después de validar la ficha.
+        self.assertIn("no encuentro el ejecutable", salida, salida)
+
+    def test_r2_el_constructor_sigue_sin_entrar_en_una_unidad_en_validacion(self):
+        """La salida se abre para revisar, no para seguir construyendo lo ya entregado."""
+        nombre = self.unidad_en_validacion("validacion-cerrada-al-constructor")
+
+        resultado = self.ejecutar(
+            self.ejecucion, "lanzar", nombre, "--harness", "claude",
+            "--rol", "constructor", "--prompt", "Sigue construyendo",
+            entorno=self.sin_harness(),
+        )
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("en_validacion", salida)
+        self.assertIn(SALIDA, salida)
+
+    def test_r2_la_salida_que_ofrece_el_cierre_bloqueado_se_ejecuta_tal_cual(self):
+        """De punta a punta: el cierre bloquea, y su comando literal atraviesa la puerta.
+
+        Esto es lo que ningún test de la 033 hacía. El único hueco `<...>` que queda es el
+        modelo, que depende de quién construyó y por eso no se puede escribir aquí.
+        """
+        nombre = self.unidad_en_validacion("validacion-salida-real")
+
+        bloqueado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = bloqueado.stdout + bloqueado.stderr
+        self.assertEqual(bloqueado.returncode, 1, salida)
+        comandos = comandos_de(salida)
+        self.assertTrue(comandos, salida)
+        crudo = next(c for c in comandos if "ejecucion.py" in c)
+        piezas = shlex.split(RE_HUECO.sub("un-modelo-cualquiera", crudo))
+
+        ejecutado = self.ejecutar(
+            self.ws / piezas[1], *piezas[2:], entorno=self.sin_harness()
+        )
+
+        rastro = ejecutado.stdout + ejecutado.stderr
+        self.assertNotIn("invalid choice", rastro, rastro)
+        self.assertNotIn("unrecognized arguments", rastro, rastro)
+        self.assertNotIn("solo en_obra", rastro, rastro)
+        self.assertIn("no encuentro el ejecutable", rastro, rastro)
+
+
+class DocumentalSinWorktreeTest(WorkspaceBase):
+    """R3 (034) — a quien no puede tener worktree, la puerta del recibo no le aplica.
+
+    Una unidad documental no crea rama ni worktree por diseño (regla 2), y `ejecucion.py`
+    exige worktree para lanzar nada. Exigirle el recibo era pedirle una evidencia que su
+    propio carril le prohíbe producir: dos unidades reales de mastermind-agents quedaron
+    así. El cierre no calla la excepción: dice por qué no aplica.
+    """
+
+    def test_r3_una_documental_cierra_sin_recibo_de_revision(self):
+        nombre = self.unidad_documental("documental-sin-recibo")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertTrue((self.ws / "docs/05-trabajo/archivo" / nombre).is_dir())
+
+    def test_r3_el_cierre_dice_por_que_la_puerta_no_le_aplica(self):
+        nombre = self.unidad_documental("documental-motivo-escrito")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertIn("worktree", salida.lower(), salida)
+        self.assertIn("documental", salida.lower(), salida)
+
+    def test_r3_la_firma_del_revisor_le_sigue_haciendo_falta(self):
+        """Que no aplique el RECIBO no relaja la revisión: sin firma no se cierra."""
+        nombre = self.unidad_documental("documental-sin-firma", revisor="no")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("revisor", salida.lower())
+        self.assertIn(SALIDA, salida)
+
+
+class PuertasDeLosBugsTest(WorkspaceBase):
+    """R4 (034) — un bug entrega código igual que una unidad, y cierra por las mismas puertas.
+
+    Las dos puertas de la 033 se colocaron dentro de la rama de código que trata unidades
+    (`if clase == "unidad"`), sin mirar qué vías de entrega quedaban fuera. Un bug cerraba
+    sin recibo y sin medida de carril: la vía de entrega MÁS usada del método.
+    """
+
+    def bug_fusionado(self, slug, ficheros, cambios, carril="normal", recibos=True):
+        nombre = self.unidad_con_rama(slug, ficheros, carril=carril, tipo="bug")
+        self.trabajar_y_fusionar(nombre, cambios, recibos=recibos)
+        return nombre
+
+    def test_r4_un_bug_sin_recibo_de_revision_no_cierra(self):
+        nombre = self.bug_fusionado(
+            "bug-sin-recibo", ["app/modulo1.py"], {"app/modulo1.py": 10}, recibos=False
+        )
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("recibo", salida.lower())
+        self.assertIn("ejecucion.py", salida)
+        self.assertIn(SALIDA, salida)
+
+    def test_r4_un_bug_con_recibo_de_revision_pasa_la_puerta(self):
+        nombre = self.bug_fusionado(
+            "bug-con-recibo", ["app/modulo1.py"], {"app/modulo1.py": 10}
+        )
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+
+    def test_r4_un_bug_directo_desbordado_no_cierra(self):
+        nombre = self.bug_fusionado(
+            "bug-directo-desbordado",
+            ["app/modulo1.py", "app/modulo2.py", "app/modulo3.py"],
+            {f"app/modulo{indice}.py": 80 for indice in range(1, 6)},
+            carril="directo",
+        )
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("directo", salida.lower())
+        self.assertIn(SALIDA, salida)
+
+    def test_r4_un_bug_directo_fuera_de_sus_ficheros_no_cierra(self):
+        nombre = self.bug_fusionado(
+            "bug-directo-desviado", ["app/modulo1.py"], {"app/modulo6.py": 5},
+            carril="directo",
+        )
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("app/modulo6.py", salida)
+        self.assertIn(SALIDA, salida)
+
+
+class MandaElRegistroDeDespachoTest(WorkspaceBase):
+    """R5 (034) — el interruptor no puede estar junto a la cerradura.
+
+    `carril` y `ejecucion` viven en el frontmatter, y el frontmatter lo escribe el mismo
+    agente al que la puerta vigila: teclear `ejecucion: expres` apagaba la puerta del
+    revisor entera y `carril: normal` apagaba la medida del carril. El dato que decide SI
+    la puerta aplica se lee del registro de despacho, que se escribió al despachar y que
+    el constructor no puede tocar. Sin registro se avisa y se sigue: una puerta que se
+    inventa el dato es peor que no tenerla.
+    """
+
+    def reescribir_cabecera(self, nombre, campo, valor):
+        ficha, _ = self.ficha_de(nombre)
+        texto = ficha.read_text(encoding="utf-8")
+        if re.search(rf"^{campo}:", texto, flags=re.M):
+            texto = re.sub(rf"^{campo}:.*$", f"{campo}: {valor}", texto, count=1, flags=re.M)
+        else:
+            texto = texto.replace("\n---\n", f"\n{campo}: {valor}\n---\n", 1)
+        ficha.write_text(texto, encoding="utf-8")
+
+    def test_r5_el_carril_tecleado_no_apaga_la_medida_del_directo(self):
+        nombre = self.unidad_con_rama(
+            "carril-tecleado",
+            ["app/modulo1.py", "app/modulo2.py", "app/modulo3.py"],
+            carril="directo",
+        )
+        self.trabajar_y_fusionar(
+            nombre, {f"app/modulo{indice}.py": 80 for indice in range(1, 6)}
+        )
+        self.reescribir_cabecera(nombre, "carril", "normal")
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("directo", salida.lower())
+        self.assertIn("despacho", salida.lower())
+        self.assertIn(SALIDA, salida)
+
+    def test_r5_el_modo_tecleado_no_apaga_la_puerta_del_revisor(self):
+        """`ejecucion: expres` en la ficha no convierte en exprés lo que se despachó normal."""
+        nombre = self.unidad_con_rama("modo-tecleado", ["app/modulo1.py"])
+        self.trabajar_y_fusionar(nombre, {"app/modulo1.py": 10}, recibos=False)
+        self.reescribir_cabecera(nombre, "ejecucion", "expres")
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("recibo", salida.lower())
+        self.assertIn(SALIDA, salida)
+
+    def test_r5_el_cierre_canta_la_discrepancia_con_el_registro(self):
+        nombre = self.unidad_con_rama("discrepancia-cantada", ["app/modulo1.py"])
+        self.trabajar_y_fusionar(nombre, {"app/modulo1.py": 10})
+        self.reescribir_cabecera(nombre, "carril", "expres")
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertIn("despacho", salida.lower(), salida)
+        self.assertIn("expres", salida.lower(), salida)
+
+    def test_r5_sin_registro_de_despacho_avisa_y_sigue(self):
+        """Unidades legadas: el registro no existe y no se puede inventar."""
+        nombre = self.unidad_con_rama("despacho-legacy", ["app/modulo1.py"])
+        self.trabajar_y_fusionar(nombre, {"app/modulo1.py": 10})
+        self.reescribir_despacho(nombre, lambda metadata: metadata.clear())
+
+        resultado = self.cerrar(nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("sin registro de despacho", salida.lower(), salida)
+        self.assertTrue((self.ws / "docs/05-trabajo/archivo" / nombre).is_dir())
+
+    def test_r5_el_registro_manda_tambien_para_las_documentales(self):
+        """Y al revés: lo que se despachó documental cierra como documental."""
+        nombre = self.unidad_documental("documental-registrada")
+        self.reescribir_cabecera(nombre, "ejecucion", "normal")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("documental", salida.lower(), salida)
+
+
 # =========================================================================== R8
 class MarcaRetiradaTest(unittest.TestCase):
     """R8 — lo que el ADR-029 declara retirado tiene que estar retirado DEL TEXTO.
@@ -944,17 +1244,35 @@ class MarcaRetiradaTest(unittest.TestCase):
     entera aquí haría que la prueba se señalara a sí misma. La comprobación es la misma.
     """
 
-    MARCA = "<HARD" + "-GATE>"
+    # Se busca el NOMBRE, no la forma con ángulos: el manual la publica como una chip HTML
+    # (`<span class="chip c-fail">…</span>`) y en un par de sitios se cuela en prosa. La 033
+    # solo miraba `<...>` y por eso dio verde con la marca viva en siete sitios (bug 034, G).
+    MARCA = "HARD" + "-GATE"
     ADR = "029-una-regla-tiene-ejecutor-o-se-retira.md"
+
+    # R6 (034): el barrido de la 033 solo miraba `.md` y `.py` de dos carpetas, así que el
+    # manual publicado conservó cinco apariciones —incluida la fila del glosario que la
+    # DEFINE— mientras el test daba verde. Un barrido que no cubre lo que se publica no
+    # vigila nada: ahora entra el `.html` y entra la raíz del repositorio.
+    SUFIJOS = {".md", ".py", ".html"}
 
     def ficheros_del_metodo(self):
         raices = [RAIZ / "plantilla/docs/00-metodo", RAIZ / "visor"]
         for raiz in raices:
             for ruta in sorted(raiz.rglob("*")):
-                if ruta.suffix in {".md", ".py"} and ruta.is_file():
+                if ruta.suffix in self.SUFIJOS and ruta.is_file():
                     if ruta.name == self.ADR or "__pycache__" in ruta.parts:
                         continue
                     yield ruta
+        for ruta in sorted(RAIZ.glob("*")):
+            if ruta.suffix in self.SUFIJOS and ruta.is_file():
+                yield ruta
+
+    def test_r6_el_barrido_cubre_el_manual_publicado(self):
+        """Si el manual no está en la lista, el test de abajo no prueba nada sobre él."""
+        barridos = {ruta.name for ruta in self.ficheros_del_metodo()}
+        self.assertIn("manual-ingenieria-requisitos.html", barridos)
+        self.assertIn("README.md", barridos)
 
     def test_r8_la_marca_retirada_no_queda_en_el_texto_del_metodo(self):
         supervivientes = []
