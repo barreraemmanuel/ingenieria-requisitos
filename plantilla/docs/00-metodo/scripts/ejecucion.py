@@ -534,6 +534,30 @@ def evidencia_git(worktree):
     }
 
 
+def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial):
+    """El recibo tal y como nace, ANTES de lanzar el harness.
+
+    `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
+    corría y luego se perdía, así que al cerrar no había forma de distinguir "otro agente"
+    de "otro modelo" — y la regla 10 del método pide exactamente esa distinción.
+    """
+    return {
+        "schema": "ejecucion/v1",
+        "id": id_ejecucion,
+        "unidad": args.unidad,
+        "harness": args.harness,
+        "rol": args.rol,
+        "modelo": getattr(args, "modelo", None),
+        "cwd": str(worktree),
+        "rama": args.unidad,
+        "lease": {"session_id": session_id, "fencing": dict(fencing)},
+        "git": {"inicial": git_inicial, "final": None},
+        "skills_tecnicas": list(args.skill_tecnica),
+        "checkpoints": [],
+        "exit_code": None,
+    }
+
+
 def guardar_recibo(ruta, recibo):
     temporal = ruta.with_suffix(".tmp")
     temporal.write_text(
@@ -635,27 +659,18 @@ def _lanzar_bajo_lease(args, ficha, manager, autoridades):
     resultados.mkdir(mode=0o700, exist_ok=True)
     id_ejecucion = uuid.uuid4().hex
     ruta_recibo = resultados / f"{args.unidad}-{id_ejecucion}.json"
-    recibo = {
-        "schema": "ejecucion/v1",
-        "id": id_ejecucion,
-        "unidad": args.unidad,
-        "harness": args.harness,
-        "rol": args.rol,
-        "cwd": str(worktree),
-        "rama": args.unidad,
-        "lease": {
-            "session_id": manager.session_id,
-            "fencing": {
-                scope: token
-                for autoridad in autoridades
-                for scope, token in autoridad.tokens.items()
-            },
+    recibo = recibo_inicial(
+        args,
+        id_ejecucion,
+        worktree,
+        manager.session_id,
+        {
+            scope: token
+            for autoridad in autoridades
+            for scope, token in autoridad.tokens.items()
         },
-        "git": {"inicial": evidencia_git(worktree), "final": None},
-        "skills_tecnicas": list(args.skill_tecnica),
-        "checkpoints": [],
-        "exit_code": None,
-    }
+        evidencia_git(worktree),
+    )
     checkpoint(
         recibo,
         "lease",

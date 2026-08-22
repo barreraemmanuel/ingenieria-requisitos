@@ -1394,6 +1394,239 @@ def fecha_ok(valor):
     return None if dia > datetime.date.today() else valor
 
 
+# --------------------------------------------------------- unidad 033: puertas con ejecutor
+
+# Toda puerta nueva de la unidad 033 escribe su vía de salida detrás de esta marca. Una
+# puerta sin salida escrita es un defecto del método, no una protección (R7).
+SALIDA = "SALIDA:"
+
+EJECUCIONES = RAIZ / ".runtime/ejecuciones"
+
+
+def recibos_ejecucion(nombre):
+    """Recibos que el control plane ya escribe por cada agente delegado de una unidad.
+
+    Llevan unidad, rol, identidad de sesión y (desde 033) modelo. Nadie los leía: la firma
+    del revisor se creía a pies juntillas aunque estuviera tecleada a mano.
+    """
+    if not EJECUCIONES.is_dir():
+        return []
+    recibos = []
+    for ruta in sorted(EJECUCIONES.glob(f"{nombre}-*.json")):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue                      # un recibo ilegible no acredita nada; se ignora
+        if isinstance(datos, dict) and datos.get("unidad") == nombre:
+            recibos.append(datos)
+    return recibos
+
+
+def sesion_de(recibo):
+    return str((recibo.get("lease") or {}).get("session_id") or "").strip()
+
+
+def modelo_de(recibo):
+    return str(recibo.get("modelo") or "").strip()
+
+
+def comando_revision(nombre):
+    return (f"python3 docs/00-metodo/scripts/ejecucion.py --unidad {nombre} "
+            f"--rol revisor --harness claude --modelo <modelo distinto del constructor>")
+
+
+def mensaje_sin_recibo_revisor(nombre):
+    return (
+        f"la firma de revisión de {nombre} no tiene recibo de ejecución: en "
+        f"{rel(EJECUCIONES)} no hay ningún recibo con rol revisor para esta unidad, así que "
+        f"el nombre del revisor está escrito a mano y no consta que la revisión ocurriera. "
+        f"{SALIDA} lanza la revisión de verdad con "
+        f"`{comando_revision(nombre)}` y vuelve a cerrar"
+    )
+
+
+def mensaje_auto_sello(nombre, sesion):
+    return (
+        f"el recibo de revisión de {nombre} tiene la MISMA identidad de sesión que el del "
+        f"constructor ({sesion}): quien construyó se puso el sello, que es exactamente lo "
+        f"que la revisión fresca existe para impedir. "
+        f"{SALIDA} repite la revisión en una sesión nueva con "
+        f"`{comando_revision(nombre)}`"
+    )
+
+
+def puerta_recibo_revisor(nombre):
+    """R1/R2 — devuelve (problemas, avisos) sobre la revisión firmada de una unidad."""
+    recibos = recibos_ejecucion(nombre)
+    revisores = [r for r in recibos if str(r.get("rol") or "").strip() == "revisor"]
+    if not revisores:
+        return [mensaje_sin_recibo_revisor(nombre)], []
+    constructores = [r for r in recibos if str(r.get("rol") or "").strip() == "constructor"]
+    sesiones_constructor = {sesion_de(r) for r in constructores} - {""}
+    limpios = [r for r in revisores if sesion_de(r) not in sesiones_constructor]
+    if not limpios:
+        return [mensaje_auto_sello(nombre, sorted(sesiones_constructor)[0])], []
+    avisos = []
+    modelos_constructor = {modelo_de(r) for r in constructores} - {""}
+    repetidos = sorted({modelo_de(r) for r in limpios} & modelos_constructor)
+    if repetidos:
+        avisos.append(
+            f"revisor y constructor de {nombre} usaron el mismo modelo ({', '.join(repetidos)}): "
+            f"distinta sesión, así que no es auto-sello y el cierre sigue; pero la regla 10 pide "
+            f"un modelo DISTINTO porque dos instancias del mismo comparten puntos ciegos"
+        )
+    return [], avisos
+
+
+# Los tres límites que definen el carril directo en `runbooks/directo.md`. Estaban escritos
+# como norma y nadie los medía: se declaraban al despachar y jamás se comprobaban.
+LIMITE_DIRECTO_FICHEROS = 3
+LIMITE_DIRECTO_LINEAS = 250
+
+
+def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera):
+    razones = []
+    if ficheros > LIMITE_DIRECTO_FICHEROS:
+        razones.append(f"{ficheros} ficheros (el tope directo son {LIMITE_DIRECTO_FICHEROS})")
+    if lineas > LIMITE_DIRECTO_LINEAS:
+        razones.append(f"{lineas} líneas (el tope directo son {LIMITE_DIRECTO_LINEAS})")
+    if fuera:
+        razones.append("ficheros fuera de los declarados: " + ", ".join(fuera))
+    return (
+        f"{nombre} se despachó por el carril DIRECTO, pero su cambio mide "
+        + "; ".join(razones)
+        + ". Eso no era un trabajo directo: un directo es un contrato de una pantalla que se "
+        f"deshace revirtiendo. {SALIDA} reencuadra la petición al carril que le corresponde "
+        f"con `python3 docs/00-metodo/scripts/peticion.py reencuadrar-orden {nombre} "
+        f"--ruta normal` y cierra por el ritual de `runbooks/feature.md`"
+    )
+
+
+def medida_del_cambio(repo, base_sha, rama):
+    """(ficheros tocados, líneas movidas) entre la base de despacho y la punta de la rama.
+
+    Devuelve None cuando no hay con qué medir: sin base registrada o sin rama viva, medir
+    sería inventarse el dato — y una puerta que se inventa el dato es peor que no tenerla.
+    """
+    if not base_sha:
+        return None
+    punta = next(
+        (
+            referencia for referencia in (rama, f"origin/{rama}")
+            if git(repo, "rev-parse", "--verify", "--quiet", referencia,
+                   silencioso=True)[0] == 0
+        ),
+        None,
+    )
+    if punta is None:
+        return None
+    codigo, salida = git(repo, "diff", "--numstat", base_sha, punta, silencioso=True)
+    if codigo != 0:
+        return None
+    tocados, lineas = [], 0
+    for fila in salida.splitlines():
+        piezas = fila.split("\t")
+        if len(piezas) != 3:
+            continue
+        anadidas, borradas, ruta = piezas
+        lineas += sum(int(valor) for valor in (anadidas, borradas) if valor.isdigit())
+        tocados.append(ruta.replace("\\", "/"))
+    return tocados, lineas
+
+
+def puerta_carril_directo(repo, nombre, fm, referencias):
+    """R5 — un directo que se pasó de tamaño se canta solo al cerrar."""
+    if (fm.get("carril") or "").strip().lower() != "directo":
+        return None, f"carril {(fm.get('carril') or 'normal').strip()}: sin límites de directo"
+    try:
+        base_sha = gestion_peticiones.base_despacho(referencias, "unidad", nombre)
+    except gestion_peticiones.ErrorPeticion:
+        base_sha = None
+    medida = medida_del_cambio(repo, base_sha, nombre)
+    if medida is None:
+        return None, (f"{nombre}: sin base de despacho o sin rama viva, el tamaño del carril "
+                      f"directo no se puede medir; se cierra sin esa comprobación")
+    tocados, lineas = medida
+    declarados = ficheros_de(fm)
+    fuera = sorted(
+        ruta for ruta in tocados
+        if posixpath.normpath(ruta).casefold() not in declarados
+    )
+    if (len(tocados) > LIMITE_DIRECTO_FICHEROS or lineas > LIMITE_DIRECTO_LINEAS or fuera):
+        return mensaje_directo_desbordado(nombre, len(tocados), lineas, fuera), None
+    return None, (f"carril directo dentro de sus límites: {len(tocados)} fichero(s), "
+                  f"{lineas} línea(s), todos declarados")
+
+
+# Tres entregas pueden compartir de verdad una tarde de validación. La cuarta ya no es una
+# tarde: es una firma en lote (el 17-08 se firmaron 15 entregas con la misma fecha).
+TOPE_OK_MISMA_FECHA = 3
+
+
+def cierres_con_ok(fecha):
+    """Artefactos YA cerrados cuyo OK del usuario lleva esta misma fecha."""
+    marca = f"OK ({fecha})"
+    encontrados = []
+    candidatos = list(ARCHIVO.glob("*/hallazgos.md")) if ARCHIVO.is_dir() else []
+    candidatos += sorted(BUGS.glob("*.md")) if BUGS.is_dir() else []
+    for ruta in sorted(candidatos):
+        try:
+            texto = ruta.read_text(encoding="utf-8")
+        except OSError:
+            continue
+        if marca in texto:
+            encontrados.append(
+                ruta.parent.name if ruta.name == "hallazgos.md" else ruta.stem
+            )
+    return sorted(set(encontrados))
+
+
+def mensaje_ok_en_lote(nombre, fecha, ya_firmadas):
+    return (
+        f"el OK del usuario con fecha {fecha} ya firma {ya_firmadas} entrega(s) cerradas: "
+        f"{nombre} sería la {ya_firmadas + 1}. Una fecha repetida en lote no acredita que "
+        f"alguien probara CADA entrega en la app corriendo; acredita una firma masiva. "
+        f"{SALIDA} o cierras con la fecha real en que se validó ESTA unidad "
+        f"(`--ok-usuario YYYY-MM-DD`), o aportas el acta de validación con una fila por "
+        f"unidad con `--validacion-lote <ruta del documento>`"
+    )
+
+
+def mensaje_lote_incompleto(ruta, faltan):
+    return (
+        f"el documento de validación {ruta} no tiene una fila por unidad: falta(n) "
+        + ", ".join(faltan)
+        + f". {SALIDA} añade una fila por cada unidad que comparte la fecha —con qué probó "
+        f"el usuario en cada una— y vuelve a cerrar con `--validacion-lote {ruta}`"
+    )
+
+
+def puerta_ok_en_lote(nombre, fecha, validacion_lote):
+    """R6 — la misma fecha de OK no vale para una cuarta entrega sin acta por unidad."""
+    if not fecha:
+        return None, None
+    companeras = [otra for otra in cierres_con_ok(fecha) if otra != nombre]
+    if len(companeras) < TOPE_OK_MISMA_FECHA:
+        return None, None
+    if not validacion_lote:
+        return mensaje_ok_en_lote(nombre, fecha, len(companeras)), None
+    ruta = Path(validacion_lote).expanduser()
+    try:
+        acta = fichero_unidad_seguro(ruta).read_text(encoding="utf-8")
+    except (OSError, workspace_paths.WorkspacePathError) as exc:
+        return (f"no puedo leer el documento de validación {validacion_lote}: {exc}. "
+                f"{SALIDA} escribe el acta con una fila por unidad y pásala con "
+                f"`--validacion-lote <ruta>`"), None
+    faltan = [
+        unidad for unidad in [*companeras, nombre]
+        if not re.search(rf"^.*\b{re.escape(unidad)}\b.*$", acta, flags=re.M)
+    ]
+    if faltan:
+        return mensaje_lote_incompleto(validacion_lote, faltan), None
+    return None, (f"OK en lote acreditado: {validacion_lote} tiene una fila por cada una de "
+                  f"las {len(companeras) + 1} unidades que comparten el {fecha}")
+
+
 def veredicto_elegido(texto):
     """El veredicto de la revisión MÁS RECIENTE, o None si sigue siendo el menú de la
     plantilla. hallazgos.md acumula una ronda de revisión debajo de otra: quedarse con
@@ -1753,6 +1986,16 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
     ok_usuario = fecha_ok(args.ok_usuario)
     if ok_usuario:
         ok(f"OK del usuario sobre la app corriendo: {ok_usuario}")
+        # R6 (033): la fecha del OK SÍ entra en `problemas`. La puerta 1 no bloquea cuando
+        # el OK FALTA —eso lo decide el usuario, no el agente—, pero un OK firmado en lote
+        # no es un OK que falte: es un OK que no ocurrió como dice que ocurrió.
+        problema_lote, nota_lote = puerta_ok_en_lote(
+            nombre, ok_usuario, getattr(args, "validacion_lote", None)
+        )
+        if problema_lote:
+            problemas.append(problema_lote)
+        elif nota_lote:
+            ok(nota_lote)
 
     # --- Puerta 2: la revisión fresca existe y dice algo -------------------------------------
     hallazgos = ruta.parent / "hallazgos.md" if clase == "unidad" else ruta
@@ -1781,6 +2024,15 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
                     f"a revisar con un agente fresco")
             else:
                 ok(f"revisado por {revisor} el {revisado}")
+                # R1/R2 (033): la firma dice quién revisó; el recibo del control plane dice
+                # si esa revisión ocurrió de verdad y si fue OTRO agente. Sin esto, la puerta
+                # más citada del método se salta tecleando un nombre.
+                fallos_recibo, avisos_recibo = puerta_recibo_revisor(nombre)
+                problemas.extend(fallos_recibo)
+                for aviso in avisos_recibo:
+                    warn(aviso)
+                if not fallos_recibo and not avisos_recibo:
+                    ok("recibo de revisión: agente distinto del constructor")
     else:
         ok(f"ruta {politica.name}: no exige revisión fresca")
 
@@ -1831,6 +2083,16 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             problemas.append(motivo)
         else:
             (ok if fuerte else warn)(motivo)
+
+    # --- Puerta 6 (033/R5): un directo que se pasó de tamaño no era un directo -------------
+    if clase == "unidad":
+        problema_directo, nota_directo = puerta_carril_directo(
+            repo, nombre, fm, referencias_peticion
+        )
+        if problema_directo:
+            problemas.append(problema_directo)
+        elif nota_directo:
+            ok(nota_directo)
 
     if problemas:
         err(f"\n  CIERRE BLOQUEADO ({len(problemas)}):")
@@ -2136,6 +2398,14 @@ def main():
         default="",
         metavar="JSON",
         help="recibo opt-in con target, legacy→new→mutant, scope y presupuesto",
+    )
+    p_cer.add_argument(
+        "--validacion-lote",
+        default="",
+        metavar="RUTA",
+        help="acta de validación con UNA FILA POR UNIDAD, cuando varias entregas comparten "
+             "de verdad la misma fecha de OK del usuario. Es la única vía de salida de la "
+             "puerta que impide firmar entregas en lote con una sola fecha",
     )
     p_cer.set_defaults(func=cmd_cerrar)
 

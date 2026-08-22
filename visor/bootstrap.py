@@ -122,6 +122,7 @@ DECISIONES = (
     "026-guiar-no-bloquear.md",
     "027-sin-tope-numerico-de-paralelismo.md",
     "028-ci-es-guia-no-gate.md",
+    "029-una-regla-tiene-ejecutor-o-se-retira.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",

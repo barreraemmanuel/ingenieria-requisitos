@@ -696,6 +696,28 @@ def registrar_base_despacho(referencias, tipo, ref, base_sha, principal):
             raise
 
 
+def base_despacho(referencias, tipo, ref):
+    """El SHA del que nació la rama de un proceso, tal y como lo dejó `despachar`.
+
+    Unidad 033 (R5): el punto de partida ya se anotaba para el pre-push; el cierre lo usa
+    para MEDIR el cambio de un carril directo contra lo que había cuando se despachó.
+    Devuelve None si ninguna petición de origen lo conserva (unidades legacy o despachos
+    anteriores a que se registrara).
+    """
+    for pid, revision in parsear_referencias(referencias):
+        try:
+            datos = cargar(pid)
+        except ErrorPeticion:
+            continue
+        for proceso in datos.get("procesos", []):
+            if (proceso.get("tipo") == tipo and proceso.get("ref") == ref
+                    and proceso.get("revision") == revision):
+                base = (proceso.get("metadata") or {}).get("base_sha")
+                if base:
+                    return base
+    return None
+
+
 def ruta_proceso_canonico(tipo, ref):
     if tipo in {"unidad", "bug"}:
         if not re.fullmatch(r"\d{3}-[a-z0-9][a-z0-9-]*", ref):
@@ -1080,6 +1102,48 @@ def huella_planos_actual():
     return hashlib.sha256(bruto).hexdigest()
 
 
+# Unidad 033 — R4. `huella_planos_actual()` existía y solo se usaba al cerrar una petición
+# de flujos: al EVALUAR se aceptaba cualquier cadena, así que la trazabilidad entre una
+# petición y el mapa que la encaminó era decorativa.
+SALIDA = "SALIDA:"
+MAPA_PLANOS = RAIZ / "docs/02-flujos/planos/planos.json"
+COMANDO_HUELLA = "python3 docs/00-metodo/scripts/peticion.py huella-planos"
+
+
+def mensaje_huella_discrepante(declarada, real):
+    return (
+        "la huella de flujo declarada no es la de los planos vigentes:\n"
+        f"  declarada: {declarada}\n"
+        f"  real:      {real}\n"
+        f"{SALIDA} pide la huella real con `{COMANDO_HUELLA}` y vuelve a evaluar con "
+        f"--huella-flujo <esa huella>"
+    )
+
+
+def mensaje_sin_planos():
+    return (
+        "AVISO: este workspace todavía no tiene planos (docs/02-flujos/planos/planos.json), "
+        "así que la huella declarada no se puede contrastar con nada. "
+        f"{SALIDA} cuando existan los planos, saca la huella con `{COMANDO_HUELLA}` y "
+        "reevalúa la petición para que quede atada al mapa"
+    )
+
+
+def exigir_huella_de_flujo(declarada):
+    """R4: la huella declarada al evaluar se compara con la real, o se dice que no hay."""
+    if not MAPA_PLANOS.is_file():
+        print(mensaje_sin_planos(), file=sys.stderr)
+        return
+    real = huella_planos_actual()
+    if (declarada or "").strip() != real:
+        raise ErrorPeticion(mensaje_huella_discrepante(declarada, real))
+
+
+def cmd_huella_planos(_args):
+    print(huella_planos_actual())
+    return 0
+
+
 def validar_proceso(pid, revision, tipo, ref):
     """Comprueba el enlace vigente incluso si la petición ya quedó cerrada.
 
@@ -1310,6 +1374,7 @@ def cmd_evaluar(args):
         faltan.append("síntesis de plataforma")
     if faltan:
         raise ErrorPeticion("evaluación incompleta: falta " + ", ".join(faltan))
+    exigir_huella_de_flujo(args.huella_flujo)
     if args.investigacion != "plataforma":
         repo, _ = repo_codigo()
         if git(repo, "rev-parse", "--verify", "--quiet", f"{args.sha}^{{commit}}")[0] != 0:
@@ -1960,6 +2025,12 @@ def parser_cli():
     p.add_argument("--pregunta", action="append", default=[])
     p.add_argument("--sintesis-plataforma")
     p.set_defaults(func=cmd_evaluar)
+
+    p = sub.add_parser(
+        "huella-planos",
+        help="imprime la huella real del bundle de planos vigente (la que exige evaluar)",
+    )
+    p.set_defaults(func=cmd_huella_planos)
 
     p = sub.add_parser("enlazar", help="enlaza un proceso canónico")
     p.add_argument("peticion")

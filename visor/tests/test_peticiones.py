@@ -1393,7 +1393,10 @@ else:
         evaluada = self.evaluar_con(pid, "directo", tipo="bug")
 
         self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
-        self.assertEqual(evaluada.stderr, "")
+        # Sin baile evaluar↔nueva: ningún aviso de la forma antigua de --ruta. (El aviso de
+        # "workspace sin planos" de la unidad 033 sí puede salir: no es el baile, es la
+        # huella de flujo diciendo que aquí todavía no hay mapa contra el que contrastar.)
+        self.assertNotIn("forma antigua", evaluada.stderr)
         datos = self.datos(pid)
         self.assertEqual(datos["evaluaciones"][-1]["carril_provisional"], "directo")
         self.assertEqual(datos["evaluaciones"][-1]["tipo_provisional"], "bug")

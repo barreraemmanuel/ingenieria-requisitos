@@ -140,11 +140,30 @@ def puerto_libre():
         return conexion.getsockname()[1]
 
 
+def anotar_apertura(workspace, puerto):
+    """Deja fechado el rastro de sesión del visor y devuelve su registro.
+
+    Es la evidencia que `revision.aprobar` exige desde la unidad 033 (R3). Se anota
+    TAMBIÉN cuando el visor ya estaba activo: si el rastro solo se escribiera al
+    arrancar, mirar los planos en un visor abierto desde ayer no contaría como
+    haberlos visto hoy, y la puerta bloquearía el camino legítimo.
+    """
+    registro = Path(workspace) / ".runtime" / ("visor-%d.log" % puerto)
+    registro.parent.mkdir(parents=True, exist_ok=True)
+    with open(registro, "a", encoding="utf-8") as rastro:
+        rastro.write(
+            "%s visor abierto sobre estos planos (puerto %d)\n"
+            % (time.strftime("%Y-%m-%dT%H:%M:%S"), puerto)
+        )
+    return registro
+
+
 def cmd_abrir(workspace, mapa, args):
     puerto, reutilizado = elegir_puerto(
         workspace, mapa, getattr(args, "puerto", None)
     )
     if reutilizado:
+        anotar_apertura(workspace, puerto)
         url = "http://127.0.0.1:%d/" % puerto
         print("Visor ya activo: %s" % url)
         if not args.sin_navegador:
@@ -154,8 +173,7 @@ def cmd_abrir(workspace, mapa, args):
         # El hijo elegiría un puerto que este proceso no podría conocer:
         # se resuelve aquí para poder imprimir la URL igualmente.
         puerto = puerto_libre()
-    registro = Path(workspace) / ".runtime" / ("visor-%d.log" % puerto)
-    registro.parent.mkdir(parents=True, exist_ok=True)
+    registro = anotar_apertura(workspace, puerto)
     comando = [
         sys.executable,
         str(BASE / "servir.py"),
