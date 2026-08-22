@@ -406,7 +406,11 @@ def leer_claude(fichero):
             if suma:
                 tokens = suma
                 modelo = mensaje.get("model") or modelo
-                turnos += 1     # un bloque de uso es un turno del asistente
+                # Solo cuentan los turnos del ASISTENTE. Un registro de usuario puede traer
+                # `usage` y no es un turno: contarlo infla la cuenta y adelanta el aviso.
+                # Las dos señales, porque el harness usa una u otra según la versión.
+                if dato.get("type") == "assistant" or mensaje.get("role") == "assistant":
+                    turnos += 1
         contenido = mensaje.get("content")
         if not isinstance(contenido, list):
             continue

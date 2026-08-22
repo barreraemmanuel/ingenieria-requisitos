@@ -168,6 +168,55 @@ class TurnosTest(BaseCanario):
         self.assertIsNone(informe["turnos"])
         self.assertEqual(canario.texto_veredicto(informe), "")
 
+    # --- lo que encontró el revisor fresco: contar SOLO turnos del asistente --
+
+    def test_un_mensaje_de_usuario_con_uso_no_cuenta_como_turno(self):
+        """El hueco que cazó la revisión: se contaba cualquier bloque de uso.
+
+        Un registro de usuario que traiga `usage` no es un turno del asistente. Si el
+        lector no distingue, la cuenta se infla y el aviso salta antes de tiempo.
+        """
+        cwd = str(self.cwd)
+        carpeta = self.claude / canario.normalizar_proyecto(cwd)
+        carpeta.mkdir(parents=True, exist_ok=True)
+        uso = {"input_tokens": 1000, "cache_read_input_tokens": 0,
+               "cache_creation_input_tokens": 0, "output_tokens": 10}
+        lineas = [
+            json.dumps({"type": "user", "cwd": cwd,
+                        "message": {"role": "user", "usage": uso, "content": "hola"}}),
+            json.dumps({"type": "assistant", "cwd": cwd,
+                        "message": {"model": "claude-opus-5", "usage": uso}}),
+        ]
+        (carpeta / "mixta.jsonl").write_text("\n".join(lineas) + "\n", encoding="utf-8")
+        informe = canario.diagnosticar(raiz=self.cwd, cwd=self.cwd,
+                                       claude_projects=self.claude,
+                                       codex_sessions=self.codex)
+        self.assertEqual(informe["turnos"], 1,
+                         "solo el mensaje del asistente es un turno")
+
+    def test_codex_tambien_cuenta_turnos_y_avisa_por_posicion(self):
+        """El otro lector tiene que contar igual: el contrato no distingue harness."""
+        cwd = str(self.cwd)
+        carpeta = self.codex / "2026" / "08" / "18"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        lineas = [json.dumps({"type": "session_meta",
+                              "payload": {"id": "abc", "cwd": cwd, "model": "gpt-5"}})]
+        for _ in range(300):
+            lineas.append(json.dumps({
+                "type": "event_msg",
+                "payload": {"type": "token_count",
+                            "info": {"last_token_usage": {"total_tokens": 90_000},
+                                     "model_context_window": 258_400}},
+            }))
+        (carpeta / "rollout-2026-08-18T10-00-00.jsonl").write_text(
+            "\n".join(lineas) + "\n", encoding="utf-8")
+        informe = canario.diagnosticar(raiz=self.cwd, cwd=self.cwd,
+                                       claude_projects=self.claude,
+                                       codex_sessions=self.codex)
+        self.assertEqual(informe["harness"], "codex")
+        self.assertEqual(informe["turnos"], 300)
+        self.assertEqual(informe["veredicto"], "largo")
+
     # --- la razón de ser de la unidad ---------------------------------------
 
     def test_la_sesion_que_hoy_nunca_dispara_ahora_si(self):
