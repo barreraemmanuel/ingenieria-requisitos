@@ -13,9 +13,17 @@ sub-vista de actividad el `nav` está oculto y "Por persona" no es accesible
 (count 0, clic cuelga); solo tras pulsar "🗺 El mapa" reaparece.
 """
 
+import argparse
+import contextlib
 import importlib.util
+import io
+import json
+import tempfile
 import unittest
+from unittest import mock
 from pathlib import Path
+
+from visor import requisitos
 
 RAIZ = Path(__file__).resolve().parents[2]
 _spec = importlib.util.spec_from_file_location(
@@ -23,7 +31,6 @@ _spec = importlib.util.spec_from_file_location(
 )
 validar_web = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(validar_web)
-
 
 class BotonFalso:
     def __init__(self, page, nombre):
@@ -115,6 +122,79 @@ class ContratoE2EConMapaTest(unittest.TestCase):
     def test_sin_actores_no_hay_contrato_de_personas(self):
         page = PaginaMapa(tiene_superficie=True)
         validar_web.comprobar_contrato_e2e(page, {"actividades": [{"area": "a"}]})
+
+
+class AbrirActividadTest(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="abrir-actividad-")
+        self.addCleanup(self.tmp.cleanup)
+        self.workspace = Path(self.tmp.name)
+        self.mapa = self.workspace / "docs/02-flujos/planos/planos.json"
+        self.mapa.parent.mkdir(parents=True)
+        self.mapa.write_text(
+            json.dumps({"actividades": [{"id": "canario-contexto"}]}),
+            encoding="utf-8",
+        )
+
+    def args(self, actividad):
+        return argparse.Namespace(
+            actividad=actividad,
+            puerto=None,
+            sin_navegador=True,
+            minutos=0,
+        )
+
+    def test_actividad_valida_abre_su_resumen_directamente(self):
+        salida = io.StringIO()
+        with mock.patch.object(requisitos, "elegir_puerto", return_value=(8765, True)), \
+             mock.patch.object(requisitos, "anotar_apertura"), \
+             contextlib.redirect_stdout(salida):
+            self.assertEqual(
+                requisitos.cmd_abrir(self.workspace, self.mapa, self.args("canario-contexto")),
+                0,
+            )
+        self.assertIn(
+            "http://127.0.0.1:8765/#canario-contexto::resumen", salida.getvalue()
+        )
+
+    def test_actividad_valida_abre_su_resumen_al_arrancar_servidor(self):
+        salida = io.StringIO()
+        proceso = mock.Mock()
+        proceso.poll.return_value = None
+        with mock.patch.object(requisitos, "elegir_puerto", return_value=(0, False)), \
+             mock.patch.object(requisitos, "puerto_libre", return_value=8767), \
+             mock.patch.object(requisitos, "anotar_apertura", return_value=self.workspace / "visor.log"), \
+             mock.patch.object(requisitos.subprocess, "Popen", return_value=proceso), \
+             mock.patch.object(
+                 requisitos,
+                 "meta_puerto",
+                 return_value={"datos": str(self.mapa)},
+             ), \
+             contextlib.redirect_stdout(salida):
+            self.assertEqual(
+                requisitos.cmd_abrir(self.workspace, self.mapa, self.args("canario-contexto")),
+                0,
+            )
+        self.assertIn(
+            "http://127.0.0.1:8767/#canario-contexto::resumen", salida.getvalue()
+        )
+
+    def test_actividad_inexistente_no_abre_la_portada(self):
+        with mock.patch.object(requisitos, "elegir_puerto") as elegir:
+            with self.assertRaisesRegex(ValueError, "no existe"):
+                requisitos.cmd_abrir(
+                    self.workspace, self.mapa, self.args("no-existe")
+                )
+        elegir.assert_not_called()
+
+    def test_sin_actividad_conserva_la_portada(self):
+        salida = io.StringIO()
+        with mock.patch.object(requisitos, "elegir_puerto", return_value=(8765, True)), \
+             mock.patch.object(requisitos, "anotar_apertura"), \
+             contextlib.redirect_stdout(salida):
+            requisitos.cmd_abrir(self.workspace, self.mapa, self.args(None))
+        self.assertIn("http://127.0.0.1:8765/", salida.getvalue())
+        self.assertNotIn("#", salida.getvalue())
 
 
 if __name__ == "__main__":

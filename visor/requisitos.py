@@ -158,13 +158,31 @@ def anotar_apertura(workspace, puerto):
     return registro
 
 
+def destino_actividad(mapa, actividad):
+    """Devuelve el hash de una actividad existente o falla antes de abrir nada."""
+    if not actividad:
+        return ""
+    try:
+        datos = json.loads(mapa.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise ValueError("no pude leer el mapa para abrir la actividad: %s" % exc)
+    ids = {
+        item.get("id") for item in datos.get("actividades", [])
+        if isinstance(item, dict) and item.get("id")
+    }
+    if actividad not in ids:
+        raise ValueError("la actividad '%s' no existe en el mapa actual" % actividad)
+    return "#%s::resumen" % actividad
+
+
 def cmd_abrir(workspace, mapa, args):
+    destino = destino_actividad(mapa, getattr(args, "actividad", None))
     puerto, reutilizado = elegir_puerto(
         workspace, mapa, getattr(args, "puerto", None)
     )
     if reutilizado:
         anotar_apertura(workspace, puerto)
-        url = "http://127.0.0.1:%d/" % puerto
+        url = "http://127.0.0.1:%d/%s" % (puerto, destino)
         print("Visor ya activo: %s" % url)
         if not args.sin_navegador:
             webbrowser.open(url)
@@ -197,7 +215,7 @@ def cmd_abrir(workspace, mapa, args):
             stderr=subprocess.STDOUT,
             start_new_session=True,
         )
-    url = "http://127.0.0.1:%d/" % puerto
+    url = "http://127.0.0.1:%d/%s" % (puerto, destino)
     for _ in range(50):  # hasta ~10 s a que el servidor conteste
         meta = meta_puerto(puerto)
         if meta and Path(meta.get("datos", "")).resolve() == mapa.resolve():
@@ -229,6 +247,10 @@ def main():
     abrir.add_argument("--puerto", type=int)
     abrir.add_argument("--minutos", type=float, default=0)
     abrir.add_argument("--sin-navegador", action="store_true")
+    abrir.add_argument(
+        "--actividad",
+        help="ID de la actividad del mapa que se abre directamente en Resumen",
+    )
 
     listo = sub.add_parser(
         "listo",
