@@ -777,6 +777,23 @@ def proteger_main(owner, nombre):
     return None
 
 
+def ajustar_rutas_largas(repo):
+    """En Windows, deja que git pase del límite de 260 caracteres de MAX_PATH.
+
+    El método añade un nivel de anidamiento que el repo suelto no tiene
+    (`<workspace>/worktrees/<NNN-slug>/`, unos 80 caracteres): con un `node_modules`
+    corriente eso basta para que `git worktree add` muera con «Filename too long» y
+    deje el worktree a medias. `core.longpaths` hace que git use las APIs de Windows
+    con prefijo largo y se salte el límite.
+
+    Es configuración LOCAL del repo: no toca el git global del usuario ni su sistema.
+    Fuera de Windows no se escribe nada, porque allí ese límite no existe.
+    """
+    if sys.platform != "win32":
+        return
+    git(repo, "config", "core.longpaths", "true")
+
+
 def montar_git(destino, nombre_codigo, titulo, remoto_codigo, remoto_meta):
     """git init + commit del meta y repo de código independiente dentro de main/.
 
@@ -793,6 +810,7 @@ def montar_git(destino, nombre_codigo, titulo, remoto_codigo, remoto_meta):
     # El método compara BYTES (huellas sha256): este repo no convierte finales de
     # línea jamás, aunque el global de la máquina diga otra cosa (Windows).
     git(destino, "config", "core.autocrlf", "false")
+    ajustar_rutas_largas(destino)
     git(destino, "add", "AGENTS.md", "CLAUDE.md", "GEMINI.md", "README.md", "GUIA.md",
         "METODO.json",
         "setup.py", "repos.yaml", ".gitignore", "docs", "worktrees", ".github",
@@ -809,12 +827,14 @@ def montar_git(destino, nombre_codigo, titulo, remoto_codigo, remoto_meta):
         rc, out = git(destino, "clone", remoto_codigo, "main")   # su rama por defecto, no `main`
         if rc != 0:
             morir(f"no pude clonar el repo de código ({remoto_codigo}):\n{out}")
+        ajustar_rutas_largas(main_dir)
     else:
         main_dir.mkdir()
         rc, out = git(main_dir, "init", "-b", "main")
         if rc != 0:
             morir(f"git init del repo de código falló: {out}")
         git(main_dir, "config", "core.autocrlf", "false")
+        ajustar_rutas_largas(main_dir)
         # El repo de código nace LIMPIO: sin stack no hay suite, linter ni auditor de
         # dependencias reales. La primera unidad del esqueleto los materializa juntos.
         (main_dir / "README.md").write_text(

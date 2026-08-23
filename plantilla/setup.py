@@ -145,6 +145,15 @@ def main():
     if configurado.returncode:
         morir(f"no pude activar el hook de Git:\n{configurado.stdout.strip()}")
 
+    if sys.platform == "win32":
+        # El método añade `worktrees/<NNN-slug>/` (unos 80 caracteres) sobre la ruta que
+        # tendría el repo suelto. Con un `node_modules` corriente eso basta para pasar de
+        # los 260 de MAX_PATH y que `git worktree add` muera con «Filename too long»,
+        # dejando el worktree a medias. Config LOCAL de estos dos repos: no toca el git
+        # global del usuario ni su sistema.
+        for repo in (RAIZ, codigo):
+            ejecutar("git", "-C", repo, "config", "core.longpaths", "true")
+
     for nombre in ("worktrees", ".private", ".runtime"):
         (RAIZ / nombre).mkdir(exist_ok=True)
     print("[4/5] carpetas locales y hook de Git preparados.")

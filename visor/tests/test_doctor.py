@@ -21,11 +21,16 @@ class RevisarPlataformaTest(unittest.TestCase):
     def setUp(self):
         self._platform_original = sys.platform
         self._which_original = doctor.shutil.which
+        self._rutas_original = doctor.rutas_largas_activas
+        # Las rutas largas son una señal APARTE: se fija en "activadas" para que los
+        # tests de bash/python3 midan solo lo suyo. Su propio test la maneja.
+        doctor.rutas_largas_activas = lambda: True
         self.addCleanup(self._restaurar)
 
     def _restaurar(self):
         sys.platform = self._platform_original
         doctor.shutil.which = self._which_original
+        doctor.rutas_largas_activas = self._rutas_original
 
     # R1 (bug 013): win32 ya NO receta WSL2/sandbox --------------------------
 
@@ -91,6 +96,39 @@ class RevisarPlataformaTest(unittest.TestCase):
         self.assertEqual(estado, "WARN")
         self.assertIn("python3", consecuencia)
         self.assertNotIn("WSL2", consecuencia)
+
+    # Bug 044: rutas largas ------------------------------------------------
+
+    def test_win32_avisa_si_las_rutas_largas_estan_desactivadas(self):
+        """`worktrees/NNN-slug/` añade ~80 caracteres: con MAX_PATH en 260 y un
+        node_modules corriente, `git worktree add` muere. git lo sortea con
+        core.longpaths, pero npm y compiladores no: por eso se avisa."""
+        sys.platform = "win32"
+        doctor.shutil.which = lambda nombre, path=None: "/usr/bin/" + nombre
+        doctor.rutas_largas_activas = lambda: False
+
+        estado, _detalle, consecuencia = doctor.revisar_plataforma()
+
+        self.assertEqual(estado, "WARN")
+        self.assertIn("rutas largas", consecuencia)
+        self.assertIn("260", consecuencia)
+
+    def test_win32_no_avisa_si_las_rutas_largas_estan_activadas(self):
+        sys.platform = "win32"
+        doctor.shutil.which = lambda nombre, path=None: "/usr/bin/" + nombre
+        doctor.rutas_largas_activas = lambda: True
+
+        estado, _detalle, consecuencia = doctor.revisar_plataforma()
+
+        self.assertEqual(estado, "OK")
+        self.assertNotIn("rutas largas", consecuencia)
+
+    def test_fuera_de_windows_las_rutas_largas_no_son_un_problema(self):
+        """El límite es de Windows: en POSIX no se lee registro ni se avisa."""
+        sys.platform = "linux"
+        doctor.rutas_largas_activas = self._rutas_original
+
+        self.assertTrue(doctor.rutas_largas_activas())
 
     # R2 (bug 013): linux/darwin ya NO comprueban ningún mecanismo de sandbox --
 
