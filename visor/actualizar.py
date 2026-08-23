@@ -46,6 +46,7 @@ if str(SCRIPTS_METODO) not in sys.path:
     sys.path.insert(0, str(SCRIPTS_METODO))
 import lease as gestion_leases
 import repo_config
+import workspace_paths
 
 for _salida in (sys.stdout, sys.stderr):
     if hasattr(_salida, "reconfigure"):
@@ -573,8 +574,12 @@ def ruta_workspace(workspace, relativo, *, permitir_ausente=True):
             if not permitir_ausente and indice == len(pura.parts) - 1:
                 raise RuntimeError(f"ruta ausente durante Modo D: {relativo}")
             continue
-        if stat.S_ISLNK(estado.st_mode):
-            raise RuntimeError(f"Modo D rechaza symlink en ruta protegida: {relativo}")
+        # No basta S_ISLNK: un junction de Windows (mklink /J, SIN privilegio) es un
+        # directorio a todos los efectos para lstat, pero redirige fuera igual que un
+        # symlink. Se comprobó explotable contra esta misma función (unidad 043).
+        if workspace_paths.es_enlace(actual):
+            raise RuntimeError(
+                f"Modo D rechaza un enlace (symlink o junction) en ruta protegida: {relativo}")
         if indice < len(pura.parts) - 1 and not stat.S_ISDIR(estado.st_mode):
             raise RuntimeError(f"Modo D rechaza padre no-directorio: {relativo}")
         if indice == len(pura.parts) - 1 and not stat.S_ISREG(estado.st_mode):
@@ -595,7 +600,7 @@ def preparar_padre_seguro(workspace, relativo):
             except FileExistsError:
                 pass
             estado = os.lstat(actual)
-        if stat.S_ISLNK(estado.st_mode) or not stat.S_ISDIR(estado.st_mode):
+        if workspace_paths.es_enlace(actual) or not stat.S_ISDIR(estado.st_mode):
             raise RuntimeError(f"Modo D rechaza padre inseguro: {relativo}")
     return ruta_workspace(workspace, relativo)
 

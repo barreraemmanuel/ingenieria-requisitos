@@ -24,6 +24,8 @@ import time
 import uuid
 from pathlib import Path
 
+import workspace_paths
+
 try:
     import fcntl
 except ImportError:  # pragma: no cover - en Windows el candado lo da msvcrt
@@ -321,13 +323,17 @@ class LeaseManager:
 
     @staticmethod
     def _ensure_directory(path, label):
-        if path.is_symlink():
-            raise LeaseError(f"{label} no puede ser symlink")
+        # `es_enlace` y no `is_symlink`: en Windows un junction (mklink /J, SIN
+        # privilegio) redirige igual y es invisible para is_symlink(). Se comprobó
+        # explotable: con .runtime/leases/active como junction, el lease se escribía
+        # FUERA del workspace (unidad 043).
+        if workspace_paths.es_enlace(path):
+            raise LeaseError(f"{label} no puede ser un enlace (symlink o junction)")
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise LeaseError(f"{label} ilegible: {exc}") from exc
-        if path.is_symlink() or not path.is_dir():
+        if workspace_paths.es_enlace(path) or not path.is_dir():
             raise LeaseError(f"{label} no es un directorio regular")
 
     @staticmethod
