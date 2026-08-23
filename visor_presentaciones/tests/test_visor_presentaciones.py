@@ -1,11 +1,12 @@
 import http.client
 import json
+import urllib.request
 import tempfile
 import threading
 import unittest
 from pathlib import Path
 
-from visor_presentaciones import manifestar, servir
+from visor_presentaciones import abrir, manifestar, servir
 
 
 def manifiesto_valido():
@@ -111,6 +112,25 @@ class PruebasManifiesto(unittest.TestCase):
                     manifestar.validar(datos)
 
 
+class PruebasLanzadorEstable(unittest.TestCase):
+    def test_abre_y_reutiliza_la_ruta_directa_con_servidor_vivo(self):
+        with tempfile.TemporaryDirectory() as temporal:
+            datos = Path(temporal)
+            (datos / "manifiesto.json").write_text(
+                json.dumps(manifiesto_valido()), encoding="utf-8"
+            )
+            args = abrir.argumentos_prueba(puerto=0, presentacion="propuesta-uno")
+            primera = abrir.abrir(datos, args)
+            self.addCleanup(abrir.detener, primera.proceso)
+            self.assertTrue(primera.url.endswith("/presentacion/propuesta-uno"))
+            with urllib.request.urlopen(primera.url, timeout=3) as respuesta:
+                self.assertEqual(respuesta.status, 200)
+
+            segunda = abrir.abrir(datos, args)
+
+            self.assertEqual(segunda.url, primera.url)
+            self.assertIsNone(segunda.proceso)
+
 class PruebasServidor(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -167,6 +187,16 @@ class PruebasServidor(unittest.TestCase):
             'id="vista-validacion"', 'name="eleccion"', 'id="comentario"',
             'id="confirmar"', 'role="alert"', ':focus-visible',
             '@media (max-width: 700px)', 'aria-live="polite"',
+        ):
+            self.assertIn(esperado, texto)
+
+    def test_plantilla_usa_el_lenguaje_visual_del_visor_de_flujos(self):
+        _, _, html = self.pedir("GET", "/")
+        texto = html.decode("utf-8")
+        for esperado in (
+            "--paper: #F3F5F1", "--sans: -apple-system",
+            ":root[data-theme=\"dark\"]", ".boton-tema",
+            "outline: 2px solid var(--warn)", "max-width: 920px",
         ):
             self.assertIn(esperado, texto)
 

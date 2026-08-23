@@ -143,7 +143,7 @@ ARCHIVOS_REQUISITOS = (
     "RUNBOOK/arranque.md", "RUNBOOK/fases.md", "RUNBOOK/comun.md",
     "RUNBOOK/modo-c.md", "RUNBOOK/modo-d.md",
 )
-ARCHIVOS_PRESENTACIONES = ("manifestar.py", "servir.py", "plantilla.html")
+ARCHIVOS_PRESENTACIONES = ("abrir.py", "manifestar.py", "servir.py", "plantilla.html")
 
 
 def version_metodo():

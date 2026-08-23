@@ -59,6 +59,11 @@ def hacer_handler(datos, estado):
             ruta = urlsplit(self.path).path
             if ruta in ("/", "/index.html"):
                 return self._fichero(PLANTILLA, "text/html; charset=utf-8")
+            if ruta == "/meta.json":
+                return self._json(200, {
+                    "servicio": "visor-presentaciones",
+                    "datos": str(datos),
+                })
             if ruta.startswith("/presentacion/") and ruta.count("/") == 2 and manifestar.ID.fullmatch(ruta.rsplit("/", 1)[1]):
                 try:
                     identificador = ruta.rsplit("/", 1)[1]

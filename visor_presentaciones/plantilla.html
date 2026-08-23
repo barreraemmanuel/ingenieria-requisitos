@@ -2,14 +2,79 @@
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Presentaciones locales</title>
 <style>
-:root{--papel:#f4f5f1;--hoja:#fff;--tinta:#17212b;--suave:#53616b;--linea:#cad2cc;--acento:#235d78;--ok:#396b49;--aviso:#926612;--error:#a23429;font:16px/1.55 system-ui,sans-serif}*{box-sizing:border-box}body{margin:0;background:var(--papel);color:var(--tinta)}main{max-width:960px;margin:auto;padding:32px 20px 80px}header{margin-bottom:24px}.marca{color:var(--aviso);font-size:.75rem;font-weight:700;text-transform:uppercase;letter-spacing:.12em}h1{margin:.2rem 0}.vista{background:var(--hoja);border:1px solid var(--linea);border-radius:12px;padding:24px;margin:18px 0}.rejilla{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px}.tarjeta,section{border:1px solid var(--linea);border-radius:8px;padding:14px}button{font:inherit;border:1px solid var(--acento);border-radius:7px;padding:9px 14px;background:var(--acento);color:white;cursor:pointer}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:3px solid var(--aviso);outline-offset:3px}label{display:block;margin:12px 0}textarea{display:block;width:100%;min-height:90px;padding:8px}.estado{min-height:1.6em;color:var(--error)}a{color:var(--acento)}[hidden]{display:none!important}
-@media (max-width: 700px){main{padding:20px 12px 60px}.vista{padding:16px}.rejilla{display:block}.tarjeta{margin:10px 0}button{width:100%}}
-</style></head><body><main><header><div class="marca">ingeniería de requisitos</div><h1>Presentaciones locales</h1><p id="sub">Cargando contenido comprobable…</p></header>
+:root {
+  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+  --line: #CDD5CE; --line-soft: #E1E7E0;
+  --accent: #1F5673; --accent-bg: #E4EDF2;
+  --ok: #3D6B4C; --ok-bg: #E3EDE4;
+  --warn: #8E6410; --warn-bg: #F2EBDA;
+  --fail: #A03127; --fail-bg: #F4E4E1;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+    --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+    --line: #2B363E; --line-soft: #202A31;
+    --accent: #7FB4D4; --accent-bg: #16242E;
+    --ok: #77B189; --ok-bg: #17251C;
+    --warn: #CE9F45; --warn-bg: #251F12;
+    --fail: #E08578; --fail-bg: #2A1815;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+  --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+  --line: #2B363E; --line-soft: #202A31;
+  --accent: #7FB4D4; --accent-bg: #16242E;
+  --ok: #77B189; --ok-bg: #17251C;
+  --warn: #CE9F45; --warn-bg: #251F12;
+  --fail: #E08578; --fail-bg: #2A1815;
+}
+:root[data-theme="light"] {
+  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+  --line: #CDD5CE; --line-soft: #E1E7E0;
+  --accent: #1F5673; --accent-bg: #E4EDF2;
+  --ok: #3D6B4C; --ok-bg: #E3EDE4;
+  --warn: #8E6410; --warn-bg: #F2EBDA;
+  --fail: #A03127; --fail-bg: #F4E4E1;
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { margin: 0; background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+main { max-width: 920px; margin: 0 auto; padding: 32px 20px 90px; }
+header { position: relative; padding-right: 44px; margin-bottom: 24px; }
+.marca { color: var(--warn); font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .14em; }
+.boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; padding: 0; border: 1px solid var(--line); border-radius: 50%; background: var(--sheet); color: var(--muted); font: 15px/1 var(--sans); cursor: pointer; }
+.boton-tema:hover { border-color: var(--accent); color: var(--ink); }
+h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }
+#sub { margin: 0; color: var(--muted); font-size: 13.5px; }
+.vista, form { margin: 18px 0; padding: 20px 22px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); }
+.vista > h2 { margin: 0 0 14px; font-size: 20px; line-height: 1.25; }
+.contenido { max-width: 70ch; }
+.rejilla { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; max-width: none; }
+.tarjeta, section { border: 1px solid var(--line); border-radius: 8px; padding: 14px 16px; }
+.tarjeta h3, section h3 { margin: 0 0 6px; font-size: 16px; }
+.tarjeta p, section ul { margin: 6px 0; }
+fieldset { margin: 0; padding: 0; border: 0; }
+legend { margin-bottom: 10px; font-size: 17px; font-weight: bold; }
+label { display: block; margin: 10px 0; }
+textarea { display: block; width: 100%; min-height: 90px; margin-top: 5px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font: inherit; }
+button:not(.boton-tema) { padding: 9px 14px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
+button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
+.estado { min-height: 1.6em; color: var(--fail); }
+a { color: var(--accent); }
+@media (max-width: 700px) { main { padding: 20px 12px 60px; } .vista, form { padding: 16px; } .rejilla { display: block; } .tarjeta { margin: 10px 0; } button:not(.boton-tema) { width: 100%; } }
+</style></head><body><main><header><button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button><div class="marca">ingeniería de requisitos</div><h1>Presentaciones locales</h1><p id="sub">Cargando contenido comprobable…</p></header>
 <article id="vista-bandeja" class="vista" hidden><h2></h2><div class="contenido rejilla"></div></article>
 <article id="vista-lector" class="vista" hidden><h2></h2><div class="contenido"></div></article>
 <article id="vista-propuesta" class="vista" hidden><h2></h2><div class="contenido"></div></article>
 <article id="vista-validacion" class="vista" hidden><h2></h2><div class="contenido"></div></article>
 <form id="decision" hidden><fieldset><legend>Registrar decisión</legend><div id="opciones"></div><label>Comentario<textarea id="comentario" maxlength="2000"></textarea></label><button id="confirmar" type="submit">Confirmar decisión</button><p id="mensaje" class="estado" role="alert" aria-live="polite"></p></fieldset></form>
 </main><script>
-(function(){"use strict";var actual=null;function limpiar(){document.querySelectorAll(".vista").forEach(function(x){x.hidden=true;x.querySelector(".contenido").textContent=""});document.getElementById("decision").hidden=true}function texto(tag,valor){var n=document.createElement(tag);n.textContent=valor;return n}function lista(titulo,valores){var s=document.createElement("section");s.appendChild(texto("h3",titulo));var ul=document.createElement("ul");valores.forEach(function(v){ul.appendChild(texto("li",v))});s.appendChild(ul);return s}function pintar(p){limpiar();actual=p;var vista=document.getElementById("vista-"+p.tipo),c=vista.querySelector(".contenido");vista.hidden=false;vista.querySelector("h2").textContent=p.titulo+" · v"+p.version;if(p.tipo==="bandeja"){p.peticiones.forEach(function(x){var d=document.createElement("div");d.className="tarjeta";d.append(texto("h3",x.titulo),texto("p",x.detalle),texto("p","Estado: "+x.estado));var a=texto("a","Abrir detalle");a.href="/presentacion/"+encodeURIComponent(x.destino);d.appendChild(a);c.appendChild(d)})}else if(p.tipo==="lector"){[["Preguntas",p.preguntas],["Hechos",p.hechos],["Fuentes",p.fuentes],["Hallazgos",p.hallazgos],["Conclusiones",p.conclusiones],["Límites",p.limites]].forEach(function(x){c.appendChild(lista(x[0],x[1]))})}else{if(p.resumen)c.appendChild(texto("p",p.resumen));if(p.pasos)c.appendChild(lista("Pasos",p.pasos));if(p.evidencia)c.appendChild(lista("Evidencia resumida",p.evidencia));var f=document.getElementById("decision"),ops=document.getElementById("opciones");ops.textContent="";p.opciones.forEach(function(o){var l=document.createElement("label"),i=document.createElement("input");i.type="radio";i.name="eleccion";i.value=o;l.append(i,document.createTextNode(" "+o));ops.appendChild(l)});f.hidden=false}document.title=p.titulo+" · Presentaciones locales"}fetch("/manifiesto.json",{cache:"no-store"}).then(function(r){if(!r.ok)throw Error("No se pudo cargar el manifiesto");return r.json()}).then(function(m){var id=decodeURIComponent(location.pathname.replace(/^\/presentacion\//,""));var p=m.presentaciones.find(function(x){return x.id===id})||m.presentaciones.find(function(x){return x.tipo==="bandeja"})||m.presentaciones[0];document.getElementById("sub").textContent="Contenido local · sin caché";pintar(p)}).catch(function(e){document.getElementById("sub").textContent=e.message});document.getElementById("decision").addEventListener("submit",function(e){e.preventDefault();var elegida=document.querySelector('input[name="eleccion"]:checked'),msg=document.getElementById("mensaje");if(!elegida){msg.textContent="Elige una opción antes de confirmar.";return}var contenido=actual.tipo==="propuesta"?actual.resumen:actual.pasos.join("\n");fetch("/decisiones",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({presentacion:actual.id,version:actual.version,contenido_revisado:contenido,eleccion:elegida.value,comentario:document.getElementById("comentario").value,confirmado:true})}).then(function(r){return r.json().then(function(j){if(!r.ok)throw Error(j.error);return j})}).then(function(){msg.style.color="var(--ok)";msg.textContent="Decisión registrada con recibo nuevo."}).catch(function(err){msg.style.color="var(--error)";msg.textContent=err.message})})})();
+(function(){var clave="visor-tema",raiz=document.documentElement,boton=document.getElementById("boton-tema"),guardado=null;try{guardado=localStorage.getItem(clave)}catch(e){guardado=null}if(guardado==="dark"||guardado==="light")raiz.dataset.theme=guardado;function oscuro(){return raiz.dataset.theme?raiz.dataset.theme==="dark":window.matchMedia("(prefers-color-scheme: dark)").matches}function pintar(){var esOscuro=oscuro();boton.textContent=esOscuro?"☀":"☾";boton.title=esOscuro?"Cambiar a claro":"Cambiar a oscuro"}boton.addEventListener("click",function(){var tema=oscuro()?"light":"dark";raiz.dataset.theme=tema;try{localStorage.setItem(clave,tema)}catch(e){}pintar()});pintar()})();
+(function(){"use strict";var actual=null;function limpiar(){document.querySelectorAll(".vista").forEach(function(x){x.hidden=true;x.querySelector(".contenido").textContent=""});document.getElementById("decision").hidden=true}function texto(tag,valor){var n=document.createElement(tag);n.textContent=valor;return n}function lista(titulo,valores){var s=document.createElement("section");s.appendChild(texto("h3",titulo));var ul=document.createElement("ul");valores.forEach(function(v){ul.appendChild(texto("li",v))});s.appendChild(ul);return s}function pintar(p){limpiar();actual=p;var vista=document.getElementById("vista-"+p.tipo),c=vista.querySelector(".contenido");vista.hidden=false;vista.querySelector("h2").textContent=p.titulo+" · v"+p.version;if(p.tipo==="bandeja"){p.peticiones.forEach(function(x){var d=document.createElement("div");d.className="tarjeta";d.append(texto("h3",x.titulo),texto("p",x.detalle),texto("p","Estado: "+x.estado));var a=texto("a","Abrir detalle");a.href="/presentacion/"+encodeURIComponent(x.destino);d.appendChild(a);c.appendChild(d)})}else if(p.tipo==="lector"){[["Preguntas",p.preguntas],["Hechos",p.hechos],["Fuentes",p.fuentes],["Hallazgos",p.hallazgos],["Conclusiones",p.conclusiones],["Límites",p.limites]].forEach(function(x){c.appendChild(lista(x[0],x[1]))})}else{if(p.resumen)c.appendChild(texto("p",p.resumen));if(p.pasos)c.appendChild(lista("Pasos",p.pasos));if(p.evidencia)c.appendChild(lista("Evidencia resumida",p.evidencia));var f=document.getElementById("decision"),ops=document.getElementById("opciones");ops.textContent="";p.opciones.forEach(function(o){var l=document.createElement("label"),i=document.createElement("input");i.type="radio";i.name="eleccion";i.value=o;l.append(i,document.createTextNode(" "+o));ops.appendChild(l)});f.hidden=false}document.title=p.titulo+" · Presentaciones locales"}fetch("/manifiesto.json",{cache:"no-store"}).then(function(r){if(!r.ok)throw Error("No se pudo cargar el manifiesto");return r.json()}).then(function(m){var id=decodeURIComponent(location.pathname.replace(/^\/presentacion\//,""));var p=m.presentaciones.find(function(x){return x.id===id})||m.presentaciones.find(function(x){return x.tipo==="bandeja"})||m.presentaciones[0];document.getElementById("sub").textContent="Contenido local · sin caché";pintar(p)}).catch(function(e){document.getElementById("sub").textContent=e.message});document.getElementById("decision").addEventListener("submit",function(e){e.preventDefault();var elegida=document.querySelector('input[name="eleccion"]:checked'),msg=document.getElementById("mensaje");if(!elegida){msg.textContent="Elige una opción antes de confirmar.";return}var contenido=actual.tipo==="propuesta"?actual.resumen:actual.pasos.join("\n");fetch("/decisiones",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({presentacion:actual.id,version:actual.version,contenido_revisado:contenido,eleccion:elegida.value,comentario:document.getElementById("comentario").value,confirmado:true})}).then(function(r){return r.json().then(function(j){if(!r.ok)throw Error(j.error);return j})}).then(function(){msg.style.color="var(--ok)";msg.textContent="Decisión registrada con recibo nuevo."}).catch(function(err){msg.style.color="var(--fail)";msg.textContent=err.message})})})();
 </script></body></html>
