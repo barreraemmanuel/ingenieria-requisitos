@@ -15,6 +15,11 @@ import sys
 import tempfile
 from pathlib import Path
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 try:
     from . import revision
 except ImportError:
@@ -31,7 +36,7 @@ def ejecutar(comando, cwd=None):
     return subprocess.run(
         comando,
         cwd=cwd,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )

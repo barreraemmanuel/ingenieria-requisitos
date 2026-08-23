@@ -24,6 +24,11 @@ import subprocess
 import sys
 import unicodedata
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 BASE = os.path.dirname(os.path.abspath(__file__))
 
 
@@ -36,7 +41,7 @@ def slug(texto):
 def generar(datos, salida):
     r = subprocess.run([sys.executable, os.path.join(BASE, "generar_spec.py"),
                         "--datos", datos, "--salida", salida],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
     if r.returncode != 0:
         sys.exit("Fallo generando %s:\n%s%s" % (salida, r.stdout, r.stderr))
 

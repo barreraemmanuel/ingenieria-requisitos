@@ -29,6 +29,30 @@ BASE = Path(__file__).resolve().parent      # visor/
 RAIZ = BASE.parent                          # el clone
 
 
+def buscar_bash():
+    """Ruta a un `bash` utilizable, o None. Gemelo de workspace_paths.buscar_bash().
+
+    Se copia en vez de importarse A PROPÓSITO: este doctor tiene que seguir dando su
+    diagnóstico en un clone INCOMPLETO —es media razón de existir— y un import de
+    plantilla/ lo mataría justo en el caso que debe diagnosticar.
+
+    En Windows el PATH lleva `Git\\cmd` (que solo tiene git.exe), no `Git\\bin`, así que
+    `which("bash")` da None aunque Git for Windows SIEMPRE traiga bash. Si no está en el
+    PATH se busca junto al git que sí se encontró: misma instalación, misma confianza.
+    """
+    encontrado = shutil.which("bash")
+    if encontrado:
+        return encontrado
+    git = shutil.which("git")
+    if not git or os.name != "nt":
+        return None
+    raiz_git = Path(git).resolve().parent.parent
+    for candidato in (raiz_git / "bin" / "bash.exe", raiz_git / "usr" / "bin" / "bash.exe"):
+        if candidato.is_file():
+            return str(candidato)
+    return None
+
+
 def correr(*comando, cwd=None):
     """(ok, primera línea). Nunca lanza: lo ausente es un dato, no un error."""
     if shutil.which(comando[0]) is None:
@@ -132,7 +156,7 @@ def revisar_plataforma():
     # ni recetar aquí, en Windows ni en ningún otro sitio.
     if sys.platform == "win32":
         avisos = []
-        if shutil.which("bash") is None:
+        if buscar_bash() is None:
             avisos.append("sin bash: los hooks y gates en shell no correrán "
                           "(bash viene con Git for Windows)")
         if shutil.which("python3") is None:

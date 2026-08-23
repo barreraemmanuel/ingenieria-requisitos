@@ -5,6 +5,7 @@ avisa de lo que sigue siendo real: bash y el alias python3."""
 
 import importlib.util
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -30,7 +31,8 @@ class RevisarPlataformaTest(unittest.TestCase):
 
     def test_win32_no_menciona_wsl2_ni_sandbox(self):
         sys.platform = "win32"
-        doctor.shutil.which = lambda nombre: "/usr/bin/" + nombre  # bash y python3 presentes
+        # `path=` porque buscar_bash() usa shutil.which con esa firma.
+        doctor.shutil.which = lambda nombre, path=None: "/usr/bin/" + nombre
 
         estado, detalle, consecuencia = doctor.revisar_plataforma()
 
@@ -44,7 +46,10 @@ class RevisarPlataformaTest(unittest.TestCase):
         """Lo que seguía siendo real (bash/python3 vienen de Git for Windows, no del
         sandbox) no se pierde al quitar la promesa falsa de WSL2."""
         sys.platform = "win32"
-        doctor.shutil.which = lambda nombre: None if nombre == "bash" else "/usr/bin/" + nombre
+        # Ni en el PATH ni junto a git: aquí bash de verdad no está.
+        doctor.shutil.which = lambda nombre, path=None: (
+            None if nombre in ("bash", "git") else "/usr/bin/" + nombre
+        )
 
         estado, detalle, consecuencia = doctor.revisar_plataforma()
 
@@ -52,9 +57,34 @@ class RevisarPlataformaTest(unittest.TestCase):
         self.assertIn("bash", consecuencia)
         self.assertNotIn("WSL2", consecuencia)
 
+    def test_win32_encuentra_el_bash_de_git_for_windows_fuera_del_PATH(self):
+        """El PATH de Windows lleva `Git\\cmd` (solo git.exe), no `Git\\bin`: which("bash")
+        daba None y el doctor avisaba de una falta que no existía, mientras el despacho
+        se negaba a correr hooks con el bash que tenía al lado. Se busca junto a git."""
+        sys.platform = "win32"
+        temporal = tempfile.TemporaryDirectory(prefix="git-for-windows-")
+        self.addCleanup(temporal.cleanup)
+        raiz = Path(temporal.name)
+        (raiz / "cmd").mkdir(parents=True)
+        (raiz / "bin").mkdir(parents=True)
+        (raiz / "cmd" / "git.exe").write_text("", encoding="utf-8")
+        (raiz / "bin" / "bash.exe").write_text("", encoding="utf-8")
+        doctor.shutil.which = lambda nombre, path=None: (
+            str(raiz / "cmd" / "git.exe") if nombre == "git"
+            else None if nombre == "bash"
+            else "/usr/bin/" + nombre
+        )
+
+        self.assertEqual(doctor.buscar_bash(), str(raiz / "bin" / "bash.exe"))
+        estado, _detalle, consecuencia = doctor.revisar_plataforma()
+        self.assertEqual(estado, "OK")
+        self.assertNotIn("bash", consecuencia)
+
     def test_win32_sin_python3_sigue_avisando_el_alias(self):
         sys.platform = "win32"
-        doctor.shutil.which = lambda nombre: None if nombre == "python3" else "/usr/bin/" + nombre
+        doctor.shutil.which = lambda nombre, path=None: (
+            None if nombre == "python3" else "/usr/bin/" + nombre
+        )
 
         estado, detalle, consecuencia = doctor.revisar_plataforma()
 

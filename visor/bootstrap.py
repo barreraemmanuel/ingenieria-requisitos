@@ -290,7 +290,8 @@ def morir(msg):
 
 
 def git(destino, *args):
-    r = subprocess.run(["git", *args], cwd=destino, capture_output=True, text=True)
+    r = subprocess.run(["git", *args], cwd=destino, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     return r.returncode, (r.stdout + r.stderr).strip()
 
 
@@ -358,7 +359,7 @@ def preparar_documentos_de_planos(origen_planos, destino_planos):
         [sys.executable, str(BASE / "generar_spec.py"), "--datos", str(destino_planos),
          "--salida", str(spec)],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
     if r.returncode:
         morir("no pude generar %s:\n%s%s" % (spec, r.stdout, r.stderr))
@@ -706,7 +707,7 @@ def remoto_tiene_codigo(url):
         r = subprocess.run(
             ["git", "clone", "--depth", "1", "--no-checkout", url, temporal],
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
         )
         if r.returncode:
             morir(
@@ -717,7 +718,7 @@ def remoto_tiene_codigo(url):
             ["git", "ls-tree", "-r", "--name-only", "HEAD"],
             cwd=temporal,
             capture_output=True,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
         )
         if listado.returncode:
             morir(f"no puedo leer el contenido inicial de {url}:\n{listado.stderr}")
@@ -744,12 +745,12 @@ def crear_repos_github(owner, nombre_codigo, nombre_meta):
     urls = []
     for nombre in (nombre_codigo, nombre_meta):
         r = subprocess.run(["gh", "repo", "create", f"{owner}/{nombre}", "--private"],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             morir(f"gh no pudo crear {owner}/{nombre}:\n{r.stdout}{r.stderr}")
         # Las ramas mueren solas al mergear su PR.
         subprocess.run(["gh", "repo", "edit", f"{owner}/{nombre}", "--delete-branch-on-merge"],
-                       capture_output=True, text=True)
+                       capture_output=True, text=True, encoding="utf-8", errors="replace")
         urls.append(f"https://github.com/{owner}/{nombre}.git")
     return urls[0], urls[1]
 
@@ -767,7 +768,8 @@ def proteger_main(owner, nombre):
     })
     r = subprocess.run(["gh", "api", "--method", "PUT",
                         f"repos/{owner}/{nombre}/branches/main/protection", "--input", "-"],
-                       input=cuerpo, capture_output=True, text=True)
+                       input=cuerpo, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     if r.returncode != 0:
         return ("no pude proteger main (en repos PRIVADOS del plan gratis GitHub lo capa). "
                 "El método protege igual: todo pasa por PR con la CI en verde — pero un push "
@@ -885,7 +887,7 @@ def main():
 
     if args.compilar:
         r = subprocess.run([sys.executable, str(BASE / "compilar.py"), "--mapa", str(mapa)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
         if r.returncode != 0:
             morir(f"compilar.py falló:\n{r.stdout}{r.stderr}")
 
@@ -1040,7 +1042,8 @@ def main():
 
     # --- El linter del método valida lo creado: si falla, el bootstrap falla ---
     lint = docs / "00-metodo" / "scripts" / "lint_metodo.py"
-    r = subprocess.run([sys.executable, str(lint)], capture_output=True, text=True)
+    r = subprocess.run([sys.executable, str(lint)], capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     print(r.stdout, end="")
     if r.returncode != 0:
         morir("el workspace creado NO pasa el linter (arriba); no lo uses sin arreglarlo")
@@ -1058,7 +1061,7 @@ def main():
     registro = subprocess.run(
         [sys.executable, str(BASE / "proyectos.py"), "registrar", str(destino), "--generado"],
         capture_output=True,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
     )
     if registro.returncode:
         avisos.append("no pude guardar el workspace en el registro local (%s)" %

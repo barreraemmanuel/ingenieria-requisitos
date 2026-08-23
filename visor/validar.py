@@ -16,6 +16,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 TIPOS_ACCION = ("humano", "estatico", "ia", "externo")
 BASE = Path(__file__).resolve().parent
 CAMPOS_FICHA = ("quien", "llega", "cuando", "ve", "puede", "nunca")
@@ -451,7 +456,7 @@ def validar_planos_de_actividades(d, ruta_mapa, perfil, tolerar_borrador=False):
             comando.append("--tolerar-borrador")
         r = subprocess.run(
             comando,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,
         )

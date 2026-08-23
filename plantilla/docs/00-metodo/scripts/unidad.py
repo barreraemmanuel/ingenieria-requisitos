@@ -316,7 +316,8 @@ def git(repo, *args, silencioso=False):
     """Ejecuta git y devuelve (codigo, salida). Nunca lanza: los errores se deciden arriba."""
     try:
         p = subprocess.run(["git", "-C", str(repo), *args],
-                           capture_output=True, text=True, check=False)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", check=False)
     except OSError as e:
         if not silencioso:
             warn(f"no se pudo ejecutar git: {e}")
@@ -755,16 +756,9 @@ def escribir_recibo_preparacion(destino, estado, hook=None, hook_sha256=None,
     return ruta
 
 
-def _which_sin_cwd(programa):
-    """shutil.which pero SIN el directorio actual, que en Windows se antepone al
-    PATH: si no, un bash.exe versionado en el repo de código (que suele ser el cwd)
-    ganaría al bash de Git for Windows y se ejecutaría fuera de todo control."""
-    rutas = os.environ.get("PATH", os.defpath).split(os.pathsep)
-    cwd = os.path.abspath(os.getcwd())
-    limpias = [r for r in rutas if r and os.path.abspath(r) != cwd]
-    return shutil.which(programa, path=os.pathsep.join(limpias))
-
-
+# La búsqueda de bash vive en workspace_paths para que el despacho, el gate de deploy y
+# el doctor usen el MISMO criterio: tres criterios distintos daban tres respuestas
+# distintas en Windows, y las tres decían "no hay bash" con bash instalado al lado.
 def orden_para_hook(gancho):
     """En POSIX el shebang ejecuta el hook solo; en Windows el shebang no existe:
     si el hook lo trae se ejecuta vía bash (viene con Git for Windows), y si no hay
@@ -774,7 +768,7 @@ def orden_para_hook(gancho):
     if os.name == "nt":
         with open(gancho, "rb") as stream:
             if stream.read(2) == b"#!":
-                bash = _which_sin_cwd("bash")
+                bash = workspace_paths.buscar_bash()
                 if not bash:
                     raise OSError(
                         "en Windows este hook necesita bash (Git for Windows) "
@@ -2029,7 +2023,7 @@ def procesos_dentro(destino):
         return []
     try:
         r = subprocess.run(["lsof", "-t", "+D", str(destino)], capture_output=True,
-                           text=True, timeout=15)
+                           text=True, encoding="utf-8", errors="replace", timeout=15)
     except (OSError, subprocess.TimeoutExpired):
         return []
     propios = {str(os.getpid()), str(os.getppid())}

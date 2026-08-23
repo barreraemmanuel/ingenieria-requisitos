@@ -189,7 +189,7 @@ def ejecutar_validador(mapa, perfil="revision", extra=None):
             "--perfil",
             perfil,
         ] + list(extra or []),
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
     )
