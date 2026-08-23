@@ -19,7 +19,6 @@ Sin dependencias: solo stdlib. El disco es la verdad; este script solo la compru
 """
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -27,6 +26,7 @@ from fnmatch import fnmatchcase
 from pathlib import Path
 
 import repo_config
+import workspace_paths
 
 for _salida in (sys.stdout, sys.stderr):
     if hasattr(_salida, "reconfigure"):
@@ -117,7 +117,7 @@ def ejecutar_control(nombre, ruta, cwd):
         except OSError:
             lleva_shebang = False
         if lleva_shebang:
-            bash = shutil.which("bash")
+            bash = workspace_paths.buscar_bash()
             if not bash:
                 fail(f"en Windows {nombre} necesita bash (Git for Windows)")
                 return
@@ -268,7 +268,8 @@ else:
     ultima = con_informe[-1]
     r = subprocess.run(["git", "log", "-1", "--format=%ct", "--",
                         str(ultima.relative_to(RAIZ))],
-                       cwd=RAIZ, capture_output=True, text=True)
+                       cwd=RAIZ, capture_output=True, text=True,
+                       encoding="utf-8", errors="replace")
     ts = int(r.stdout.strip()) if r.returncode == 0 and r.stdout.strip() else None
     if ts is None:
         ok(f"auditoría de seguridad archivada: {ultima.name} (sin commit aún)")

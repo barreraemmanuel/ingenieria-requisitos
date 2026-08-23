@@ -25,6 +25,11 @@ import time
 import webbrowser
 from urllib.parse import urlsplit
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 # El nombre de unidad es el de las carpetas de trabajo: NNN-slug. Al ser el
 # único patrón aceptado, la ruta no puede escaparse del workspace (ni `..`, ni
 # separadores, ni rutas absolutas llegan a tocar el sistema de ficheros).

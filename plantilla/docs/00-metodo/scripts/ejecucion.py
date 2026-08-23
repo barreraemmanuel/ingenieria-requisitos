@@ -88,7 +88,8 @@ class ErrorEjecucion(Exception):
 
 def git(cwd, *args):
     resultado = subprocess.run(
-        ["git", *args], cwd=str(cwd), text=True, capture_output=True
+        ["git", *args], cwd=str(cwd), text=True,
+        encoding="utf-8", errors="replace", capture_output=True
     )
     return resultado.returncode, (resultado.stdout + resultado.stderr).strip()
 
@@ -405,6 +406,7 @@ def preparar_claude_home(env, home_original):
         valor = subprocess.run(
             ["git", "config", "--get", clave], env=env,
             stdin=subprocess.DEVNULL, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
         )
         if valor.returncode != 0 or not valor.stdout.strip():
             raise ErrorEjecucion(
@@ -547,7 +549,7 @@ def evidencia_git(worktree):
     )
     estado = subprocess.run(
         ["git", "status", "--porcelain=v1"], cwd=str(worktree),
-        text=True, capture_output=True, check=False,
+        text=True, encoding="utf-8", errors="replace", capture_output=True, check=False,
     )
     if diferencia.returncode or estado.returncode:
         detalle = (diferencia.stderr.decode("utf-8", "replace") + estado.stderr).strip()

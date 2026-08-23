@@ -21,6 +21,11 @@ import threading
 import time
 
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 class ServidorVisor(http.server.ThreadingHTTPServer):
     """En Windows, SO_REUSEADDR deja que un segundo visor se quede con un puerto
     ya en uso y le robe las conexiones al primero (reportado en el bug del

@@ -34,6 +34,7 @@ import json
 import os
 import re
 import shutil
+import stat
 import subprocess
 import sys
 import tempfile
@@ -193,6 +194,26 @@ def sha_remoto(url):
     return primera or None
 
 
+def borrar_arbol(ruta):
+    """rmtree que se lleva también lo que git deja en solo-lectura.
+
+    Los objetos de `.git/` son 0o444 y en Windows el atributo de solo-lectura impide
+    borrarlos: con `ignore_errors=True` el fallo se tragaba en silencio y el clon
+    temporal se quedaba en %TEMP% en CADA arranque de CADA sesión, para siempre.
+    """
+    def reintentar(func, objetivo, _exc):
+        try:
+            os.chmod(objetivo, stat.S_IWRITE)
+            func(objetivo)
+        except OSError:
+            pass                       # el borrado del temporal jamás bloquea el arranque
+
+    if sys.version_info >= (3, 12):
+        shutil.rmtree(ruta, onexc=reintentar)
+    else:
+        shutil.rmtree(ruta, onerror=reintentar)
+
+
 def version_remota(url):
     """El VERSION publicado, leído con un clon superficial, sin blobs y sparse."""
     temporal = tempfile.mkdtemp(prefix="ir-version-")
@@ -212,7 +233,7 @@ def version_remota(url):
         except OSError:
             return None
     finally:
-        shutil.rmtree(temporal, ignore_errors=True)
+        borrar_arbol(temporal)
 
 
 def aviso(workspace, publicada):

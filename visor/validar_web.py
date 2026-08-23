@@ -18,6 +18,11 @@ import subprocess
 import sys
 from pathlib import Path
 
+
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 BASE = Path(__file__).resolve().parent
 REQUISITOS = next(
     (ruta for ruta in (BASE / "requirements-dev.txt", BASE.parent / "requirements-dev.txt")
@@ -90,7 +95,7 @@ def arrancar_visor(datos):
         ],
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
-        text=True,
+        text=True, encoding="utf-8", errors="replace",
         bufsize=1,
     )
     for _ in range(20):
