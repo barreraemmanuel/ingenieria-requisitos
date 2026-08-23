@@ -150,12 +150,34 @@ def revisar_gh():
     return "OK", version, ""
 
 
+def rutas_largas_activas():
+    """¿Windows tiene levantado el límite de 260 caracteres de MAX_PATH?
+
+    Solo se LEE el registro; jamás se toca: activarlo exige administrador y es un
+    cambio del sistema del usuario, no nuestro. Se avisa y decide él.
+    """
+    if sys.platform != "win32":
+        return True
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SYSTEM\CurrentControlSet\Control\FileSystem") as clave:
+            valor, _ = winreg.QueryValueEx(clave, "LongPathsEnabled")
+        return bool(valor)
+    except (ImportError, OSError):
+        return False        # ausente = desactivado, que es el defecto de Windows
+
+
 def revisar_plataforma():
     # El lanzador (ejecucion.py) no exige sandbox de sistema operativo en ninguna
     # plataforma desde la unidad 012 (bug 013): no hay nada de sandbox que comprobar
     # ni recetar aquí, en Windows ni en ningún otro sitio.
     if sys.platform == "win32":
         avisos = []
+        if not rutas_largas_activas():
+            avisos.append("rutas largas desactivadas en Windows: git ya las sortea en los "
+                          "repos del método, pero npm o un compilador seguirán topando en "
+                          "260 caracteres (se activa con LongPathsEnabled=1)")
         if buscar_bash() is None:
             avisos.append("sin bash: los hooks y gates en shell no correrán "
                           "(bash viene con Git for Windows)")
