@@ -1,6 +1,7 @@
 import importlib.util
 import json
 import os
+import sys
 import tempfile
 import unittest
 import uuid
@@ -10,7 +11,13 @@ import ayuda_windows  # noqa: E402 - módulo hermano de la suite
 
 
 RAIZ = Path(__file__).resolve().parents[2]
-MODULO = RAIZ / "plantilla/docs/00-metodo/scripts/lease.py"
+SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
+MODULO = SCRIPTS / "lease.py"
+# lease.py importa su hermano workspace_paths (la primitiva `es_enlace`, unidad 043).
+# Al cargarlo aquí por ruta no hay paquete que resuelva ese import, así que se pone la
+# carpeta en sys.path — igual que hace test_ejecucion_control_plane.py con ejecucion.py.
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
 
 
 def cargar_modulo():

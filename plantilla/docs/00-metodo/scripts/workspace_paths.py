@@ -11,6 +11,30 @@ class WorkspacePathError(ValueError):
     pass
 
 
+# IO_REPARSE_TAG_MOUNT_POINT: la etiqueta de un *junction* de Windows.
+TAG_JUNCTION = 0xA0000003
+
+
+def es_enlace(path):
+    """True para un symlink y TAMBIÉN para un junction de Windows.
+
+    `os.path.islink()` responde, por contrato de la stdlib, «¿es un enlace
+    SIMBÓLICO?», y un junction no lo es: devuelve False. Pero redirige igual —
+    `resolve()` sale fuera— y, a diferencia del symlink, **se crea sin ningún
+    privilegio** (`mklink /J`). En Windows es por tanto la vía barata para
+    esquivar cualquier guarda que solo mire `is_symlink()`.
+
+    Lo único que lo delata es el reparse tag del `lstat`.
+    """
+    try:
+        estado = os.lstat(path)
+    except OSError:
+        return False
+    if stat.S_ISLNK(estado.st_mode):
+        return True
+    return getattr(estado, "st_reparse_tag", 0) == TAG_JUNCTION
+
+
 def which_sin_cwd(programa):
     """`shutil.which` pero SIN el directorio actual, que en Windows se antepone al
     PATH: si no, un `bash.exe` versionado en el repo de código (que suele ser el cwd)
@@ -58,8 +82,8 @@ def confined_path(root, candidate, *, label="ruta"):
     cursor = canonical_root
     for part in relative.parts:
         cursor = cursor / part
-        if cursor.is_symlink():
-            raise WorkspacePathError(f"{label} no admite symlink ({part})")
+        if es_enlace(cursor):
+            raise WorkspacePathError(f"{label} no admite enlaces ({part})")
     resolved = lexical.resolve()
     try:
         resolved.relative_to(canonical_root)
