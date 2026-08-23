@@ -119,11 +119,14 @@ class PruebasLanzadorEstable(unittest.TestCase):
             (datos / "manifiesto.json").write_text(
                 json.dumps(manifiesto_valido()), encoding="utf-8"
             )
-            args = abrir.argumentos_prueba(puerto=0, presentacion="propuesta-uno")
             try:
-                primera = abrir.abrir(datos, args)
+                puerto = abrir._puerto_libre()
             except PermissionError:
                 raise unittest.SkipTest("sandbox sin sockets locales")
+            args = abrir.argumentos_prueba(
+                puerto=puerto, presentacion="propuesta-uno"
+            )
+            primera = abrir.abrir(datos, args)
             self.addCleanup(abrir.detener, primera.proceso)
             self.assertTrue(primera.url.endswith("/presentacion/propuesta-uno"))
             with urllib.request.urlopen(primera.url, timeout=3) as respuesta:
