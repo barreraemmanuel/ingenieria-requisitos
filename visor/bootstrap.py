@@ -143,6 +143,7 @@ ARCHIVOS_REQUISITOS = (
     "RUNBOOK/arranque.md", "RUNBOOK/fases.md", "RUNBOOK/comun.md",
     "RUNBOOK/modo-c.md", "RUNBOOK/modo-d.md",
 )
+ARCHIVOS_PRESENTACIONES = ("manifestar.py", "servir.py", "plantilla.html")
 
 
 def version_metodo():
@@ -960,6 +961,11 @@ def main():
         shutil.copyfile(BASE / nombre, requisitos / nombre)
     shutil.copyfile(BASE.parent / "requirements-dev.txt",
                     requisitos / "requirements-dev.txt")
+    presentaciones = requisitos / "visor_presentaciones"
+    presentaciones.mkdir()
+    for nombre in ARCHIVOS_PRESENTACIONES:
+        shutil.copyfile(BASE.parent / "visor_presentaciones" / nombre,
+                        presentaciones / nombre)
     (docs / "01-constitucion").mkdir()
     shutil.copyfile(constitucion, docs / "01-constitucion" / "manifiesto.md")
     shutil.copyfile(PLANTILLA / "bias" / fichero_bias,
