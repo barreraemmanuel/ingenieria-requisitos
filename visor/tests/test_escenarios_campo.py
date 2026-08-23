@@ -102,7 +102,7 @@ class EscenariosCuelgues(Escenario):
             [sys.executable, str(SCRIPTS / "caja_negra.py"), "registrar", "--repo",
              str(ws), "--fase", "test", "--sintoma", "algo raro", "--esperado", "x",
              "--actual", "y"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         self.assertEqual(registrado.returncode, 0,
                          registrado.stdout + registrado.stderr)
@@ -111,7 +111,7 @@ class EscenariosCuelgues(Escenario):
         proceso = subprocess.Popen(
             [sys.executable, str(SCRIPTS / "caja_negra.py"), "enviar", "--repo", str(ws)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
         )
         salida, _ = proceso.communicate(timeout=30)
 
@@ -134,7 +134,7 @@ class EscenariosCuelgues(Escenario):
              "fcntl.flock(d, fcntl.LOCK_EX)\n"
              "print('tomado', flush=True)\n"
              "time.sleep(60)\n"],
-            stdout=subprocess.PIPE, text=True,
+            stdout=subprocess.PIPE, text=True, encoding="utf-8", errors="replace",
         )
 
         def soltar_ocupante():
@@ -167,7 +167,7 @@ class EscenariosCuelgues(Escenario):
     def test_escenario_06_el_launcher_acepta_tope_explicito(self):
         ayuda = subprocess.run(
             [sys.executable, str(SCRIPTS / "ejecucion.py"), "lanzar", "--help"],
-            capture_output=True, text=True, timeout=30,
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30,
         )
         self.assertEqual(ayuda.returncode, 0, ayuda.stdout + ayuda.stderr)
         self.assertIn("--tope-minutos", ayuda.stdout)
@@ -242,7 +242,8 @@ class EscenariosModoD(Escenario):
         self.assertIn("Recuperé", resultado.stdout)
         self.assertNotIn("sucio", resultado.stdout)
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=ws,
-                                text=True, capture_output=True, check=True).stdout
+                                text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, check=True).stdout
         self.assertEqual(staged.strip(), "", "el índice queda limpio tras recuperar")
 
     def test_escenario_12_git_add_ajeno_a_mitad_no_se_absorbe(self):
@@ -260,7 +261,8 @@ class EscenariosModoD(Escenario):
         self.assertIn("REVERTIDA", salida)
         self.assertIn("mi-trabajo.md", salida)
         staged = subprocess.run(["git", "diff", "--cached", "--name-only"], cwd=ws,
-                                text=True, capture_output=True, check=True).stdout
+                                text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, check=True).stdout
         self.assertEqual(staged.strip(), "mi-trabajo.md",
                          "el add del usuario sigue exactamente donde él lo dejó")
 
@@ -281,7 +283,8 @@ class EscenariosModoD(Escenario):
         self.assertIn("secreto-local/", gitignore)
         self.assertIn("Modo D conserva esta sección", gitignore)
         estado = subprocess.run(["git", "status", "--porcelain=v1"], cwd=ws,
-                                text=True, capture_output=True, check=True).stdout
+                                text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, check=True).stdout
         self.assertEqual(estado.strip(), "",
                          "lo que el usuario ignoraba sigue ignorado: árbol limpio")
         # Idempotente: una segunda pasada no ve nada que tocar en .gitignore.
@@ -415,6 +418,7 @@ class EscenariosPublicacion(Escenario):
 
         resultado = subprocess.run(
             [sys.executable, str(ws / "setup.py")], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, timeout=300,
         )
 
@@ -434,7 +438,7 @@ class EscenariosPublicacion(Escenario):
         self.assertIn("NO te bloquea", agents)
         linter = subprocess.run(
             [sys.executable, str(ws / "docs/00-metodo/scripts/lint_metodo.py")],
-            cwd=ws, text=True, capture_output=True,
+            cwd=ws, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         self.assertEqual(linter.returncode, 0, linter.stdout + linter.stderr)
 
@@ -485,7 +489,8 @@ class EscenariosPublicacion(Escenario):
             finalizar.commit_inicial_o_aviso(con_historia)
         self.assertIn("NO los toco", consola.getvalue())
         estado = subprocess.run(["git", "status", "--porcelain=v1"], cwd=con_historia,
-                                text=True, capture_output=True, check=True).stdout
+                                text=True, encoding="utf-8", errors="replace",
+                                capture_output=True, check=True).stdout
         self.assertIn("borrador.py", estado, "el borrador sigue sin commitear")
 
         # Sin historia (carpeta ingerida): el import inicial sí barre todo.
@@ -493,6 +498,7 @@ class EscenariosPublicacion(Escenario):
         (sin_historia / "legado.py").write_text("todo\n", encoding="utf-8")
         finalizar.commit_inicial_o_aviso(sin_historia)
         log = subprocess.run(["git", "log", "--oneline"], cwd=sin_historia, text=True,
+                             encoding="utf-8", errors="replace",
                              capture_output=True, check=True).stdout
         self.assertIn("Importa el estado inicial", log)
 
@@ -576,7 +582,7 @@ class EscenariosProcesosAjenos(Escenario):
 
         linter = subprocess.run(
             [sys.executable, str(destino / "docs/00-metodo/scripts/lint_metodo.py")],
-            cwd=destino, text=True, capture_output=True,
+            cwd=destino, text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
 
         self.assertEqual(linter.returncode, 1, linter.stdout + linter.stderr)

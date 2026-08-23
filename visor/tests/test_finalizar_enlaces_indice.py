@@ -62,7 +62,7 @@ class EnlacesIndiceFinalizarTest(unittest.TestCase):
         salida = self.proyecto / "especificaciones"
         resultado = subprocess.run(
             [sys.executable, str(COMPILAR), "--mapa", str(mapa), "--salida", str(salida)],
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         return salida

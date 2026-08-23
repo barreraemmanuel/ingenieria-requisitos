@@ -10,6 +10,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
+import ayuda_windows  # noqa: E402 - módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 LAUNCHER = RAIZ / "plantilla/docs/00-metodo/scripts/ejecucion.py"
@@ -109,7 +111,8 @@ class ControlPlaneE2ETest(unittest.TestCase):
 
     def git(self, *args, cwd):
         resultado = subprocess.run(
-            ["git", *args], cwd=cwd, text=True, capture_output=True
+            ["git", *args], cwd=cwd, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         )
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         return resultado
@@ -118,23 +121,34 @@ class ControlPlaneE2ETest(unittest.TestCase):
         ruta.write_text(texto, encoding="utf-8")
         ruta.chmod(ruta.stat().st_mode | stat.S_IXUSR)
 
-    def crear_doble_harness(self, nombre):
-        cuerpo = """import json, os, pathlib, re, stat, subprocess, sys
-tmp = pathlib.Path(os.environ['TMPDIR'])
+    # Preámbulo que recibe TODO doble. Define `argv` (ya resuelto) y `prompt`.
+    #
+    # Ronda 4 del bug 017: en Windows el argumento problemático no cruza cmd.exe tal
+    # cual — solo su REFERENCIA literal (##IR_CMDARG_N##, sin ningún '%' que cmd.exe
+    # pueda expandir) llega como argv. Quien recibe ese token debe resolverlo leyendo
+    # su propio entorno heredado (que sí viaja intacto, ajeno al parser de cmd.exe)
+    # para reconstruir el argumento EFECTIVO — eso es lo que un harness real, al ver
+    # ese literal, tendría que hacer para no perder el prompt multilínea.
+    #
+    # Vive aquí y no dentro de un doble concreto porque los dobles de la unidad 028
+    # leen el prompt igual que el primero: cuando esto era privado de uno solo, los
+    # otros recibían el literal `##IR_CMDARG_1##` y no encontraban su "CONTRATO:".
+    PREAMBULO_DOBLE = """import os, re, sys
 
 def resolver(valor):
-    # Ronda 4 del bug 017: en Windows el argumento problemático no cruza
-    # cmd.exe tal cual — solo su REFERENCIA literal (##IR_CMDARG_N##, sin
-    # ningún '%' que cmd.exe pueda expandir) llega como argv. Quien recibe ese
-    # token debe resolverlo leyendo su propio entorno heredado (que sí viaja
-    # intacto, ajeno al parser de cmd.exe) para reconstruir el argumento
-    # EFECTIVO — eso es lo que un harness real, al ver ese literal, tendría
-    # que hacer para no perder el prompt multilínea.
     coincide = re.fullmatch(r'##(IR_CMDARG_\\d+)##', valor) if isinstance(valor, str) else None
     return os.environ.get(coincide.group(1), valor) if coincide else valor
 
+argv = [resolver(v) for v in sys.argv[1:]]
+prompt = argv[-1] if argv else ''
+"""
+
+    def crear_doble_harness(self, nombre):
+        cuerpo = """import json, pathlib, stat, subprocess
+tmp = pathlib.Path(os.environ['TMPDIR'])
+
 record = {
-    'argv': [resolver(v) for v in sys.argv[1:]],
+    'argv': argv,
     # Instrumentación de la ronda 4 del bug 017: qué llegó ANTES de resolver y
     # qué referencias había realmente en el entorno. Sin esto, un fallo en el
     # job de Windows solo dice «el prompt no es el prompt» y no distingue
@@ -146,6 +160,7 @@ record = {
     'cwd': os.getcwd(),
     'pwd': os.environ.get('PWD'),
     'branch': subprocess.run(['git', 'branch', '--show-current'], text=True,
+                             encoding="utf-8", errors="replace",
                              capture_output=True).stdout.strip(),
     'tmp': str(tmp),
     'tmp_mode': stat.S_IMODE(tmp.stat().st_mode),
@@ -158,13 +173,24 @@ record = {
     'poison': {k: os.environ.get(k) for k in
                ('SCRATCH','BASH_ENV','ENV','ZDOTDIR','CDPATH','PYTHONPATH','NODE_OPTIONS')},
 }
-pathlib.Path('.harness-record.json').write_text(json.dumps(record))
+pathlib.Path('.harness-record.json').write_text(json.dumps(record), encoding="utf-8")
 """
+        self.instalar_doble(nombre, cuerpo)
+
+    def instalar_doble(self, nombre, cuerpo):
+        """Deja `cuerpo` (Python) invocable como el ejecutable `nombre` del PATH.
+
+        En Windows no hay shebang y `shutil.which()` solo encuentra ejecutables con una
+        extensión de PATHEXT (.bat/.cmd/.exe…): un fichero sin extensión, aunque lleve
+        el bit +x, no cuenta ahí (bug 017 familia 2). El .bat delega en el .py real.
+
+        TODO doble pasa por aquí. Cuando esta lógica vivía dentro de un solo creador,
+        los dobles que llegaron después (unidad 028) se quedaron con el shebang y en
+        Windows no arrancaban nunca: el test no fallaba por lo que vigila, fallaba por
+        no haberse ejecutado.
+        """
+        cuerpo = self.PREAMBULO_DOBLE + cuerpo
         if os.name == "nt":
-            # shutil.which() en Windows solo encuentra ejecutables con una
-            # extensión de PATHEXT (.bat/.cmd/.exe…); un fichero sin extensión,
-            # aunque tenga el bit +x, no cuenta ahí (bug 017 familia 2). El
-            # .bat delega en el .py real, que lleva la lógica del doble.
             script = self.bin / f"{nombre}.py"
             script.write_text(cuerpo, encoding="utf-8")
             (self.bin / f"{nombre}.bat").write_text(
@@ -178,8 +204,7 @@ pathlib.Path('.harness-record.json').write_text(json.dumps(record))
         # prompt ("CONTRATO: <ruta>") y deja constancia de si lo consiguió o de la
         # denegación real que recibió — sin esto no hay forma de comprobar la frontera
         # desde fuera del proceso del harness.
-        cuerpo = """import json, pathlib, re, sys
-prompt = sys.argv[-1]
+        cuerpo = """import json, pathlib
 encontrado = re.search(r'CONTRATO: (.+)', prompt)
 ficha = encontrado.group(1).strip() if encontrado else None
 registro = {'ficha': ficha, 'escribio': False, 'error': None}
@@ -189,23 +214,23 @@ try:
     registro['escribio'] = True
 except OSError as exc:
     registro['error'] = str(exc)
-pathlib.Path('.intento-escritura-ficha.json').write_text(json.dumps(registro))
+pathlib.Path('.intento-escritura-ficha.json').write_text(json.dumps(registro), encoding="utf-8")
 """
-        self.hacer_ejecutable(self.bin / nombre, "#!/usr/bin/env python3\n" + cuerpo)
+        self.instalar_doble(nombre, cuerpo)
 
     def crear_doble_harness_que_marca_trabajo(self, nombre):
         # Unidad 028, R6: el doble SÍ trabaja de verdad — escribe en hallazgos.md, que es
         # justo lo que el recibo debe acreditar como trabajo real.
-        cuerpo = """import json, pathlib, re, sys
-prompt = sys.argv[-1]
+        cuerpo = """import json, pathlib
 encontrado = re.search(r'CONTRATO: (.+)', prompt)
 ficha = pathlib.Path(encontrado.group(1).strip())
 hallazgos = ficha.parent / 'hallazgos.md'
 with open(hallazgos, 'a', encoding='utf-8') as fh:
     fh.write('\\n- [x] trabajo marcado por el doble de prueba\\n')
-pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': True}))
+pathlib.Path('.harness-record.json').write_text(
+    json.dumps({'trabajo_marcado': True}), encoding='utf-8')
 """
-        self.hacer_ejecutable(self.bin / nombre, "#!/usr/bin/env python3\n" + cuerpo)
+        self.instalar_doble(nombre, cuerpo)
 
     def argumentos(self, harness="claude", rol="constructor", skills=(),
                    prompt="Haz la tarea", unidad=None):
@@ -228,7 +253,8 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
                  unidad=None, env=None):
         return subprocess.run(
             self.argumentos(harness, rol, skills, prompt, unidad),
-            cwd=self.main, env=env or self.env, text=True, capture_output=True
+            cwd=self.main, env=env or self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         )
 
     def proceso_en_barrera(self, nombre="ejecucion_antes_harness", unidad=None):
@@ -245,6 +271,7 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
         env["IR_SESSION_ID"] = "ejecucion-a"
         proceso = subprocess.Popen(
             self.argumentos(unidad=unidad), cwd=self.main, env=env, text=True,
+            encoding="utf-8", errors="replace",
             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
         )
         self.addCleanup(lambda: proceso.poll() is None and proceso.kill())
@@ -270,7 +297,7 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
         return destino
 
     def registros(self):
-        return json.loads((self.worktree / ".harness-record.json").read_text())
+        return json.loads((self.worktree / ".harness-record.json").read_text(encoding="utf-8"))
 
     def diagnostico(self, harness):
         # Ronda 4 del bug 017: cuando estos asserts fallan en el job de Windows
@@ -376,8 +403,9 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
 
     def test_rechaza_alias_symlink_a_skill_de_proceso(self):
         alias = self.home / ".agents/skills/alias-tecnico"
-        alias.symlink_to(self.home / ".agents/skills/using-superpowers",
-                         target_is_directory=True)
+        ayuda_windows.enlazar_o_saltar(
+            self, alias, self.home / ".agents/skills/using-superpowers", directorio=True
+        )
 
         resultado = self.ejecutar(skills=("alias-tecnico",))
 
@@ -410,7 +438,9 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
 
     def test_rechaza_carril_directo_sin_lanzar_otro_llm(self):
         ficha = self.ws / "docs/05-trabajo" / self.unidad / "especificacion.md"
-        ficha.write_text(ficha.read_text().replace("carril: normal", "carril: directo"))
+        ficha.write_text(
+            ficha.read_text(encoding="utf-8").replace("carril: normal", "carril: directo"),
+            encoding="utf-8")
 
         resultado = self.ejecutar()
 
@@ -424,7 +454,7 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
         contenido = hallazgos.read_bytes()
         exterior.write_bytes(contenido)
         hallazgos.unlink()
-        hallazgos.symlink_to(exterior)
+        ayuda_windows.enlazar_o_saltar(self, hallazgos, exterior)
 
         resultado = self.ejecutar()
 
@@ -506,7 +536,8 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
         resultado = self.ejecutar()
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        intento = json.loads((self.worktree / ".intento-escritura-ficha.json").read_text())
+        intento = json.loads(
+            (self.worktree / ".intento-escritura-ficha.json").read_text(encoding="utf-8"))
         self.assertEqual(intento["ficha"], str(ficha.resolve()))
         self.assertFalse(
             intento["escribio"], f"el constructor pudo escribir su propia ficha: {intento}"
@@ -544,7 +575,8 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         recibo = json.loads(
-            next((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")).read_text()
+            next((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+                .read_text(encoding="utf-8")
         )
         self.assertEqual(recibo["resultado"], "ok_sin_trabajo")
         self.assertFalse(recibo["trabajo"]["acreditado"])
@@ -560,7 +592,8 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         recibo = json.loads(
-            next((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")).read_text()
+            next((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+                .read_text(encoding="utf-8")
         )
         self.assertEqual(recibo["resultado"], "ok")
         self.assertTrue(recibo["trabajo"]["acreditado"])
@@ -572,7 +605,8 @@ pathlib.Path('.harness-record.json').write_text(json.dumps({'trabajo_marcado': T
             [sys.executable, "-c",
              "import json,os; print(json.dumps({'cwd':os.getcwd(), "
              "'target':(os.environ.get('SCRATCH','') + '/mut048')}))"],
-            cwd=self.main, env=self.env, text=True, capture_output=True,
+            cwd=self.main, env=self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True,
         )
         observado_old = json.loads(old.stdout)
         # _real() (no .resolve()), para COMPARAR: en Windows el runner reporta el
@@ -694,7 +728,8 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         argv = self.argumentos()
         argv[argv.index("--rol"):argv.index("--rol")] = ["--modelo", "claude-opus-5"]
         resultado = subprocess.run(
-            argv, cwd=self.main, env=self.env, text=True, capture_output=True
+            argv, cwd=self.main, env=self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         )
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         harness = self.registros()
@@ -733,18 +768,10 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         cuerpo_gh = (
             "import json, os, pathlib, sys\n"
             f"pathlib.Path({str(gh_registro)!r}).write_text(json.dumps(\n"
-            "    {'argv': sys.argv[1:], 'home': os.environ.get('HOME')}))\n"
+            "    {'argv': sys.argv[1:], 'home': os.environ.get('HOME')}),\n"
+            "    encoding='utf-8')\n"
         )
-        if os.name == "nt":
-            # Mismo defecto (familia 2) que crear_doble_harness: un "gh" sin
-            # extensión de PATHEXT es invisible para shutil.which() en Windows.
-            script = self.bin / "gh.py"
-            script.write_text(cuerpo_gh, encoding="utf-8")
-            (self.bin / "gh.bat").write_text(
-                f'@echo off\r\n"{sys.executable}" "{script}" %*\r\n', encoding="utf-8"
-            )
-        else:
-            self.hacer_ejecutable(self.bin / "gh", "#!/usr/bin/env python3\n" + cuerpo_gh)
+        self.instalar_doble("gh", cuerpo_gh)
         env = {
             "HOME": str(self.home),
             "PATH": str(self.bin) + os.pathsep + os.environ.get("PATH", ""),
@@ -753,7 +780,7 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         modulo.preparar_claude_home(env, self.home)
         self.assertEqual(env["HOME"], str(self.home), "unidad 012: HOME no se aísla")
         self.assertTrue(gh_registro.is_file(), "con GH_TOKEN presente debe correr gh auth setup-git")
-        registro = json.loads(gh_registro.read_text())
+        registro = json.loads(gh_registro.read_text(encoding="utf-8"))
         self.assertEqual(registro["argv"][:2], ["auth", "setup-git"])
         self.assertEqual(registro["home"], str(self.home))
 
@@ -805,7 +832,7 @@ class RevisorEnCarrilDirectoTest(ControlPlaneE2ETest):
         worktree = self.crear_unidad_directo()
         resultado = self.ejecutar(rol="revisor", unidad="002-demo")
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        harness = json.loads((worktree / ".harness-record.json").read_text())
+        harness = json.loads((worktree / ".harness-record.json").read_text(encoding="utf-8"))
         self.assertEqual(harness["branch"], "002-demo")
 
     def test_constructor_sigue_rechazado_en_carril_directo(self):
@@ -904,9 +931,9 @@ class CompatibilidadWindowsTest(unittest.TestCase):
         bat, script = tmp / "claude.bat", tmp / "claude.py"
         self.assertTrue(bat.is_file())
         self.assertTrue(script.is_file())
-        self.assertIn(sys.executable, bat.read_text())
-        self.assertIn(str(script), bat.read_text())
-        self.assertIn(".harness-record.json", script.read_text())
+        self.assertIn(sys.executable, bat.read_text(encoding="utf-8"))
+        self.assertIn(str(script), bat.read_text(encoding="utf-8"))
+        self.assertIn(".harness-record.json", script.read_text(encoding="utf-8"))
 
     def test_real_normaliza_un_alias_de_ruta_al_mismo_destino(self):
         # Familia 3: análogo portable del alias corto (RUNNER~1) contra el largo

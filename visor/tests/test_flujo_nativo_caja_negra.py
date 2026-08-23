@@ -80,7 +80,7 @@ class CajaNegraE2ETest(unittest.TestCase):
                     "--fase", "prueba", "--sintoma", texto,
                     "--esperado", texto, "--actual", texto, "--workaround", texto,
                 ],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
             registro = (repo / ".caja-negra/incidentes.jsonl").read_text(encoding="utf-8")
@@ -117,7 +117,7 @@ class CajaNegraE2ETest(unittest.TestCase):
                 ],
                 cwd=repo.parent,
                 env=env,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
             self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
@@ -156,7 +156,7 @@ class CajaNegraE2ETest(unittest.TestCase):
                     "--evidencia",
                     "/etc/passwd",
                 ],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
             self.assertNotEqual(resultado.returncode, 0)

@@ -16,6 +16,8 @@ import time
 import unittest
 from pathlib import Path
 
+import ayuda_windows  # noqa: E402 - módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 ACTUALIZAR = RAIZ / "visor/actualizar.py"
@@ -27,7 +29,13 @@ FUERA = {".git", "worktrees", "tests", "__pycache__", ".DS_Store", ".venv",
 
 
 def borrar_tmp_silencioso(ruta):
-    shutil.rmtree(ruta, ignore_errors=True)
+    # Los workspaces de estos tests llevan repos git dentro: en Windows sus objetos son
+    # 0o444 y un rmtree normal los deja ahí (con ignore_errors, en silencio). Se intenta
+    # el borrado bueno y solo se calla lo que quede después.
+    try:
+        ayuda_windows.borrar_arbol(ruta)
+    except OSError:
+        shutil.rmtree(ruta, ignore_errors=True)
 
 
 def modulo_herramienta():
@@ -71,6 +79,7 @@ class HerramientaAutosuficienteTest(unittest.TestCase):
 
     def git(self, repo, *args, **kwargs):
         return subprocess.run(["git", "-C", str(repo), *args], text=True,
+                              encoding="utf-8", errors="replace",
                               capture_output=True, env=self.entorno,
                               check=kwargs.pop("check", True), **kwargs)
 
@@ -467,7 +476,7 @@ class HerramientaAutosuficienteTest(unittest.TestCase):
                 self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
                 self.assertEqual(salida.stdout.strip(), "")
                 self.assertFalse(Path("/tmp/ir-veneno").exists())
-                shutil.rmtree(ws)
+                ayuda_windows.borrar_arbol(ws)
 
     def test_sin_origen_grabado_el_arranque_no_dice_nada(self):
         ws = self.workspace("", con_origen=False)

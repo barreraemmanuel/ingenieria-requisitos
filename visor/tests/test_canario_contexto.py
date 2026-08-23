@@ -450,7 +450,8 @@ class DegradacionSilenciosaTest(BaseCanario):
         entorno["CANARIO_CODEX_SESSIONS"] = str(self.codex)
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "--cwd", str(self.cwd),
                             "--workspace", str(self.cwd)],
-                           capture_output=True, text=True, env=entorno)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=entorno)
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertEqual(r.stdout.strip(), "")
@@ -464,7 +465,8 @@ class DegradacionSilenciosaTest(BaseCanario):
         entorno["CANARIO_CODEX_SESSIONS"] = str(self.codex)
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "--cwd", str(self.cwd),
                             "--workspace", str(self.cwd)],
-                           capture_output=True, text=True, env=entorno)
+                           capture_output=True, text=True,
+                           encoding="utf-8", errors="replace", env=entorno)
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("zona de riesgo", r.stdout)
@@ -639,7 +641,7 @@ class RetomadaTest(BaseCanario):
         self.workspace_de_juguete()
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "retomada",
                             "--workspace", str(self.cwd)],
-                           capture_output=True, text=True)
+                           capture_output=True, text=True, encoding="utf-8", errors="replace")
 
         self.assertEqual(r.returncode, 0, r.stderr)
         self.assertIn("023-canario-contexto", r.stdout)
@@ -653,7 +655,7 @@ class HookPreCompactTest(BaseCanario):
                             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
                            input=json.dumps({"hook_event_name": "PreCompact",
                                              "trigger": "auto"}),
-                           capture_output=True, text=True,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
                            env={**os.environ,
                                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
                                 "CANARIO_CODEX_SESSIONS": str(self.codex)})
@@ -668,7 +670,7 @@ class HookPreCompactTest(BaseCanario):
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "hook",
                             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
                            input=json.dumps({"trigger": "auto"}),
-                           capture_output=True, text=True,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
                            env={**os.environ,
                                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
                                 "CANARIO_CODEX_SESSIONS": str(self.codex)})
@@ -684,6 +686,7 @@ class HookPreCompactTest(BaseCanario):
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "hook",
                             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
                            input="{}", capture_output=True, text=True,
+                           encoding="utf-8", errors="replace",
                            env={**os.environ,
                                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
                                 "CANARIO_CODEX_SESSIONS": str(self.codex)})
@@ -697,7 +700,7 @@ class HookPreCompactTest(BaseCanario):
         r = subprocess.run([sys.executable, str(CANARIO_PATH), "hook",
                             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
                            input=json.dumps({"trigger": "auto"}),
-                           capture_output=True, text=True,
+                           capture_output=True, text=True, encoding="utf-8", errors="replace",
                            env={**os.environ,
                                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
                                 "CANARIO_CODEX_SESSIONS": str(self.codex)})

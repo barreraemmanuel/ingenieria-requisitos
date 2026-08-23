@@ -130,7 +130,7 @@ class GenerarSpecE2ETest(unittest.TestCase):
             resultado = subprocess.run(
                 [sys.executable, str(GENERADOR), "--datos", str(datos), "--salida", str(salida)],
                 capture_output=True,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 check=False,
             )
             self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)

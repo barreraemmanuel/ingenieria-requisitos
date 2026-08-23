@@ -165,7 +165,8 @@ class WorkspaceGitTest(unittest.TestCase):
 
     def git(self, repo, *args):
         return subprocess.run(["git", "-C", str(repo), *args], check=True,
-                              text=True, capture_output=True).stdout.strip()
+                              text=True, encoding="utf-8", errors="replace",
+                              capture_output=True).stdout.strip()
 
     def repos_yaml(self, modo=None):
         texto = ("codigo:\n  nombre: demo\n"
@@ -400,7 +401,7 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
         self.assertEqual(self.sha_remoto(), antes)
 
         push = subprocess.run(comando.group(0).split(), cwd=self.ws,
-                              text=True, capture_output=True)
+                              text=True, encoding="utf-8", errors="replace", capture_output=True)
 
         self.assertEqual(push.returncode, 0, push.stdout + push.stderr)
         self.assertNotIn("PUSH BLOQUEADO", push.stderr)
@@ -421,7 +422,7 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
         self.assertEqual(ramas, "")
 
         push = subprocess.run(comando.group(0).split(), cwd=self.ws,
-                              text=True, capture_output=True)
+                              text=True, encoding="utf-8", errors="replace", capture_output=True)
 
         self.assertEqual(push.returncode, 0, push.stdout + push.stderr)
         self.assertNotIn("PUSH BLOQUEADO", push.stderr)
@@ -436,7 +437,8 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
         comando = re.search(r"git -C \S+ push origin main", cerrado.stdout)
         self.assertIsNotNone(comando, cerrado.stdout)
         subprocess.run(comando.group(0).split(), cwd=self.ws,
-                       text=True, capture_output=True, check=True)
+                       text=True,
+                       encoding="utf-8", errors="replace", capture_output=True, check=True)
 
         (self.repo / "intruso.txt").write_text("commit directo sin unidad\n", encoding="utf-8")
         self.git(self.repo, "add", "-A")
@@ -444,7 +446,7 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
 
         push = subprocess.run(
             ["git", "-C", str(self.repo), "push", "origin", "main"],
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
 
         self.assertNotEqual(push.returncode, 0)
@@ -479,7 +481,8 @@ class LintModoPushTest(unittest.TestCase):
         creado = subprocess.run(
             [sys.executable, str(BOOTSTRAP), "--planos", str(planos),
              "--destino", str(self.ws)],
-            cwd=RAIZ, text=True, capture_output=True, env=entorno,
+            cwd=RAIZ, text=True,
+            encoding="utf-8", errors="replace", capture_output=True, env=entorno,
         )
         self.assertEqual(creado.returncode, 0, creado.stdout + creado.stderr)
         self.repo = self.ws / "main"

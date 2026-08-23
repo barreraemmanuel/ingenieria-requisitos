@@ -46,7 +46,7 @@ class LintUnidadFusionadaTest(unittest.TestCase):
         self.git("merge", "--ff-only", "044-mux")
         self.sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
 
     def git(self, *args):
