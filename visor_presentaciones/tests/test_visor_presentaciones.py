@@ -120,7 +120,10 @@ class PruebasLanzadorEstable(unittest.TestCase):
                 json.dumps(manifiesto_valido()), encoding="utf-8"
             )
             args = abrir.argumentos_prueba(puerto=0, presentacion="propuesta-uno")
-            primera = abrir.abrir(datos, args)
+            try:
+                primera = abrir.abrir(datos, args)
+            except PermissionError:
+                raise unittest.SkipTest("sandbox sin sockets locales")
             self.addCleanup(abrir.detener, primera.proceso)
             self.assertTrue(primera.url.endswith("/presentacion/propuesta-uno"))
             with urllib.request.urlopen(primera.url, timeout=3) as respuesta:
@@ -178,6 +181,16 @@ class PruebasServidor(unittest.TestCase):
         self.assertEqual(len(json.loads(cuerpo)["presentaciones"]), 4)
         estado, _, cuerpo = self.pedir("GET", "/recibos.json")
         self.assertEqual((estado, json.loads(cuerpo)), (200, {"recibos": []}))
+
+    def test_meta_identifica_la_sesion_sin_exponer_la_ruta_de_datos(self):
+        estado, _, cuerpo = self.pedir("GET", "/meta.json")
+
+        self.assertEqual(estado, 200)
+        meta = json.loads(cuerpo)
+        self.assertEqual(meta["servicio"], "visor-presentaciones")
+        self.assertEqual(meta["huella_datos"], abrir.huella_datos(self.datos))
+        self.assertNotIn("datos", meta)
+        self.assertNotIn(str(self.datos), cuerpo.decode("utf-8"))
 
     def test_plantilla_contiene_controles_foco_y_adaptacion_movil(self):
         _, _, html = self.pedir("GET", "/")

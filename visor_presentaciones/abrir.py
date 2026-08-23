@@ -2,7 +2,6 @@
 """Inicia o reutiliza una sesión local de presentaciones."""
 
 import argparse
-import hashlib
 import json
 import socket
 import subprocess
@@ -13,6 +12,11 @@ import urllib.request
 import webbrowser
 from dataclasses import dataclass
 from pathlib import Path
+
+try:
+    from .servir import huella_datos
+except ImportError:  # También funciona como `python3 visor_presentaciones/abrir.py`.
+    from servir import huella_datos
 
 
 BASE = Path(__file__).resolve().parent
@@ -37,7 +41,7 @@ def _puerto_libre():
 
 
 def _puerto_determinista(datos):
-    huella = hashlib.sha256(str(datos).encode("utf-8")).hexdigest()
+    huella = huella_datos(datos)
     return 8767 + (int(huella[:8], 16) % 1000)
 
 
@@ -68,7 +72,11 @@ def abrir(datos, args):
         args.puerto = puerto
 
     meta = _meta(puerto)
-    if meta and Path(meta.get("datos", "")).resolve() == datos:
+    identidad = {
+        "servicio": "visor-presentaciones",
+        "huella_datos": huella_datos(datos),
+    }
+    if meta == identidad:
         url = _url(puerto, getattr(args, "presentacion", None))
         if not getattr(args, "sin_navegador", False):
             webbrowser.open(url)
@@ -90,7 +98,7 @@ def abrir(datos, args):
 
     for _ in range(50):
         meta = _meta(puerto)
-        if meta and Path(meta.get("datos", "")).resolve() == datos:
+        if meta == identidad:
             url = _url(puerto, getattr(args, "presentacion", None))
             if not getattr(args, "sin_navegador", False):
                 webbrowser.open(url)

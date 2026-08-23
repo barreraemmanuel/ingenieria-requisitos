@@ -2,6 +2,7 @@
 """Servidor local de presentaciones y recibos de decisión inmutables."""
 
 import argparse
+import hashlib
 import http.server
 import json
 import os
@@ -22,6 +23,12 @@ except ImportError:  # También funciona como `python3 visor_presentaciones/serv
 
 BASE = Path(__file__).resolve().parent
 PLANTILLA = BASE / "plantilla.html"
+
+
+def huella_datos(datos):
+    """Identifica un directorio sin publicar su ruta local."""
+    ruta = str(Path(datos).expanduser().resolve()).encode("utf-8")
+    return hashlib.sha256(b"visor-presentaciones\0" + ruta).hexdigest()
 
 
 class ServidorPresentaciones(http.server.ThreadingHTTPServer):
@@ -62,7 +69,7 @@ def hacer_handler(datos, estado):
             if ruta == "/meta.json":
                 return self._json(200, {
                     "servicio": "visor-presentaciones",
-                    "datos": str(datos),
+                    "huella_datos": huella_datos(datos),
                 })
             if ruta.startswith("/presentacion/") and ruta.count("/") == 2 and manifestar.ID.fullmatch(ruta.rsplit("/", 1)[1]):
                 try:
