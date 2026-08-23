@@ -56,7 +56,7 @@ class BootstrapE2EContractTest(unittest.TestCase):
                     "otro",
                     "--compilar",
                 ],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 env=entorno,
             )
@@ -112,7 +112,7 @@ class BootstrapE2EContractTest(unittest.TestCase):
             )
             resultado = subprocess.run(
                 [sys.executable, str(VALIDAR_WEB), "--datos", str(datos)],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
 
@@ -144,7 +144,7 @@ class BootstrapE2EContractTest(unittest.TestCase):
             )
             resultado = subprocess.run(
                 [sys.executable, str(VALIDAR_WEB), "--datos", str(datos)],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
 

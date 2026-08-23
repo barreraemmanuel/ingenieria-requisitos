@@ -11,6 +11,8 @@ import time
 import unittest
 from pathlib import Path
 
+import ayuda_windows  # noqa: E402 - módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
@@ -67,7 +69,7 @@ class PeticionUnidadTest(unittest.TestCase):
         )
         self.sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=self.repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         conocimiento = self.ws / "docs/decisiones/004-paleta.md"
         conocimiento.parent.mkdir(parents=True)
@@ -335,7 +337,7 @@ class PeticionUnidadTest(unittest.TestCase):
             subprocess.run(
                 ["git", "branch", "--list", nombre],
                 cwd=self.repo,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 check=True,
             ).stdout.count(nombre),
@@ -457,7 +459,7 @@ class PeticionUnidadTest(unittest.TestCase):
         contenido = ficha.read_bytes()
         exterior.write_bytes(contenido)
         ficha.unlink()
-        ficha.symlink_to(exterior)
+        ayuda_windows.enlazar_o_saltar(self, ficha, exterior)
 
         resultado = self.ejecutar(
             self.unidad, "despachar", nombre, "--force",
@@ -482,7 +484,7 @@ class PeticionUnidadTest(unittest.TestCase):
         exterior = self.ws / ".ficha-exterior" / nombre
         exterior.parent.mkdir()
         shutil.move(str(ficha.parent), str(exterior))
-        ficha.parent.symlink_to(exterior, target_is_directory=True)
+        ayuda_windows.enlazar_o_saltar(self, ficha.parent, exterior, directorio=True)
 
         resultado = self.ejecutar(self.unidad, "despachar", nombre)
 
@@ -860,11 +862,11 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         worktree = self.ws / "worktrees" / nombre
         self.assertEqual(
-            (worktree / ".entorno-preparado").read_text(),
+            (worktree / ".entorno-preparado").read_text(encoding="utf-8"),
             "preparado",
         )
         self.assertTrue(
-            os.path.samefile((worktree / ".arg-recibido").read_text(), worktree),
+            os.path.samefile((worktree / ".arg-recibido").read_text(encoding="utf-8"), worktree),
             "el hook no recibió el worktree como $1",
         )
         recibo = self.recibo_preparacion(nombre)
@@ -886,6 +888,7 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertFalse((self.ws / "worktrees" / nombre).exists())
         ramas = subprocess.run(
             ["git", "branch", "--list", nombre], cwd=self.repo, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout
         self.assertEqual(ramas.strip(), "")
@@ -905,7 +908,7 @@ class PeticionUnidadTest(unittest.TestCase):
             encoding="utf-8",
         )
         objetivo.chmod(0o755)
-        (self.ws / "worktree-listo").symlink_to(objetivo)
+        ayuda_windows.enlazar_o_saltar(self, self.ws / "worktree-listo", objetivo)
 
         resultado = self.ejecutar(self.unidad, "despachar", nombre)
 
@@ -1018,7 +1021,8 @@ class PeticionUnidadTest(unittest.TestCase):
             "import sys\n"
             "raiz = Path(__file__).resolve().parents[3]\n"
             "activa = raiz / 'docs/05-trabajo/001-cierre-ordenado/especificacion.md'\n"
-            "sys.exit(1 if activa.exists() and 'estado: mergeada' in activa.read_text() else 0)\n",
+            "texto = activa.read_text(encoding='utf-8') if activa.exists() else ''\n"
+            "sys.exit(1 if 'estado: mergeada' in texto else 0)\n",
             encoding="utf-8",
         )
 
@@ -1307,7 +1311,8 @@ class PeticionUnidadTest(unittest.TestCase):
             (self.ws / "docs/05-trabajo/archivo/001-prototipo-descartable").exists()
         )
         datos = json.loads(
-            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json").read_text()
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+                .read_text(encoding="utf-8")
         )
         self.assertNotEqual(datos["estado"], "cerrada")
         self.assertNotEqual(datos["procesos"][0]["estado"], "terminal")
@@ -1326,7 +1331,7 @@ class PeticionUnidadTest(unittest.TestCase):
         ramas = subprocess.run(
             ["git", "branch", "--list", rama],
             cwd=repo,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             check=True,
         ).stdout
@@ -1366,7 +1371,8 @@ class PeticionUnidadTest(unittest.TestCase):
 
         self.assertEqual(cerrada.returncode, 0, cerrada.stderr)
         datos = json.loads(
-            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json").read_text()
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+                .read_text(encoding="utf-8")
         )
         self.assertEqual(datos["estado"], "cerrada")
         metadata = datos["procesos"][0]["metadata"]
@@ -1419,7 +1425,8 @@ class PeticionUnidadTest(unittest.TestCase):
 
         self.assertEqual(cierre.returncode, 0, cierre.stderr)
         datos = json.loads(
-            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json").read_text()
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+                .read_text(encoding="utf-8")
         )
         self.assertEqual(datos["estado"], "cerrada")
         metadata = datos["procesos"][0]["metadata"]
@@ -1435,7 +1442,7 @@ class PeticionUnidadTest(unittest.TestCase):
         )
         podada = subprocess.run(
             ["git", "cat-file", "-e", metadata["tip_sha"]], cwd=repo,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
         self.assertNotEqual(podada.returncode, 0)
 
@@ -1483,7 +1490,8 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertIn("estado: en_obra", texto)
         self.assertTrue((self.ws / "worktrees/001-produccion-caida").is_dir())
         datos = json.loads(
-            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json").read_text()
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+                .read_text(encoding="utf-8")
         )
         proceso = next(item for item in datos["procesos"] if item["tipo"] == "bug")
         self.assertEqual(proceso["metadata"]["base_sha"], self.sha)
@@ -1529,7 +1537,7 @@ class LintPeticionesTest(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(self.linter)],
             cwd=self.ws,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
 
@@ -1795,7 +1803,7 @@ class PrePushPeticionesTest(unittest.TestCase):
             [sys.executable, str(self.hook)],
             cwd=self.ws,
             input=entrada,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
 
@@ -1860,7 +1868,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
         base = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         subprocess.run(["git", "checkout", "-b", nombre], cwd=repo, check=True, capture_output=True)
         (repo / "README.md").write_text("base\ncambio\n", encoding="utf-8")
@@ -1870,7 +1878,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "merge", "--ff-only", nombre], cwd=repo, check=True, capture_output=True)
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         (peticion / "peticion.json").write_text(
             json.dumps(
@@ -1917,7 +1925,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "directo"], cwd=repo, check=True, capture_output=True)
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         subprocess.run(["git", "branch", nombre], cwd=repo, check=True)
         peticion = self.ws / "docs/05-trabajo/peticiones" / pid
@@ -1956,7 +1964,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
         base = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         subprocess.run(["git", "checkout", "-b", nombre], cwd=repo, check=True, capture_output=True)
         (repo / "README.md").write_text("base\ncambio\n", encoding="utf-8")
@@ -1967,7 +1975,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", nombre], cwd=repo, check=True, capture_output=True)
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         peticion = self.ws / "docs/05-trabajo/peticiones" / pid
         peticion.mkdir(parents=True)
@@ -2007,7 +2015,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
         base = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         subprocess.run(["git", "checkout", "-b", nombre], cwd=repo, check=True, capture_output=True)
         (repo / "README.md").write_text("base\ncambio\n", encoding="utf-8")
@@ -2017,7 +2025,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "merge", "--ff-only", nombre], cwd=repo, check=True, capture_output=True)
         sha = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         # El cierre borra la rama local ANTES de imprimir el recibo/aviso (020).
         subprocess.run(["git", "branch", "-D", nombre], cwd=repo, check=True, capture_output=True)
@@ -2058,7 +2066,7 @@ class PrePushPeticionesTest(unittest.TestCase):
         subprocess.run(["git", "commit", "-m", "directo"], cwd=repo, check=True, capture_output=True)
         sha_intruso = subprocess.run(
             ["git", "rev-parse", "HEAD"], cwd=repo, check=True,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         ).stdout.strip()
         self.assertNotEqual(sha_intruso, sha_legitimo)
 
@@ -2171,7 +2179,8 @@ class SalidaDelTrabajoProbadaTest(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(
-            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True,
+            encoding="utf-8", errors="replace"
         ).stdout.strip()
 
     def commit_en_rama(self, rama="001-perdida"):

@@ -201,7 +201,7 @@ class PlanosE2EPermisosTest(unittest.TestCase):
                     "--perfil",
                     "revision",
                 ],
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
             )
 

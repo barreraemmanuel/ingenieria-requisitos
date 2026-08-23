@@ -156,7 +156,7 @@ class VersionMetodoTest(unittest.TestCase):
         self.assertIn("# Índice de bugs", indice)
         commiteados = subprocess.run(
             ["git", "ls-tree", "-r", "--name-only", "HEAD"],
-            cwd=ws, text=True, capture_output=True, check=True,
+            cwd=ws, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         ).stdout.splitlines()
         self.assertIn("docs/bugs/INDICE.md", commiteados)
         lint = self.ejecutar(ws / "docs/00-metodo/scripts/lint_metodo.py")
@@ -347,7 +347,7 @@ class VersionMetodoTest(unittest.TestCase):
         # Y el clon sigue sin enterarse del avance: nadie hizo fetch a sus espaldas.
         cuenta = subprocess.run(
             ["git", "-C", str(clon), "rev-list", "--count", "HEAD..origin/main"],
-            text=True, capture_output=True, check=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         ).stdout.strip()
         self.assertEqual(cuenta, "0")
 
@@ -444,12 +444,13 @@ class VersionMetodoTest(unittest.TestCase):
         self.assertTrue(pyc.is_file())
         commiteados = subprocess.run(
             ["git", "ls-tree", "-r", "--name-only", "HEAD"],
-            cwd=ws, text=True, capture_output=True, check=True,
+            cwd=ws, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         ).stdout
         self.assertNotIn("__pycache__", commiteados)
         # El .gitignore repartido ya ignora el bytecode: el árbol queda limpio de verdad.
         estado = subprocess.run(
             ["git", "status", "--porcelain"], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout
         self.assertNotIn("__pycache__", estado)
@@ -484,7 +485,8 @@ class RamaFusionadaDelLinterTest(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(
-            ["git", *args], cwd=self.repo, check=True, text=True, capture_output=True
+            ["git", *args], cwd=self.repo, check=True, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         ).stdout.strip()
 
     def squash_en_main(self, asunto):

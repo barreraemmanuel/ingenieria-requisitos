@@ -26,7 +26,8 @@ def imprimir_tras_importar(modulo):
         f"print({CHIVATO!r}, file=sys.stderr)"
     )
     return subprocess.run(
-        [sys.executable, "-c", codigo], text=True, capture_output=True, timeout=60
+        [sys.executable, "-c", codigo], text=True,
+        encoding="utf-8", errors="replace", capture_output=True, timeout=60
     )
 
 

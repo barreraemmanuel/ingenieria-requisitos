@@ -26,7 +26,7 @@ class MigrarSkillsTest(unittest.TestCase):
     def ejecutar(self, *args):
         return subprocess.run(
             [sys.executable, str(MIGRAR), *args],
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
 

@@ -6,6 +6,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+import ayuda_windows  # noqa: E402 - módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 MODULO = RAIZ / "plantilla/docs/00-metodo/scripts/lease.py"
@@ -189,7 +191,9 @@ class LeaseTests(unittest.TestCase):
                 manager.root.mkdir(parents=True)
                 exterior = workspace / "exterior"
                 exterior.mkdir()
-                (manager.root / nombre).symlink_to(exterior, target_is_directory=True)
+                ayuda_windows.enlazar_o_saltar(
+                    self, manager.root / nombre, exterior, directorio=True
+                )
                 with self.assertRaises(self.lease.LeaseError):
                     manager.acquire("unit:004")
                 self.assertEqual(list(exterior.iterdir()), [])

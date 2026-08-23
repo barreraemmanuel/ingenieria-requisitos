@@ -49,7 +49,8 @@ class PeticionesTest(unittest.TestCase):
         subprocess.run(["git", "add", "."], cwd=repo, check=True)
         subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True, capture_output=True)
         self.sha = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True, capture_output=True
+            ["git", "rev-parse", "HEAD"], cwd=repo, check=True, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         ).stdout.strip()
         conocimiento = self.ws / "docs/decisiones/004-paleta.md"
         conocimiento.parent.mkdir(parents=True)
@@ -176,7 +177,7 @@ class PeticionesTest(unittest.TestCase):
             subprocess.Popen(
                 comando,
                 cwd=self.ws,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 stdout=subprocess.PIPE,
                 stderr=subprocess.PIPE,
             )
@@ -250,7 +251,7 @@ class PeticionesTest(unittest.TestCase):
         resultado = subprocess.run(
             [sys.executable, "-c", codigo],
             cwd=self.ws,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
 
@@ -289,7 +290,7 @@ else:
 
         resultado = subprocess.run(
             [sys.executable, "-c", codigo], cwd=self.ws,
-            text=True, capture_output=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
         )
 
         self.assertEqual(resultado.returncode, 0, resultado.stderr)
@@ -1623,7 +1624,8 @@ class EvidenciaRamaFusionadaTest(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(
-            ["git", *args], cwd=self.repo, check=True, text=True, capture_output=True
+            ["git", *args], cwd=self.repo, check=True, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         ).stdout.strip()
 
     def squash_en_main(self, asunto):

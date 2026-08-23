@@ -263,7 +263,7 @@ class ContratoCITest(unittest.TestCase):
     def ejecutar_git(self, repo, *args):
         resultado = subprocess.run(
             ["git", "-C", str(repo), *args],
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             env=self.git_env,
         )
@@ -437,7 +437,7 @@ class ContratoCITest(unittest.TestCase):
         self.assertIn("antes", tardio.stdout.lower())
         self.crear_manifiesto_control_plane(repo)
         recibo = repo / ".runtime/control-plane-receipt.json"
-        datos = json.loads(recibo.read_text())
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
         datos["target_fingerprint"] = "otro-target"
         recibo.write_text(json.dumps(datos), encoding="utf-8")
 
@@ -1097,7 +1097,7 @@ class ContratoCITest(unittest.TestCase):
         sin_e2e = subprocess.run(
             [sys.executable, str(workspace / "docs/00-metodo/scripts/lint_metodo.py")],
             cwd=workspace,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             env=self.git_env,
         )
@@ -1120,7 +1120,7 @@ class ContratoCITest(unittest.TestCase):
             resultado = subprocess.run(
                 [sys.executable, str(workspace / "docs/00-metodo/scripts/lint_metodo.py")],
                 cwd=workspace,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
                 env=self.git_env,
             )
@@ -1141,7 +1141,7 @@ class ContratoCITest(unittest.TestCase):
         resultado = subprocess.run(
             [sys.executable, str(workspace / "docs/00-metodo/scripts/lint_metodo.py")],
             cwd=workspace,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             env=self.git_env,
         )
@@ -1153,7 +1153,7 @@ class ContratoCITest(unittest.TestCase):
         resultado = subprocess.run(
             [sys.executable, str(workspace / "docs/00-metodo/scripts/lint_metodo.py")],
             cwd=workspace,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             env=self.git_env,
         )

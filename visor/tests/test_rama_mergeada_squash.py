@@ -35,7 +35,8 @@ class RamaMergeadaSquashTest(unittest.TestCase):
 
     def git(self, *args):
         return subprocess.run(
-            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True,
+            encoding="utf-8", errors="replace"
         )
 
     def squash_sin_slug(self, rama):

@@ -14,6 +14,8 @@ import unittest
 import uuid
 from pathlib import Path
 
+import ayuda_windows  # noqa: E402 - módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 BOOTSTRAP = RAIZ / "visor/bootstrap.py"
@@ -21,15 +23,7 @@ ACTUALIZAR = RAIZ / "visor/actualizar.py"
 PROYECTOS = RAIZ / "visor/proyectos.py"
 
 
-def borrar_arbol(ruta):
-    """rmtree que borra también lo que git deja en solo-lectura (Windows)."""
-    def reintentar(func, objetivo, _exc):
-        os.chmod(objetivo, stat.S_IWRITE)
-        func(objetivo)
-    if sys.version_info >= (3, 12):
-        shutil.rmtree(ruta, onexc=reintentar)
-    else:
-        shutil.rmtree(ruta, onerror=reintentar)
+borrar_arbol = ayuda_windows.borrar_arbol
 
 
 def borrar_tmp_silencioso(ruta):
@@ -114,7 +108,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
 
     def escribir_journal(self, ws, snapshot, *, published=None, fase="escribiendo", **extra):
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
         datos = {
@@ -248,7 +242,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         main = destino / "main"
         if main.is_dir() and not main.is_symlink():
             borrar_arbol(main)
-        main.symlink_to(externo, target_is_directory=True)
+        ayuda_windows.enlazar_o_saltar(self, main, externo, directorio=True)
         lint_symlink = self.ejecutar(destino / "docs/00-metodo/scripts/lint_metodo.py")
         self.assertNotEqual(lint_symlink.returncode, 0, lint_symlink.stdout + lint_symlink.stderr)
         self.assertIn("symlink", (lint_symlink.stdout + lint_symlink.stderr).lower())
@@ -278,7 +272,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             [sys.executable, str(PROYECTOS), "depurar"],
             cwd=RAIZ,
             env=entorno,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
         self.assertEqual(dry_run.returncode, 0, dry_run.stdout + dry_run.stderr)
@@ -289,7 +283,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             [sys.executable, str(PROYECTOS), "depurar", "--aplicar"],
             cwd=RAIZ,
             env=entorno,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
         self.assertEqual(aplicar.returncode, 0, aplicar.stdout + aplicar.stderr)
@@ -327,14 +321,14 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             [sys.executable, str(PROYECTOS), "registrar", str(clones[0])],
             cwd=RAIZ,
             env=entorno,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
         segundo = subprocess.run(
             [sys.executable, str(PROYECTOS), "registrar", str(clones[1])],
             cwd=RAIZ,
             env=entorno,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
         )
         self.assertEqual(primero.returncode, 0, primero.stdout + primero.stderr)
@@ -362,7 +356,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
                     [sys.executable, str(PROYECTOS), "registrar", str(workspace)],
                     cwd=RAIZ,
                     env=entorno,
-                    text=True,
+                    text=True, encoding="utf-8", errors="replace",
                     stdout=subprocess.PIPE,
                     stderr=subprocess.PIPE,
                 )
@@ -460,7 +454,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             capture_output=True,
         )
         punto_retorno = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
 
@@ -470,7 +464,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertFalse(antiguo.exists())
         cambio = subprocess.run(
             ["git", "show", "--format=", "--name-status", "HEAD"],
-            cwd=ws, text=True, capture_output=True, check=True,
+            cwd=ws, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         ).stdout
         self.assertIn("D\tdocs/00-metodo/scripts/sandbox_lanzar.py", cambio)
         recuperable = subprocess.run(
@@ -480,7 +474,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
                 f"{punto_retorno}:docs/00-metodo/scripts/sandbox_lanzar.py",
             ],
             cwd=ws,
-            text=True,
+            text=True, encoding="utf-8", errors="replace",
             capture_output=True,
             check=True,
         ).stdout
@@ -537,7 +531,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             "unit:002-auditoria"
         )
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
 
@@ -548,6 +542,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             head,
@@ -561,7 +556,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         externo.mkdir()
         subprocess.run(["git", "init", "-q", "-b", "main"], cwd=externo, check=True)
         subprocess.run(["git", "config", "core.autocrlf", "false"], cwd=externo, check=True)
-        (ws / "main").symlink_to(externo, target_is_directory=True)
+        ayuda_windows.enlazar_o_saltar(self, ws / "main", externo, directorio=True)
         (ws / "repos.yaml").write_text(
             "codigo:\n  ruta_local: main/\n  rama_principal: main\n",
             encoding="utf-8",
@@ -572,7 +567,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             check=True, capture_output=True,
         )
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
 
@@ -583,6 +578,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             head,
@@ -603,11 +599,12 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(proceso.returncode, 0, salida + error)
         incluidos = subprocess.run(
             ["git", "show", "--format=", "--name-only", "HEAD"],
-            cwd=ws, text=True, capture_output=True, check=True,
+            cwd=ws, text=True, encoding="utf-8", errors="replace", capture_output=True, check=True,
         ).stdout.splitlines()
         self.assertNotIn("docs/05-trabajo/nota-ajena.md", incluidos)
         self.assertIn("?? docs/05-trabajo/nota-ajena.md", subprocess.run(
             ["git", "status", "--porcelain"], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout)
 
@@ -616,7 +613,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         ajeno = ws / "docs/05-trabajo/nota-ajena.md"
         ajeno.write_text("trabajo previo de otra sesión\n", encoding="utf-8")
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
 
@@ -625,15 +622,17 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertNotEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         self.assertIn("sucio", (resultado.stdout + resultado.stderr).lower())
         self.assertEqual(subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip(), head)
         self.assertEqual(subprocess.run(
             ["git", "diff", "--cached", "--name-only"], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout, "")
         self.assertIn("?? docs/05-trabajo/nota-ajena.md", subprocess.run(
             ["git", "status", "--porcelain"], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout)
         self.assertFalse((ws / "docs/00-metodo/scripts/peticion.py").exists())
@@ -720,7 +719,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
     def test_crash_despues_del_commit_conserva_commit_y_cierra_journal(self):
         ws = self.workspace_antiguo()
         anterior = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
         proceso, ready, gate = self.proceso_actualizar_con_failpoint(
@@ -728,7 +727,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         )
         self.esperar_barrera(ready)
         publicado = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
         self.assertNotEqual(publicado, anterior)
@@ -747,6 +746,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             publicado,
@@ -754,6 +754,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "status", "--porcelain"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout,
             "",
@@ -783,7 +784,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         victima.write_bytes(b"fuera intacto\n")
         agents = ws / "AGENTS.md"
         agents.unlink()
-        agents.symlink_to(victima)
+        ayuda_windows.enlazar_o_saltar(self, agents, victima)
         atacante = self.entrada_journal(b"contenido atacante\n")
         journal = self.escribir_journal(
             ws,
@@ -837,7 +838,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
     def test_cambio_ajeno_en_misma_ruta_antes_del_stage_bloquea_sin_clobber(self):
         ws = self.workspace_antiguo()
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
         proceso, ready, gate = self.proceso_actualizar_con_failpoint(
@@ -854,6 +855,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             head,
@@ -861,6 +863,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "diff", "--cached", "--name-only"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout,
             "",
@@ -869,7 +872,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
     def test_stage_exacto_no_absorbe_cambio_ajeno_posterior(self):
         ws = self.workspace_antiguo()
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
         proceso, ready, gate = self.proceso_actualizar_con_failpoint(
@@ -880,7 +883,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             "{{TITULO}}", "Antiguo"
         )
         blob_stageado = subprocess.run(
-            ["git", "show", ":AGENTS.md"], cwd=ws, text=True,
+            ["git", "show", ":AGENTS.md"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout
         self.assertEqual(blob_stageado, esperado)
@@ -894,6 +897,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             head,
@@ -901,6 +905,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "diff", "--cached", "--name-only"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout,
             "",
@@ -1037,7 +1042,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         )
         self.entorno["INGENIERIA_REQUISITOS_HERRAMIENTA"] = str(falsa)
         head = subprocess.run(
-            ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8", errors="replace",
             capture_output=True, check=True,
         ).stdout.strip()
 
@@ -1049,6 +1054,7 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,
+                encoding="utf-8", errors="replace",
                 capture_output=True, check=True,
             ).stdout.strip(),
             head,
@@ -1065,7 +1071,8 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         for ws in workspaces:
             registro = subprocess.run(
                 [sys.executable, str(PROYECTOS), "registrar", str(ws)],
-                cwd=RAIZ, env=self.entorno, text=True, capture_output=True,
+                cwd=RAIZ, env=self.entorno, text=True,
+                encoding="utf-8", errors="replace", capture_output=True,
             )
             self.assertEqual(registro.returncode, 0, registro.stdout + registro.stderr)
 

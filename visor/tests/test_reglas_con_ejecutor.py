@@ -82,7 +82,8 @@ class WorkspaceBase(unittest.TestCase):
     # ------------------------------------------------------------------ utilidades
     def git(self, cwd, *args):
         resultado = subprocess.run(
-            ["git", *args], cwd=str(cwd), text=True, capture_output=True
+            ["git", *args], cwd=str(cwd), text=True,
+            encoding="utf-8", errors="replace", capture_output=True
         )
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         return resultado.stdout.strip()
