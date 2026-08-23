@@ -235,6 +235,36 @@ class PruebasServidor(unittest.TestCase):
             self.assertEqual(estado, 404)
         self.assertFalse((self.datos / "recibos").exists())
 
+    def test_deniega_post_si_recibos_es_symlink_exterior(self):
+        exterior = Path(self.tmp.name + "-exterior")
+        exterior.mkdir()
+        self.addCleanup(exterior.rmdir)
+        (self.datos / "recibos").symlink_to(exterior, target_is_directory=True)
+        decision = {
+            "presentacion": "propuesta-uno", "version": "3",
+            "contenido_revisado": "Construir cuatro superficies locales con una plantilla fija.",
+            "eleccion": "aprobar", "comentario": "Adelante", "confirmado": True,
+        }
+
+        estado, _, cuerpo = self.pedir("POST", "/decisiones", decision)
+
+        self.assertEqual(estado, 400, cuerpo)
+        self.assertEqual(list(exterior.iterdir()), [])
+
+    def test_deniega_get_si_recibo_json_es_symlink_exterior(self):
+        carpeta = self.datos / "recibos"
+        carpeta.mkdir()
+        with tempfile.NamedTemporaryFile(mode="w", suffix=".json", delete=False) as salida:
+            json.dump({"secreto": "exterior"}, salida)
+            exterior = Path(salida.name)
+        self.addCleanup(exterior.unlink)
+        (carpeta / "escape.json").symlink_to(exterior)
+
+        estado, _, cuerpo = self.pedir("GET", "/recibos.json")
+
+        self.assertEqual(estado, 400, cuerpo)
+        self.assertNotIn(b"secreto", cuerpo)
+
 
 if __name__ == "__main__":
     unittest.main()

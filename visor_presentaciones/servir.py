@@ -40,6 +40,16 @@ def _leer_manifiesto(datos):
     return manifestar.validar(contenido)
 
 
+def _ruta_en_datos(datos, ruta):
+    """Devuelve la ruta resuelta o rechaza enlaces que escapen de datos."""
+    resuelta = Path(ruta).resolve(strict=False)
+    try:
+        resuelta.relative_to(datos)
+    except ValueError:
+        raise ValueError("ruta de recibos fuera del directorio de datos")
+    return resuelta
+
+
 def hacer_handler(datos, estado):
     datos = Path(datos).resolve()
 
@@ -63,13 +73,18 @@ def hacer_handler(datos, estado):
                 except (OSError, ValueError, json.JSONDecodeError) as exc:
                     return self._json(400, {"error": str(exc)})
             if ruta == "/recibos.json":
-                recibos = []
-                for fichero in sorted((datos / "recibos").glob("*.json")):
-                    try:
-                        recibos.append(json.loads(fichero.read_text(encoding="utf-8")))
-                    except (OSError, json.JSONDecodeError):
-                        continue
-                return self._json(200, {"recibos": recibos})
+                try:
+                    carpeta = _ruta_en_datos(datos, datos / "recibos")
+                    recibos = []
+                    for fichero in sorted(carpeta.glob("*.json")):
+                        fichero = _ruta_en_datos(datos, fichero)
+                        try:
+                            recibos.append(json.loads(fichero.read_text(encoding="utf-8")))
+                        except (OSError, json.JSONDecodeError):
+                            continue
+                    return self._json(200, {"recibos": recibos})
+                except (OSError, ValueError) as exc:
+                    return self._json(400, {"error": str(exc) or "recibos inválidos"})
             return self._json(404, {"error": "ruta inexistente"})
 
         def do_POST(self):
@@ -84,9 +99,9 @@ def hacer_handler(datos, estado):
                     raise ValueError("tamaño de JSON inválido")
                 peticion = json.loads(self.rfile.read(longitud))
                 recibo = self._validar_decision(peticion)
-                carpeta = datos / "recibos"
+                carpeta = _ruta_en_datos(datos, datos / "recibos")
                 carpeta.mkdir(mode=0o700, exist_ok=True)
-                ruta = carpeta / (recibo["id"] + ".json")
+                ruta = _ruta_en_datos(datos, carpeta / (recibo["id"] + ".json"))
                 with ruta.open("x", encoding="utf-8") as salida:
                     json.dump(recibo, salida, ensure_ascii=False, indent=2)
                     salida.write("\n")
