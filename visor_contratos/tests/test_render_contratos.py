@@ -12,6 +12,7 @@ troceando el `<script>` de `plantilla.html`.
 """
 
 import json
+import re
 import shutil
 import subprocess
 import tempfile
@@ -48,6 +49,15 @@ def renderizar(lineas):
     return salida.stdout
 
 
+# Desde un worktree el meta-repo está dos niveles arriba (<meta>/worktrees/<u>/);
+# desde el clon principal, uno (<meta>/main/).
+CANDIDATAS_DOCS = [BASE.parent.parent.parent / "docs", BASE.parent.parent / "docs"]
+
+
+def raiz_docs():
+    return next((c for c in CANDIDATAS_DOCS if c.is_dir()), None)
+
+
 @unittest.skipUnless(NODE, "sin node no se puede ejecutar el render de la plantilla")
 class RenderNoSeCuelga(unittest.TestCase):
 
@@ -78,6 +88,37 @@ class RenderNoSeCuelga(unittest.TestCase):
         for contrato in contratos:
             lineas = contrato.read_text(encoding="utf-8").split("\n")
             with self.subTest(contrato=contrato.parent.name):
+                html = renderizar(lineas)
+                self.assertTrue(html.strip(), "render vacío")
+
+    def test_una_lista_que_empieza_sangrada(self):
+        # R7 (bug #037, «la web vuelve a sobrecalentar el portátil»): la rama de
+        # listas entraba (la línea limpia SÍ es un item) y rompía sin avanzar `i`
+        # porque el primer item iba sangrado — bucle infinito, ventilador a tope.
+        html = renderizar(["  - item"])
+        self.assertIn("item", html)
+
+    def test_una_lista_sangrada_detras_de_un_parrafo(self):
+        html = renderizar(["texto", "  - item"])
+        self.assertIn("texto", html)
+        self.assertIn("item", html)
+
+    def test_una_lista_ordenada_que_empieza_sangrada(self):
+        html = renderizar(["   1. uno"])
+        self.assertIn("uno", html)
+
+    def test_las_fichas_reales_del_workspace_se_pintan(self):
+        # R7: las fichas de docs/bugs/ (034, 037, 041-044, 052, 053) llevan listas
+        # sangradas de verdad. Con TODAS ellas y con todos los contratos, bajo el
+        # mismo tope de tiempo: si alguna cuelga, `renderizar` lanza TimeoutExpired.
+        raiz = raiz_docs()
+        fichas = sorted(raiz.glob("bugs/*.md")) + sorted(
+            raiz.glob("05-trabajo/*/especificacion.md")) if raiz else []
+        if not fichas:
+            self.skipTest("sin docs/ al lado en %s" % " ni ".join(map(str, CANDIDATAS_DOCS)))
+        for ficha in fichas:
+            lineas = ficha.read_text(encoding="utf-8").split("\n")
+            with self.subTest(ficha=ficha.name):
                 html = renderizar(lineas)
                 self.assertTrue(html.strip(), "render vacío")
 
