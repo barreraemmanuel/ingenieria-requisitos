@@ -4,6 +4,31 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.7.7 — 2026-08-24
+
+**Seis trabajos que llevaban días hechos y sin repartir.** Desde la 1.7.3 entraron al método
+033, 034, 035, 040, los cuatro arreglos de Windows (041-044) y el 052, y ninguno subió el
+número: como el aviso de arranque compara solo eso, callaba, y los workspaces seguían con el
+método viejo. Esta publicación es la que los reparte.
+
+- **Windows deja de ser territorio hostil.** La suite corre allí (encoding explícito, symlinks
+  que se saltan con motivo, dobles de harness que arrancan, `rmtree` contra los `0o444` de
+  git); se acabó el mojibake en consola real y el clon de git olvidado en `%TEMP%` en cada
+  arranque; el `bash` de Git for Windows se encuentra aunque no esté en el PATH; y
+  `git worktree add` ya no muere con rutas de más de 260 caracteres.
+- **SEGURIDAD: un junction ya no esquiva las guardas.** Un junction de Windows se crea **sin
+  privilegio** y es invisible para `islink`, pero redirige igual. Se auditaron todas las
+  guardas anti-enlace: caían dos, y las dos escribían FUERA del workspace — el lease y el
+  reparto del propio método. Ahora se miran los reparse tags, no solo los symlinks.
+- **Cada regla del método tiene quien la haga cumplir**, y las puertas que encerraban trabajo
+  dicen por dónde se sale (033, 034).
+- **El canario avisa por turnos, no por porcentaje** (035), y el visor abre la actividad que le
+  pides en vez de la portada (040).
+- **La suite vuelve a comprobar lo que dice comprobar** (052): seis tests medían el vocabulario
+  viejo de un mensaje o simulaban Windows a medias, y tapaban que en macOS estaba roja.
+
+Se publica como 1.7.7, y no como 1.7.4, porque el PR #54 tiene reservados 1.7.4, 1.7.5 y 1.7.6.
+
 ## 1.7.3 — 2026-08-19
 
 Publicación de prueba, pedida por Nate, para verificar el update en un workspace cliente.
