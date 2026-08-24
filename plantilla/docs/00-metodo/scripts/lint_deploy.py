@@ -19,7 +19,6 @@ Sin dependencias: solo stdlib. El disco es la verdad; este script solo la compru
 """
 import os
 import re
-import shutil
 import subprocess
 import sys
 import time
@@ -120,7 +119,7 @@ def bash_del_anfitrion():
     candidato = workspace_paths.buscar_bash()
     if candidato and "system32" not in candidato.lower():
         return candidato
-    git = shutil.which("git")
+    git = workspace_paths.which_sin_cwd("git")  # nunca el cwd: un git.exe en el repo ganaría
     if git:
         raiz = Path(git).resolve().parent.parent
         for bash in (raiz / "bin" / "bash.exe", raiz / "usr" / "bin" / "bash.exe"):

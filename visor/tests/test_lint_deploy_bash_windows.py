@@ -23,13 +23,34 @@ def cargar(os_doble, which_doble, buscar_bash_doble, run_doble, raiz):
     espacio = {
         "os": os_doble, "Path": Path, "RAIZ": raiz,
         "subprocess": types.SimpleNamespace(run=run_doble, TimeoutExpired=Exception),
-        "shutil": types.SimpleNamespace(which=which_doble),
-        "workspace_paths": types.SimpleNamespace(buscar_bash=buscar_bash_doble),
+        "workspace_paths": types.SimpleNamespace(buscar_bash=buscar_bash_doble,
+                                                 which_sin_cwd=which_doble),
         "fail": lambda m: mensajes.append(("FAIL", m)), "ok": lambda m: mensajes.append(("OK", m)),
         "warn": lambda m: mensajes.append(("WARN", m)), "time": types.SimpleNamespace(time=lambda: 0.0),
     }
     exec(compile(ast.Module(body=nodos, type_ignores=[]), str(SCRIPT), "exec"), espacio)
     return espacio, mensajes
+
+
+class RutaComoEnWindows:
+    """Un fichero real del tmpdir cuyo `str()` es una ruta de Windows con barras invertidas.
+
+    `open()` e `is_file()` van al fichero real (vía `__fspath__`); `str()` es lo que
+    `ejecutar_control` pasaba a bash en Windows. Así el test muerde el cableado de
+    `ruta_para_bash` y no solo la función aislada."""
+
+    def __init__(self, real):
+        self.real = Path(real)
+        self.name = self.real.name
+
+    def __fspath__(self):
+        return str(self.real)
+
+    def is_file(self):
+        return self.real.is_file()
+
+    def __str__(self):
+        return "D:\\Proyectos\\demo\\scripts\\ci\\" + self.name
 
 
 class BashYRutasEnWindowsTest(unittest.TestCase):
@@ -66,11 +87,12 @@ class BashYRutasEnWindowsTest(unittest.TestCase):
         git = str(raiz_git / "cmd" / "git.exe"); (raiz_git / "bin" / "bash.exe").write_text("", encoding="utf-8")
         espacio, mensajes = cargar(self.windows(), lambda n: git if n == "git" else None,
                                    lambda: wsl, self.run_doble, self.raiz)
-        espacio["ejecutar_control"]("full-suite", self.gate, self.raiz)
+        espacio["ejecutar_control"]("full-suite", RutaComoEnWindows(self.gate), self.raiz)
         self.assertTrue(self.llamadas, mensajes)
         self.assertNotIn("System32", self.llamadas[0][0], "se eligió el bash de WSL")
         self.assertTrue(self.llamadas[0][0].endswith("bash.exe"))
-        self.assertNotIn("\\", self.llamadas[0][1])
+        self.assertEqual(self.llamadas[0][1], "D:/Proyectos/demo/scripts/ci/full-suite",
+                         "la ruta llegó a bash con barras invertidas")
 
     def test_sin_bash_de_git_se_dice_en_claro_y_no_se_lanza_nada(self):
         espacio, mensajes = cargar(self.windows(), lambda n: None, lambda: "C:\\Windows\\System32\\bash.exe",
