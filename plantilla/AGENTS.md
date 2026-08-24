@@ -49,7 +49,7 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 | Trabajar la unidad NNN | `docs/05-trabajo/NNN-*/especificacion.md` (contrato + plan) |
 | Reportar o trabajar un bug | `docs/bugs/NNN-slug.md` + runbook `bug` (ADR-006) |
 | Cerrar una unidad (de cualquier tipo) | `docs/00-metodo/runbooks/cierre.md` |
-| Saber qué hay instalado en esta máquina | `python3 docs/00-metodo/scripts/doctor.py` |
+| Qué hay instalado en esta máquina · en qué se va el cupo | `python3 docs/00-metodo/scripts/doctor.py` · `scripts/coste.py` |
 | Cambio pequeño que encaja donde ya vive (**el caso normal**) · cambio trivial sin comportamiento | `runbooks/directo.md` · `runbooks/expres.md` |
 | Producción caída / urgencia | `docs/00-metodo/runbooks/hotfix.md` |
 | "Quiero que lo use mi gente" / ponerlo en internet | `docs/00-metodo/runbooks/primer-despliegue.md` (la primera vez) · `runbooks/deploy.md` (las demás) |

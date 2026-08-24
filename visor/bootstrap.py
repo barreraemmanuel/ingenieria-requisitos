@@ -89,7 +89,7 @@ PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "desplieg
               "especificacion", "hallazgos", "informe", "investigacion", "plano-operativo",
               "peticion-investigacion-informe", "peticion-investigacion-plan",
               "peticion-investigacion-sintesis", "roadmap", "sintesis")
-SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "doctor.py", "ejecucion.py",
+SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py", "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_deploy.py", "lint_metodo.py", "lease.py",
            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py")
 DECISIONES = (

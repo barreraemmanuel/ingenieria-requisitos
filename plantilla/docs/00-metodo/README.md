@@ -186,6 +186,13 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
 - `scripts/doctor.py` — **qué hay de verdad en esta máquina** (Python, git y su identidad,
   `gh`, Docker, Node) y qué implica cada ausencia. Lo corre `setup.py` y la fase 4: el ROADMAP
   no fija una herramienta que no esté aquí en verde. Informa, nunca bloquea.
+- `scripts/coste.py` — **¿en qué se va el cupo?** Lectura pasiva de los rollouts que el
+  harness ya escribe (`~/.claude/projects`): reparte el gasto en cuatro ejes (relectura de
+  caché, escritura, entrada, salida), atribuye la relectura a cuatro orígenes (razonamiento,
+  herramientas, andamiaje, persona), mide el texto siempre cargado como tamaño x turnos y
+  simula qué habría ahorrado cortar cada N turnos, con el supuesto escrito al lado. `--json`
+  deja una línea base y `--linea-base` compara contra ella: así se comprueba si un cambio del
+  método abarató de verdad. No emite nota compuesta, no escribe en `~/.claude/` y no envía nada.
 - `scripts/herramienta.py` — **el canal de actualización, sin depender de que la herramienta
   esté en el disco**: `comprobar` mira contra el repo del método (`origen` de `METODO.json`)
   leyendo solo su fichero de versión —un `git ls-remote` y, si se movió, un clon superficial
