@@ -157,11 +157,15 @@ def listar_trabajo(workspace):
 
 
 def listar_bugs(workspace):
-    """Los bugs de `docs/bugs/*.md`: también piden un OK del usuario (R5, bug 054).
+    """Los bugs de `docs/bugs/*.md` que TODAVÍA piden un OK del usuario (R5, bug 054):
+    `aprobado: no` (o sin fecha) y los `estado: planificada`.
 
-    Un fichero de bug ES el contrato entero (ADR-006): a diferencia de una unidad, no vive
-    en una carpeta con `especificacion.md` sino como `NNN-slug.md` suelto junto a
-    `INDICE.md` y otros ficheros de soporte, que se descartan por no casar NNN-slug.
+    `docs/bugs/` es el historial completo (ADR-006, no se archiva); listarlo entero
+    ahogaría los pendientes entre docenas de bugs ya `mergeada` con fecha de
+    aprobación antigua (hueco H2 de la ronda 2 de revisión). Un fichero de bug ES el
+    contrato entero: a diferencia de una unidad, no vive en una carpeta con
+    `especificacion.md` sino como `NNN-slug.md` suelto junto a `INDICE.md` y otros
+    ficheros de soporte, que se descartan por no casar NNN-slug.
     """
     raiz = carpeta_bugs(workspace)
     bugs = []
@@ -184,15 +188,19 @@ def listar_bugs(workspace):
         except OSError:
             campos = {}
         aprobado = campos.get("aprobado", "")
+        estado = campos.get("estado", "")
+        pendiente_de_aprobar = not FECHA.match(aprobado)
+        if not pendiente_de_aprobar and estado != "planificada":
+            continue  # ya aprobado y en marcha o cerrado: no pide un OK hoy
         bugs.append({
             "unidad": campos.get("unidad") or base,
             "carpeta": base,
             "tipo": campos.get("tipo", ""),
             "carril": campos.get("carril", ""),
-            "estado": campos.get("estado", ""),
+            "estado": estado,
             "actividad": campos.get("actividad", ""),
             "aprobado": aprobado,
-            "pendiente_de_aprobar": not FECHA.match(aprobado),
+            "pendiente_de_aprobar": pendiente_de_aprobar,
             "origen": "bug",
         })
     return bugs

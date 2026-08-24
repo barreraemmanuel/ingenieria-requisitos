@@ -323,15 +323,24 @@ class WorkspaceRealTest(unittest.TestCase):
         )
 
     def bugs_reales(self):
-        """Los `NNN-slug.md` de `docs/bugs/` que existen HOY (R5, bug 054): el otro
-        sitio donde se pide un OK, y el visor también debe listarlo."""
+        """Los `NNN-slug.md` de `docs/bugs/` que HOY siguen pidiendo un OK (R5, bug
+        054): `aprobado: no` (o sin fecha) y los `estado: planificada` — el mismo
+        filtro que aplica `listar_bugs`, para no ahogar los pendientes entre las
+        docenas de bugs ya `mergeada` del historial (hueco H2 de la ronda 2)."""
         bugs = self.WORKSPACE / "docs" / "bugs"
         if not bugs.is_dir():
             return []
-        return sorted(
-            p.stem for p in bugs.glob("*.md")
-            if re.match(r"^\d{3}-[a-z0-9][a-z0-9-]*$", p.stem)
-        )
+        servir = cargar_servir()
+        pendientes = []
+        for p in sorted(bugs.glob("*.md")):
+            if not re.match(r"^\d{3}-[a-z0-9][a-z0-9-]*$", p.stem):
+                continue
+            campos = servir.leer_frontmatter(p.read_text(encoding="utf-8"))
+            aprobado = campos.get("aprobado", "")
+            estado = campos.get("estado", "")
+            if not servir.FECHA.match(aprobado) or estado == "planificada":
+                pendientes.append(p.stem)
+        return sorted(pendientes)
 
     def test_lista_las_unidades_reales_del_workspace(self):
         reales = self.unidades_reales()

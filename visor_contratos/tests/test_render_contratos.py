@@ -88,5 +88,46 @@ class RenderNoSeCuelga(unittest.TestCase):
             self.assertIn(esperado, html)
 
 
+def funcion_ruta_de():
+    """`rutaDe()` extraída sola, sin DOM: elige la ruta según `u.origen` (H1, ronda 2)."""
+    html = PLANTILLA.read_text(encoding="utf-8")
+    scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)
+    script = next(s for s in scripts if "function rutaDe" in s)
+    inicio = script.index("function rutaDe")
+    return script[inicio:script.index("function pintarContrato")]
+
+
+def ruta_de(unidad):
+    programa = funcion_ruta_de() + (
+        "\nprocess.stdout.write(rutaDe(%s));" % json.dumps(unidad)
+    )
+    with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False,
+                                     encoding="utf-8") as fichero:
+        fichero.write(programa)
+        ruta = fichero.name
+    try:
+        salida = subprocess.run([NODE, ruta], capture_output=True, text=True,
+                                timeout=TOPE_SEGUNDOS, check=True)
+    finally:
+        Path(ruta).unlink(missing_ok=True)
+    return salida.stdout
+
+
+@unittest.skipUnless(NODE, "sin node no se puede ejecutar el render de la plantilla")
+class RutaDelContratoSegunOrigen(unittest.TestCase):
+    """H1 (ronda 2): la cabecera del contrato no puede mentir sobre dónde vive —
+    antes pintaba siempre `docs/05-trabajo/<carpeta>/especificacion.md`, también
+    para los bugs, que viven en `docs/bugs/<carpeta>.md`."""
+
+    def test_una_unidad_de_trabajo_apunta_a_05_trabajo(self):
+        ruta = ruta_de({"origen": "trabajo", "carpeta": "054-visor-de-contratos-sin-ejecutor"})
+        self.assertEqual(
+            "docs/05-trabajo/054-visor-de-contratos-sin-ejecutor/especificacion.md", ruta)
+
+    def test_un_bug_apunta_a_docs_bugs(self):
+        ruta = ruta_de({"origen": "bug", "carpeta": "054-visor-de-contratos-sin-ejecutor"})
+        self.assertEqual("docs/bugs/054-visor-de-contratos-sin-ejecutor.md", ruta)
+
+
 if __name__ == "__main__":
     unittest.main()

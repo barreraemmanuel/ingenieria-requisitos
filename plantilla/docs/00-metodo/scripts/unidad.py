@@ -1116,6 +1116,8 @@ def _cmd_despachar(args, autoridad, snapshot=None):
                 f"  visor de contratos, enséñale el contrato al usuario y que vuelva a dar su\n"
                 f"  OK:\n"
                 f"      {COMANDO_VISOR_CONTRATOS}\n"
+                f"  Si el 'aprobado: {aprobado}' es de una fecha pasada, abrir el visor hoy NO "
+                f"basta: pide el OK otra vez y actualiza 'aprobado:' a la fecha de hoy.\n"
                 f"  Producción caída (bug P0): runbooks/hotfix.md → --force --motivo \"...\".")
             return 1
         if vistas_a_tiempo:

@@ -437,12 +437,16 @@
     return html;
   }
 
+  function rutaDe(u) {
+    if (u.origen === "bug") return "docs/bugs/" + u.carpeta + ".md";
+    return "docs/05-trabajo/" + u.carpeta + "/especificacion.md";
+  }
+
   function pintarContrato(u, texto) {
     var doc = trocear(texto);
     var html = '<div class="cabecera-contrato"><h2>' +
                esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
-               '<div class="ruta">docs/05-trabajo/' + esc(u.carpeta) +
-               "/especificacion.md</div></div>";
+               '<div class="ruta">' + esc(rutaDe(u)) + "</div></div>";
     var secciones = ordenBluf(doc.secciones);
     for (var i = 0; i < secciones.length; i++) {
       var s = secciones[i];
