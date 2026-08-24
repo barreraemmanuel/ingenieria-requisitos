@@ -554,8 +554,11 @@ def revisar_cola_peticiones():
                     if resuelta.is_file() and RAIZ.resolve() in resuelta.parents:
                         canonica = resuelta
                 if tipo == "deploy":
+                    # Bug 038: desplegar DESPUÉS de cerrar es el caso normal; la ficha de
+                    # una unidad ya archivada vive en 05-trabajo/archivo/ y es tan válida
+                    # como la activa (igual que hacen `unidad` y `auditoria` más arriba).
                     esperada = re.fullmatch(
-                        r"docs/(?:05-trabajo|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md",
+                        r"docs/(?:05-trabajo(?:/archivo)?|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md",
                         str(ref),
                     )
                     if canonica is None or not esperada:
