@@ -65,10 +65,15 @@ class RenderNoSeCuelga(unittest.TestCase):
         self.assertIn("texto", html)
 
     def test_los_contratos_reales_del_workspace_se_pintan(self):
-        raiz = BASE.parent.parent.parent / "docs" / "05-trabajo"
-        contratos = sorted(raiz.glob("*/especificacion.md"))
+        # Desde un worktree el meta-repo está dos niveles arriba (<meta>/worktrees/<u>/);
+        # desde el clon principal, uno (<meta>/main/). Se prueba en ese orden y se avisa
+        # si ninguna existe: un skip silencioso aquí escondería el caso más fuerte.
+        candidatas = [BASE.parent.parent.parent / "docs" / "05-trabajo",
+                      BASE.parent.parent / "docs" / "05-trabajo"]
+        raiz = next((c for c in candidatas if c.is_dir()), None)
+        contratos = sorted(raiz.glob("*/especificacion.md")) if raiz else []
         if not contratos:
-            self.skipTest("este repo no tiene contratos al lado")
+            self.skipTest("sin contratos al lado en %s" % " ni ".join(map(str, candidatas)))
         for contrato in contratos:
             lineas = contrato.read_text(encoding="utf-8").split("\n")
             with self.subTest(contrato=contrato.parent.name):
