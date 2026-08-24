@@ -19,6 +19,7 @@ Sin dependencias: solo stdlib. El disco es la verdad; este script solo la compru
 """
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -99,6 +100,35 @@ def casillas_del_plano(texto):
     return valores
 
 
+def ruta_para_bash(ruta):
+    """La ruta tal y como la entiende el bash de Git for Windows: con barras normales.
+
+    Bug 039: `str(ruta)` en Windows lleva barras invertidas y bash se las come
+    (`D:\\Proyectos\\x` → `D:Proyectosx`, exit 127). `D:/Proyectos/x` la entienden bash y
+    Windows por igual.
+    """
+    return str(ruta).replace("\\", "/")
+
+
+def bash_del_anfitrion():
+    """El bash que entiende las rutas de ESTE Windows: el de Git for Windows, nunca el de WSL.
+
+    Bug 039: en un Windows con WSL, `which("bash")` devuelve `System32\\bash.exe`, que es el
+    lanzador de WSL y vive en otro sistema de ficheros. Se descarta y se busca el de Git
+    junto al `git.exe` que sí se encontró; si no está, se dice en claro.
+    """
+    candidato = workspace_paths.buscar_bash()
+    if candidato and "system32" not in candidato.lower():
+        return candidato
+    git = shutil.which("git")
+    if git:
+        raiz = Path(git).resolve().parent.parent
+        for bash in (raiz / "bin" / "bash.exe", raiz / "usr" / "bin" / "bash.exe"):
+            if bash.is_file():
+                return str(bash)
+    return None
+
+
 def ejecutar_control(nombre, ruta, cwd):
     """Ejecuta una puerta del repo y guarda el output completo fuera de git."""
     if not ruta.is_file():
@@ -117,11 +147,12 @@ def ejecutar_control(nombre, ruta, cwd):
         except OSError:
             lleva_shebang = False
         if lleva_shebang:
-            bash = workspace_paths.buscar_bash()
+            bash = bash_del_anfitrion()
             if not bash:
-                fail(f"en Windows {nombre} necesita bash (Git for Windows)")
+                fail(f"en Windows {nombre} necesita el bash de Git for Windows (el de WSL no "
+                     f"entiende las rutas de este equipo): instálalo o ponlo en el PATH")
                 return
-            orden = [bash, str(ruta)]
+            orden = [bash, ruta_para_bash(ruta)]
     try:
         resultado = subprocess.run(
             orden, cwd=str(cwd), capture_output=True, text=True,
