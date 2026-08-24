@@ -117,3 +117,5 @@ ni sin la validación final del usuario.
 - Error del agente que se repetirá → regla en AGENTS.md del repo de código o hook.
 - Trampa de librería/dominio → `conocimiento/`.
 - El mapa prometía algo mal → delta correctivo a `02-flujos/` (con OK del usuario).
+- **Faltaba un guardián** (ningún mecanismo podía verlo) → fila nueva en `docs/00-metodo/detectores.md`,
+  columna «qué NO puede ver»; esa fila es la cola de la que sale el guardián siguiente (ADR-026).

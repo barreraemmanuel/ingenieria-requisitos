@@ -127,7 +127,7 @@ DECISIONES = (
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
     "auditoria-metodo.md", "auditoria-seguridad.md", "seguridad-por-stack.md", "sandbox.md",
-    "proceso-nativo.md",
+    "proceso-nativo.md", "detectores.md",
 )
 ARCHIVOS_METODO = tuple(
     [*METODO_RAIZ]
