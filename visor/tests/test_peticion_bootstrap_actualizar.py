@@ -245,7 +245,9 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         ayuda_windows.enlazar_o_saltar(self, main, externo, directorio=True)
         lint_symlink = self.ejecutar(destino / "docs/00-metodo/scripts/lint_metodo.py")
         self.assertNotEqual(lint_symlink.returncode, 0, lint_symlink.stdout + lint_symlink.stderr)
-        self.assertIn("symlink", (lint_symlink.stdout + lint_symlink.stderr).lower())
+        salida_lint = (lint_symlink.stdout + lint_symlink.stderr).lower()
+        self.assertIn("no admite enlaces", salida_lint)
+        self.assertIn("ruta_local", salida_lint)
 
     def test_depurar_registro_es_dry_run_y_solo_olvida_rutas_ausentes(self):
         registro = self.base / "registro-aislado.json"
@@ -574,7 +576,10 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         resultado = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
 
         self.assertNotEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        self.assertIn("symlink", (resultado.stdout + resultado.stderr).lower())
+        # La guarda de la 043 rechaza symlinks y junctions, y lo dice así:
+        salida = (resultado.stdout + resultado.stderr).lower()
+        self.assertIn("no admite enlaces", salida)
+        self.assertIn("ruta_local", salida)
         self.assertEqual(
             subprocess.run(
                 ["git", "rev-parse", "HEAD"], cwd=ws, text=True,

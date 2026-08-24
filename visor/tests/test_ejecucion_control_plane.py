@@ -459,7 +459,11 @@ pathlib.Path('.harness-record.json').write_text(
         resultado = self.ejecutar()
 
         self.assertNotEqual(resultado.returncode, 0)
-        self.assertIn("symlink", resultado.stderr.lower())
+        # Se comprueba lo que la guarda PROMETE —rechaza y nombra el documento—, no una
+        # palabra suya: desde la 043 caza también junctions y dice "no admite enlaces".
+        salida = resultado.stderr.lower()
+        self.assertIn("no admite enlaces", salida)
+        self.assertIn("hallazgos.md", salida)
         self.assertEqual(exterior.read_bytes(), contenido)
         self.assertFalse((self.worktree / ".harness-record.json").exists())
 
