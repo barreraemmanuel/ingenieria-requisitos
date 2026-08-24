@@ -40,6 +40,7 @@ from pathlib import Path
 import peticion as gestion_peticiones
 import control_plane
 import lease as gestion_leases
+import lint_cierre
 import repo_config
 import workspace_paths
 
@@ -2223,6 +2224,19 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
                 problemas.append(
                     "recibo control-plane inválido: " + control_plane.redact_secrets(exc)
                 )
+
+    # --- Puerta 0 (045): el parte de cierre cuadra con la evidencia que cita -----------------
+    # Va la PRIMERA porque es la que sostiene a todas las demás: el resto de puertas leen lo
+    # que el constructor escribió, y hasta hoy nadie comprobaba que eso concordara con nada.
+    # Un «47/47 verdes» se creía por estar escrito. Un bug no tiene hallazgos.md aparte
+    # (ADR-006): su ficha es contrato y bitácora a la vez, y la cabecera se pide donde vive.
+    if clase == "unidad":
+        problemas_parte = lint_cierre.validar_parte(
+            nombre, ruta, ruta.parent / "hallazgos.md", RAIZ)
+        for que, salida in problemas_parte:
+            problemas.append(f"parte de cierre — {que}. {SALIDA} {salida}")
+        if not problemas_parte:
+            ok("parte de cierre: veredicto, códigos de salida, números y hashes cuadran")
 
     # --- Puerta 1: el usuario ha probado la app y ha dado su OK -----------------------------
     # No entra en `problemas` a propósito (ADR-010): es lo único de esta lista que no depende

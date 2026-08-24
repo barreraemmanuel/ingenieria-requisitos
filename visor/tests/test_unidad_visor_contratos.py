@@ -35,8 +35,9 @@ class WorkspaceBase(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "ejecucion.py", "lease.py", "peticion.py",
-            "repo_config.py", "unidad.py", "workspace_paths.py", "lint_metodo.py",
+            "control_plane.py", "ejecucion.py", "lease.py", "lint_cierre.py",
+            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py",
+            "lint_metodo.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"

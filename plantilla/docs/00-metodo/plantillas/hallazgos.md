@@ -17,6 +17,27 @@ revisado: no             # `no` | fecha YYYY-MM-DD de esa revisión. `unidad.py 
 
 ## Evidencia de verificación (obligatorio)
 
+<La cabecera de abajo la comprueba `lint_cierre.py` y `unidad.py cerrar` la exige: el
+«47/47 verdes» deja de creerse por estar escrito y tiene que cuadrar con algo que se pueda
+volver a mirar. Se rellena con lo que EJECUTASTE, no de memoria. Los marcadores `—` no
+valen: mientras sigan ahí, el cierre no pasa.>
+
+```parte-de-cierre
+veredicto: —                 # entregada | fallo (lo que de verdad salió)
+tests_cmd: —                 # el comando exacto de la suite
+tests_exit: —                # su código de salida (0 si verde)
+tests_output: —              # .runtime/NNN-slug/tests.txt — la salida volcada, no pegada
+tests_sha256: —              # shasum -a 256 <esa ruta>
+build_cmd: —                 # el comando de build/lint
+build_exit: —
+build_output: —              # .runtime/NNN-slug/lint.txt
+build_sha256: —
+requisitos: —                # N/M cubiertos: M son los `- **Rn** —` de especificacion.md
+plan: —                      # N/M casillas: contadas sobre el plan de especificacion.md
+bloqueadores: —              # cuántos quedan abiertos (0 si ninguno)
+```
+
+
 ```
 <output real de la suite de tests + lint. Pegado, no resumido.>
 ```

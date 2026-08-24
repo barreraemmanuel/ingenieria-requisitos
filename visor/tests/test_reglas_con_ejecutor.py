@@ -20,6 +20,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import ayuda_cierre  # módulo hermano de la suite
+
 
 RAIZ = Path(__file__).resolve().parents[2]
 SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
@@ -42,8 +44,8 @@ class WorkspaceBase(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "ejecucion.py", "lease.py", "peticion.py",
-            "repo_config.py", "unidad.py", "workspace_paths.py",
+            "control_plane.py", "ejecucion.py", "lease.py", "lint_cierre.py",
+            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
@@ -236,6 +238,10 @@ class WorkspaceBase(unittest.TestCase):
             "LIMPIO | HUECOS DE CORRECCIÓN → <cuáles;", "LIMPIO ·"
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        # 045: el cierre exige que el parte cuadre con su evidencia. Estas unidades de
+        # juguete llevaban la cabecera de la plantilla sin rellenar, que es justo lo que la
+        # puerta deniega; se rellena honesta para que el test siga probando lo suyo.
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
 
     def cerrar(self, nombre, *extra):
         return self.ejecutar(self.unidad, "cerrar", nombre, *extra)

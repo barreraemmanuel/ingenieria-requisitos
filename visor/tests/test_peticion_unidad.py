@@ -11,6 +11,7 @@ import time
 import unittest
 from pathlib import Path
 
+import ayuda_cierre  # noqa: E402 - módulo hermano de la suite
 import ayuda_windows  # noqa: E402 - módulo hermano de la suite
 
 
@@ -30,8 +31,8 @@ class PeticionUnidadTest(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "lease.py", "peticion.py", "repo_config.py",
-            "unidad.py", "workspace_paths.py",
+            "control_plane.py", "lease.py", "lint_cierre.py", "peticion.py",
+            "repo_config.py", "unidad.py", "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
@@ -1026,6 +1027,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
         self.recibos_de_revision("001-cierre-ordenado")
         linter = self.ws / "docs/00-metodo/scripts/lint_metodo.py"
         linter.write_text(
@@ -1123,6 +1125,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
         self.recibos_de_revision(carpeta.name)
         return carpeta.name
 
@@ -1258,6 +1261,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- **Veredicto:** LIMPIO",
         )
         hallazgos.write_text(texto, encoding="utf-8")
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
         self.recibos_de_revision("001-cierre-con-lease")
         (self.ws / "docs/00-metodo/scripts/lint_metodo.py").write_text(
             "raise SystemExit(0)\n", encoding="utf-8"

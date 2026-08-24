@@ -74,6 +74,16 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    `python3 docs/00-metodo/scripts/lint_ci.py --repo worktrees/NNN-slug`. La primera unidad
    materializa el contrato; las siguientes demuestran que no lo han roto. Una unidad
    documental, que no tiene worktree de código, no ejecuta esta puerta.
+
+   **El parte de cierre tiene que cuadrar** (`lint_cierre.py`, lo llama `unidad.py cerrar`
+   antes que ninguna otra puerta). Comprueba cuatro cosas sobre el bloque
+   ```parte-de-cierre``` de `hallazgos.md`: que un veredicto de éxito no conviva con un
+   código de salida ≠ 0, ni uno de fallo con toda la evidencia en verde; que los `N/M` de
+   requisitos y casillas coincidan con el conteo real sobre `especificacion.md`; y que las
+   rutas de `.runtime/` citadas existan con el hash declarado.
+   Lo que **NO** comprueba: si los tests son buenos, si muerden o si el comando declarado
+   es el que tocaba. Dice que lo escrito cuadra con lo ejecutado, no que lo ejecutado
+   bastara. Suelto: `python3 docs/00-metodo/scripts/lint_cierre.py NNN-slug`.
    Si los planos declaran `pruebas_e2e`, añade `--require-e2e`: deben existir
    `scripts/ci/{provision-e2e,e2e}` y la cadena debe ser `full-suite → e2e →
    provision-e2e → tests E2E`; el provisionador demuestra que rechaza producción. En la
