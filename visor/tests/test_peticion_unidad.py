@@ -179,6 +179,16 @@ class PeticionUnidadTest(unittest.TestCase):
         ficha.write_text(texto, encoding="utf-8")
         return ficha.stem
 
+    def dejar_rastro_visor_contratos(self, nombre, fecha=None):
+        """Lo que `visor_contratos/servir.py` anota por contrato mostrado (R2, bug 054):
+        estos fixtures aprueban a mano, así que dejan también el rastro que la puerta 3
+        de `despachar` exige (R3) — sin él, `despachar` bloquearía un fixture legítimo."""
+        fecha = fecha or datetime.date.today().isoformat()
+        registro = self.ws / ".runtime" / "visor-contratos.log"
+        registro.parent.mkdir(parents=True, exist_ok=True)
+        with open(registro, "a", encoding="utf-8") as rastro:
+            rastro.write(f"{fecha}T00:00:00 contrato mostrado: {nombre}\n")
+
     def aprobar_para_despacho(self, nombre):
         ruta = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
         texto = ruta.read_text(encoding="utf-8")
@@ -189,6 +199,7 @@ class PeticionUnidadTest(unittest.TestCase):
             count=1,
             flags=re.M,
         )
+        self.dejar_rastro_visor_contratos(nombre)
         cierre = texto.find("---", 4)
         cabecera = texto[:cierre + 3]
         cuerpo = (
@@ -639,6 +650,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "texto del runbook y contrastarlo con el script de cierre real.\n"
         )
         ficha.write_text(texto, encoding="utf-8")
+        self.dejar_rastro_visor_contratos(nombre)
         return nombre
 
     def test_documental_en_vuelo_no_consume_cupo_de_constructor(self):
@@ -1212,6 +1224,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "texto del runbook y contrastarlo con el script de cierre real.\n"
         )
         ficha.write_text(texto, encoding="utf-8")
+        self.dejar_rastro_visor_contratos(ficha.stem)
         return ficha.stem
 
     def test_cerrar_respeta_git_index_de_otra_sesion(self):

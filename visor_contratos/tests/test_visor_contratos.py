@@ -322,26 +322,52 @@ class WorkspaceRealTest(unittest.TestCase):
             if p.is_dir() and (p / "especificacion.md").is_file()
         )
 
+    def bugs_reales(self):
+        """Los `NNN-slug.md` de `docs/bugs/` que existen HOY (R5, bug 054): el otro
+        sitio donde se pide un OK, y el visor también debe listarlo."""
+        bugs = self.WORKSPACE / "docs" / "bugs"
+        if not bugs.is_dir():
+            return []
+        return sorted(
+            p.stem for p in bugs.glob("*.md")
+            if re.match(r"^\d{3}-[a-z0-9][a-z0-9-]*$", p.stem)
+        )
+
     def test_lista_las_unidades_reales_del_workspace(self):
         reales = self.unidades_reales()
         if not reales:
             self.skipTest("el meta-repo no tiene ninguna unidad activa ahora mismo")
         _, _, cuerpo = self.servidor.pedir("/unidades.json")
         unidades = json.loads(cuerpo)["unidades"]
-        nombres = sorted(u["carpeta"] for u in unidades)
-        self.assertEqual(nombres, reales,
+        # R5 (bug 054): el listado ya no es solo docs/05-trabajo/, también trae
+        # docs/bugs/ — se filtra por origen para seguir anclando el viejo contrato
+        # (unidades de trabajo EXACTAS) sin perder cobertura sobre los bugs.
+        nombres_trabajo = sorted(u["carpeta"] for u in unidades if u["origen"] == "trabajo")
+        self.assertEqual(nombres_trabajo, reales,
                          "el visor debe listar EXACTAMENTE las unidades de docs/05-trabajo")
         for u in unidades:
             with self.subTest(unidad=u["unidad"]):
                 self.assertNotIn("#", u["aprobado"], "comentario YAML sin recortar")
                 self.assertNotIn("#", u["tipo"])
 
-    def test_sirve_el_contrato_de_una_unidad_viva(self):
+    def test_lista_tambien_los_bugs_reales_del_workspace(self):
+        """R5 (bug 054): docs/bugs/*.md también se listan, no solo docs/05-trabajo/."""
+        bugs = self.bugs_reales()
+        if not bugs:
+            self.skipTest("el meta-repo no tiene ningún bug ahora mismo")
         _, _, cuerpo = self.servidor.pedir("/unidades.json")
         unidades = json.loads(cuerpo)["unidades"]
-        if not unidades:
+        nombres_bug = sorted(u["carpeta"] for u in unidades if u["origen"] == "bug")
+        self.assertEqual(nombres_bug, bugs,
+                         "el visor debe listar EXACTAMENTE los bugs de docs/bugs/")
+
+    def test_sirve_el_contrato_de_una_unidad_viva(self):
+        reales = self.unidades_reales()
+        if not reales:
             self.skipTest("el meta-repo no tiene ninguna unidad activa ahora mismo")
-        viva = unidades[0]["carpeta"]
+        _, _, cuerpo = self.servidor.pedir("/unidades.json")
+        unidades = json.loads(cuerpo)["unidades"]
+        viva = next(u["carpeta"] for u in unidades if u["origen"] == "trabajo")
         _, _, contrato = self.servidor.pedir(f"/contrato/{viva}.md")
         self.assertIn("## Qué (el contrato, en idioma de negocio)", contrato)
         self.assertIn("## Criterios de aceptación", contrato)
@@ -434,6 +460,112 @@ class OrdenBlufTest(unittest.TestCase):
         self.assertTrue(self.plegada("Cómo (enfoque técnico)"))
         self.assertTrue(self.plegada("Contexto para el constructor"))
         self.assertTrue(self.plegada("Plan de trabajo"))
+
+
+CONTRATO_BUG_030 = """---
+unidad: 030-bug-pendiente
+tipo: bug
+carril: normal
+estado: planificada
+aprobado: no
+actividad: revisar-contratos
+---
+
+# 030 · BUG de prueba
+
+## 1 · Reporte
+Algo se rompió y todavía nadie lo ha aprobado.
+"""
+
+
+class RastroDeAperturaTest(unittest.TestCase):
+    """R2 (bug 054) — cada contrato SERVIDO deja fecha ISO + NNN-slug en
+    `.runtime/visor-contratos.log`, igual que `requisitos.anotar_apertura`."""
+
+    def setUp(self):
+        self.workspace = montar_workspace()
+        self.addCleanup(shutil.rmtree, self.workspace, True)
+        self.servidor = ServidorDePrueba(self.workspace)
+        self.addCleanup(self.servidor.parar)
+
+    def rastro(self):
+        ruta = self.workspace / ".runtime" / "visor-contratos.log"
+        return ruta.read_text(encoding="utf-8") if ruta.is_file() else ""
+
+    def test_no_hay_rastro_antes_de_pedir_ningun_contrato(self):
+        self.assertEqual("", self.rastro())
+
+    def test_servir_un_contrato_deja_fecha_y_nombre_en_el_rastro(self):
+        codigo, _, _ = self.servidor.pedir("/contrato/009-revisar-contratos.md")
+        self.assertEqual(200, codigo)
+        texto = self.rastro()
+        self.assertRegex(
+            texto,
+            r"(?m)^\d{4}-\d{2}-\d{2}T[\d:]+ contrato mostrado: 009-revisar-contratos$",
+        )
+
+    def test_se_anota_tambien_cuando_el_servidor_ya_estaba_levantado(self):
+        """El servidor de la prueba ya está arriba: no es un arranque, y aun así anota."""
+        self.servidor.pedir("/contrato/009-revisar-contratos.md")
+        primera = self.rastro().count("009-revisar-contratos")
+        self.servidor.pedir("/contrato/009-revisar-contratos.md")
+        segunda = self.rastro().count("009-revisar-contratos")
+        self.assertGreater(segunda, primera, "una segunda petición debe dejar otra línea")
+
+    def test_una_unidad_no_pedida_no_deja_rastro(self):
+        self.servidor.pedir("/contrato/010-personalidad-agente.md")
+        self.assertNotIn("009-revisar-contratos", self.rastro())
+
+    def test_un_404_no_deja_rastro(self):
+        self.servidor.pedir("/contrato/999-no-existe.md")
+        self.assertEqual("", self.rastro())
+
+
+class BugsEnElVisorTest(unittest.TestCase):
+    """R5 (bug 054) — `docs/bugs/*.md` también son contratos que piden un OK: se listan y
+    se sirven, no solo `docs/05-trabajo/`."""
+
+    def setUp(self):
+        self.workspace = montar_workspace()
+        bugs = self.workspace / "docs" / "bugs"
+        bugs.mkdir(parents=True)
+        (bugs / "030-bug-pendiente.md").write_text(CONTRATO_BUG_030, encoding="utf-8")
+        (bugs / "INDICE.md").write_text("# Índice de bugs\n", encoding="utf-8")
+        self.addCleanup(shutil.rmtree, self.workspace, True)
+        self.servidor = ServidorDePrueba(self.workspace)
+        self.addCleanup(self.servidor.parar)
+
+    def unidades(self):
+        codigo, _, cuerpo = self.servidor.pedir("/unidades.json")
+        self.assertEqual(200, codigo)
+        return json.loads(cuerpo)["unidades"]
+
+    def test_el_listado_incluye_los_bugs(self):
+        nombres = [u["unidad"] for u in self.unidades()]
+        self.assertIn("030-bug-pendiente", nombres)
+        # Y las unidades de 05-trabajo siguen ahí: no es un reemplazo, es una suma.
+        self.assertIn("009-revisar-contratos", nombres)
+
+    def test_indice_md_no_es_un_bug(self):
+        nombres = [u["unidad"] for u in self.unidades()]
+        self.assertNotIn("INDICE", nombres)
+
+    def test_un_bug_sin_aprobar_sale_marcado_pendiente(self):
+        bug = [u for u in self.unidades() if u["unidad"] == "030-bug-pendiente"][0]
+        self.assertTrue(bug["pendiente_de_aprobar"])
+        self.assertEqual("planificada", bug["estado"])
+
+    def test_sirve_el_markdown_exacto_del_bug(self):
+        codigo, cabeceras, cuerpo = self.servidor.pedir("/contrato/030-bug-pendiente.md")
+        self.assertEqual(200, codigo)
+        self.assertEqual(CONTRATO_BUG_030, cuerpo.replace("\r\n", "\n"))
+        self.assertIn("charset=utf-8", cabeceras["Content-Type"])
+
+    def test_servir_un_bug_tambien_deja_rastro(self):
+        """R2 + R5 juntas: un bug mostrado cuenta igual que una unidad."""
+        self.servidor.pedir("/contrato/030-bug-pendiente.md")
+        ruta = self.workspace / ".runtime" / "visor-contratos.log"
+        self.assertIn("030-bug-pendiente", ruta.read_text(encoding="utf-8"))
 
 
 if __name__ == "__main__":

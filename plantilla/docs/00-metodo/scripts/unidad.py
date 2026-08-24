@@ -214,6 +214,37 @@ def aprobacion(fm):
     return fecha_ok(fm.get("aprobado"))
 
 
+# R3 del bug 054: `visor_contratos/servir.py` anota una línea por contrato mostrado en
+# `.runtime/visor-contratos.log` — mismo criterio que el rastro del visor de flujos
+# (unidad 033). El comando que la deja escrita es el que se imprime en todos los FAIL de abajo.
+RASTRO_VISOR_CONTRATOS = ".runtime/visor-contratos.log"
+COMANDO_VISOR_CONTRATOS = (
+    "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+)
+RE_RASTRO_CONTRATO = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})T[\d:]+\s+contrato mostrado:\s+(\S+)\s*$"
+)
+
+
+def rastro_visor_contrato(nombre):
+    """Fechas ISO (posibles varias) en las que el visor de contratos mostró ESTE contrato.
+
+    Sin `.runtime/visor-contratos.log`, o sin ninguna línea de esta unidad, lista vacía:
+    nunca se ha visto.
+    """
+    registro = RAIZ / RASTRO_VISOR_CONTRATOS
+    if not registro.is_file():
+        return []
+    try:
+        texto = registro.read_text(encoding="utf-8")
+    except OSError:
+        return []
+    return [
+        m.group(1) for linea in texto.splitlines()
+        if (m := RE_RASTRO_CONTRATO.match(linea)) and m.group(2) == nombre
+    ]
+
+
 def severidad_declarada(texto):
     """Severidad P0-P4 realmente ELEGIDA en la ficha del bug, o None.
 
@@ -679,8 +710,10 @@ def _cmd_nueva(args, autoridad):
         print(f"\n  Siguientes pasos (en este orden — el worktree NO se crea todavía):")
     print(f"    1. Rellena el contrato en {rel(fichero_contrato)}\n"
           f"       ({contrato}).\n"
-          f"    2. El usuario lee, anota y APRUEBA el contrato; su OK se escribe\n"
-          f"       como 'aprobado: YYYY-MM-DD' en el frontmatter. Sin esa fecha no hay despacho.\n"
+          f"    2. Levanta el visor de contratos para que el usuario lo lea, anote y\n"
+          f"       APRUEBE ahí: `{COMANDO_VISOR_CONTRATOS}`. Su OK se escribe después\n"
+          f"       como 'aprobado: YYYY-MM-DD' en el frontmatter. Sin esa fecha ni el rastro\n"
+          f"       del visor no hay despacho.\n"
           f"    3. Rellena Contexto para el constructor y Plan de trabajo.\n"
           f"    4. python3 {rel(__file__)} despachar {nombre}\n"
           f"    5. Registra la unidad en ESTADO.md"
@@ -1070,6 +1103,24 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         return 1
     if aprobado:
         ok(f"contrato aprobado por el usuario el {aprobado}")
+        # R3 del bug 054: la fecha sola no basta — sin rastro de que ALGUIEN abrió el visor
+        # de contratos y lo vio ANTES (o el mismo día) de aprobar, "aprobado: {fecha}" puede
+        # ser un agente tecleando la fecha a ciegas. `--force` (hotfix P0) sigue siendo la
+        # única válvula que la salta.
+        vistas_a_tiempo = [v for v in rastro_visor_contrato(nombre) if v <= aprobado]
+        if not vistas_a_tiempo and not args.force:
+            fail(f"{rel(ruta)}: no consta que el visor de contratos mostrara {nombre} "
+                 f"en o antes de 'aprobado: {aprobado}'")
+            err(f"\n  NADIE APRUEBA A CIEGAS. La fecha en 'aprobado:' no prueba que el usuario\n"
+                f"  viera el contrato: la prueba es el rastro del visor. SALIDA: levanta el\n"
+                f"  visor de contratos, enséñale el contrato al usuario y que vuelva a dar su\n"
+                f"  OK:\n"
+                f"      {COMANDO_VISOR_CONTRATOS}\n"
+                f"  Producción caída (bug P0): runbooks/hotfix.md → --force --motivo \"...\".")
+            return 1
+        if vistas_a_tiempo:
+            ok(f"visor de contratos mostró {nombre} el {max(vistas_a_tiempo)} "
+               f"(≤ aprobado: {aprobado})")
 
     # --- Precondición 4: el contrato está escrito (la spec va antes que la rama) -------------
     plantilla = PLANTILLAS / plantilla_de(unidad["clase"], fm)
@@ -2535,6 +2586,16 @@ def cmd_estado(_args):
         warn(f"unidad {sin_wt} en obra SIN worktree (¿despachada de verdad?)")
     if wt and not huerfanos_reales and not huerfanos_archivados and all(n in wt for n in requieren_wt):
         ok("worktrees y unidades casan")
+
+    # R4 del bug 054: sin este aviso, "planificada" se queda esperando a que alguien
+    # se acuerde de enseñar el contrato — el visor existe, pero nadie lo manda abrir.
+    pendientes = sorted(
+        n for n, u in unidades.items()
+        if u["fm"].get("estado") == "planificada" and aprobacion(u["fm"]) is None
+    )
+    if pendientes:
+        warn(f"{len(pendientes)} contrato(s) sin aprobar: {', '.join(pendientes)} — "
+             f"levanta el visor y pide el OK: {COMANDO_VISOR_CONTRATOS}")
 
     nnn, _ = siguiente_nnn()
     print(f"\nSiguiente NNN libre: {nnn}")

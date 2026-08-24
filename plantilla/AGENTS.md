@@ -76,7 +76,7 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 4. **Entrada, numeración y despacho: con scripts, no a mano.** La primera escritura de toda
    petición accionable es `peticion.py capturar`; después se evalúa por `runbooks/peticiones.md`.
    Una unidad nace con `unidad.py nueva <tipo> <slug> --desde P-ID [--directo]`: asigna el NNN
-   y bloquea trabajo sin origen. `--force` solo sirve para el hotfix y deja deuda escrita.
+   y bloquea trabajo sin origen. `--force` solo sirve para el hotfix y deja deuda escrita. **Pedir un OK sobre un contrato (unidad o bug) = levantar el visor de contratos en el mismo turno:** `python3 main/visor_contratos/servir.py --workspace . --minutos 0`; sin su rastro, `despachar` bloquea aunque `aprobado:` tenga fecha (regla 16).
 5. **Trabajo en vuelo: UNA unidad de código por defecto**, sin tope numérico, solo si no
    comparten ficheros (`ficheros:`, que el script cruza). Las `en_validacion` no cuentan. Las unidades
    `--documental` (leen, no escriben código) tampoco: pueden ir en paralelo.

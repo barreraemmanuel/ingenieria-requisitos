@@ -345,6 +345,11 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
         # si la rama enlazada contiene de verdad el commit fusionado.
         texto = ficha.read_text(encoding="utf-8")
         texto = re.sub(r"^aprobado:.*$", "aprobado: 2026-08-18", texto, count=1, flags=re.M)
+        # R2/R3 del bug 054: sin este rastro `despachar` bloquea aunque `aprobado:` tenga fecha.
+        registro = self.ws / ".runtime" / "visor-contratos.log"
+        registro.parent.mkdir(parents=True, exist_ok=True)
+        with open(registro, "a", encoding="utf-8") as rastro:
+            rastro.write(f"2026-08-18T00:00:00 contrato mostrado: {nombre}\n")
         texto = texto.replace(
             "- **Qué pasa de verdad:** <el síntoma, con ejemplo concreto: datos, pasos, "
             "resultado>",

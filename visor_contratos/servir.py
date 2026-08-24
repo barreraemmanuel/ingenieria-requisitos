@@ -23,6 +23,7 @@ import sys
 import threading
 import time
 import webbrowser
+from pathlib import Path
 from urllib.parse import urlsplit
 
 
@@ -42,6 +43,8 @@ CAMPOS = ("unidad", "tipo", "carril", "estado", "aprobado", "actividad")
 BASE = os.path.dirname(os.path.abspath(__file__))
 PLANTILLA = os.path.join(BASE, "plantilla.html")
 SUBRUTA_TRABAJO = ("docs", "05-trabajo")
+SUBRUTA_BUGS = ("docs", "bugs")
+RASTRO = "visor-contratos.log"
 
 
 class ServidorVisorContratos(http.server.ThreadingHTTPServer):
@@ -62,6 +65,28 @@ class ServidorVisorContratos(http.server.ThreadingHTTPServer):
 
 def carpeta_trabajo(workspace):
     return os.path.join(workspace, *SUBRUTA_TRABAJO)
+
+
+def carpeta_bugs(workspace):
+    return os.path.join(workspace, *SUBRUTA_BUGS)
+
+
+def anotar_apertura(workspace, nombre):
+    """Deja fechado el rastro de que este contrato se sirvió a alguien.
+
+    Mismo criterio que `visor/requisitos.py anotar_apertura` (unidad 033, R3): se anota
+    POR CONTRATO MOSTRADO, también cuando el servidor ya estaba levantado desde antes — si
+    solo se anotara al arrancar, releer un contrato en un visor abierto desde ayer no
+    contaría como haberlo visto hoy, y `unidad.py despachar` bloquearía el camino legítimo.
+    """
+    registro = Path(workspace) / ".runtime" / RASTRO
+    registro.parent.mkdir(parents=True, exist_ok=True)
+    with open(registro, "a", encoding="utf-8") as rastro:
+        rastro.write(
+            "%s contrato mostrado: %s\n"
+            % (time.strftime("%Y-%m-%dT%H:%M:%S"), nombre)
+        )
+    return registro
 
 
 def leer_frontmatter(texto):
@@ -92,8 +117,8 @@ def leer_frontmatter(texto):
     return campos
 
 
-def listar_unidades(workspace):
-    """Todas las unidades activas del workspace, en orden de número.
+def listar_trabajo(workspace):
+    """Todas las unidades activas de `docs/05-trabajo/`, en orden de número.
 
     Nunca se oculta una unidad: si le falta el frontmatter, o la fecha de
     aprobación, sale igualmente marcada como pendiente de aprobar.
@@ -126,8 +151,71 @@ def listar_unidades(workspace):
             "actividad": campos.get("actividad", ""),
             "aprobado": aprobado,
             "pendiente_de_aprobar": not FECHA.match(aprobado),
+            "origen": "trabajo",
         })
     return unidades
+
+
+def listar_bugs(workspace):
+    """Los bugs de `docs/bugs/*.md`: también piden un OK del usuario (R5, bug 054).
+
+    Un fichero de bug ES el contrato entero (ADR-006): a diferencia de una unidad, no vive
+    en una carpeta con `especificacion.md` sino como `NNN-slug.md` suelto junto a
+    `INDICE.md` y otros ficheros de soporte, que se descartan por no casar NNN-slug.
+    """
+    raiz = carpeta_bugs(workspace)
+    bugs = []
+    try:
+        nombres = sorted(os.listdir(raiz))
+    except OSError:
+        return bugs
+    for nombre in nombres:
+        if not nombre.endswith(".md"):
+            continue
+        base = nombre[:-3]
+        if not NOMBRE_UNIDAD.match(base):
+            continue  # INDICE.md y demás soporte: no son fichas de bug
+        ruta = os.path.join(raiz, nombre)
+        if not os.path.isfile(ruta):
+            continue
+        try:
+            with open(ruta, "r", encoding="utf-8") as f:
+                campos = leer_frontmatter(f.read())
+        except OSError:
+            campos = {}
+        aprobado = campos.get("aprobado", "")
+        bugs.append({
+            "unidad": campos.get("unidad") or base,
+            "carpeta": base,
+            "tipo": campos.get("tipo", ""),
+            "carril": campos.get("carril", ""),
+            "estado": campos.get("estado", ""),
+            "actividad": campos.get("actividad", ""),
+            "aprobado": aprobado,
+            "pendiente_de_aprobar": not FECHA.match(aprobado),
+            "origen": "bug",
+        })
+    return bugs
+
+
+def listar_unidades(workspace):
+    """Unidades de `docs/05-trabajo/` Y bugs de `docs/bugs/`: los dos sitios donde se pide
+    un OK (R5, bug 054) — ninguno de los dos se oculta."""
+    return sorted(
+        listar_trabajo(workspace) + listar_bugs(workspace),
+        key=lambda u: u["carpeta"],
+    )
+
+
+def ruta_contrato(workspace, nombre):
+    """Ruta del contrato de `nombre`: primero como unidad, si no, como bug (R5)."""
+    candidata = os.path.join(carpeta_trabajo(workspace), nombre, "especificacion.md")
+    if os.path.isfile(candidata):
+        return candidata
+    candidata = os.path.join(carpeta_bugs(workspace), nombre + ".md")
+    if os.path.isfile(candidata):
+        return candidata
+    return None
 
 
 def hacer_handler(workspace, estado):
@@ -144,9 +232,11 @@ def hacer_handler(workspace, estado):
                 self._json_seguro(listar_unidades)
             elif RUTA_CONTRATO.match(pedida):
                 nombre = RUTA_CONTRATO.match(pedida).group(1)
-                ruta = os.path.join(carpeta_trabajo(workspace), nombre,
-                                    "especificacion.md")
-                if os.path.isfile(ruta):
+                ruta = ruta_contrato(workspace, nombre)
+                if ruta:
+                    # R2 (bug 054): rastro por contrato mostrado, mismo criterio que el
+                    # visor de flujos — se anota SIEMPRE que se sirve, no solo al arrancar.
+                    anotar_apertura(workspace, nombre)
                     self._fichero(ruta, "text/markdown; charset=utf-8")
                 else:
                     self.send_error(404, "No hay contrato de la unidad " + nombre)

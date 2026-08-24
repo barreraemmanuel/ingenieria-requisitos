@@ -133,6 +133,33 @@ def evidencia_rojo_verde(texto):
     return rojo, verde
 
 
+# R4 del bug 054: mismo criterio que `unidad.py` (que es quien bloquea el despacho, R3) —
+# `visor_contratos/servir.py` anota una línea por contrato mostrado en este fichero.
+RASTRO_VISOR_CONTRATOS = ".runtime/visor-contratos.log"
+COMANDO_VISOR_CONTRATOS = (
+    "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+)
+RE_RASTRO_CONTRATO = re.compile(
+    r"^(\d{4}-\d{2}-\d{2})T[\d:]+\s+contrato mostrado:\s+(\S+)\s*$"
+)
+
+
+def visto_por_visor_contratos(nombre):
+    """¿El visor de contratos mostró ALGUNA vez este contrato? WARN, no FAIL (R4): avisa,
+    no bloquea — la puerta dura vive en `unidad.py despachar` (R3)."""
+    registro = RAIZ / RASTRO_VISOR_CONTRATOS
+    if not registro.is_file():
+        return False
+    try:
+        texto = registro.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return any(
+        (m := RE_RASTRO_CONTRATO.match(linea)) and m.group(2) == nombre
+        for linea in texto.splitlines()
+    )
+
+
 def aprobado_por_el_usuario(fm):
     """¿El frontmatter lleva una fecha de aprobación real? (`no`, vacío o ausente = no).
 
@@ -749,6 +776,9 @@ for carpeta in sorted(trabajo.iterdir()):
     revisar_deuda_hotfix(carpeta.name, spec, fm)
     if fm.get("estado") == "mergeada":
         fail(f"{carpeta.name}: mergeada pero sin archivar (el cierre quedó a medias — re-ejecutar)")
+    if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(carpeta.name):
+        warn(f"{carpeta.name}: contrato pendiente de aprobar y sin rastro del visor de "
+             f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
     unidades[carpeta.name] = fm
     validar_origen_peticion(carpeta.name, fm)
 
@@ -783,6 +813,9 @@ if bugs_dir.is_dir():
                  f"{fm.get('aprobado') or 'ausente'}' — se despachó SIN aprobación del usuario "
                  f"(o, si fue producción caída, sin la marca de deuda del hotfix)")
         revisar_deuda_hotfix(f"bugs/{nombre}", fichero, fm)
+        if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(nombre):
+            warn(f"bugs/{nombre}: contrato pendiente de aprobar y sin rastro del visor de "
+                 f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
         # Un bug NO se archiva (ADR-006): `mergeada` es su estado final, así que nadie vuelve a
         # mirarlo después. Las dos puertas del paso 9 de runbooks/bug.md —evidencia rojo→verde
         # y OK del usuario— se comprueban aquí, sobre la ficha viva, o no se comprueban nunca.

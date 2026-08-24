@@ -42,6 +42,12 @@ Y un aviso que conviene tener presente: **enseñar el trabajo hace la espera má
 el efecto se invierte si el resultado es malo.** Contar bien lo que se hace sube la apuesta, no
 sustituye a acertar.
 
+## Pedir un OK sobre un contrato
+
+Nunca se pide a ciegas. Antes de pedirle al usuario que apruebe un contrato (una unidad o un
+bug), se levanta el visor de contratos EN EL MISMO TURNO —`python3 main/visor_contratos/servir.py
+--workspace . --minutos 0`— y se le enseña ahí, no pegando el markdown en el chat.
+
 ## Cómo se cuenta un problema
 
 Un rojo son tres datos: **qué comprobación, qué falla y quién lo arregla.** Si son varios, tabla.

@@ -39,6 +39,9 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
   ficheros y el usuario lo pide).
 - **Ejecución delegada:** normal/completo y todo revisor fresco se lanzan exclusivamente con
   `docs/00-metodo/scripts/ejecucion.py`; un subagente abierto a mano no tiene rol válido.
+- **Aprobación de un contrato:** pedirle el OK a un contrato (unidad o bug) exige levantar
+  antes el visor de contratos en el mismo turno — `python3 main/visor_contratos/servir.py
+  --workspace . --minutos 0` — igual que ANALISTA DE FLUJOS levanta el suyo para los planos.
 - **Cadencia:** una sesión por unidad (o por fase de proyecto). Al arrancar: `ESTADO.md`.
   Al terminar algo relevante: actualizar `ESTADO.md` antes de cerrar sesión.
 

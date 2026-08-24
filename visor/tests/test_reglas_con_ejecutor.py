@@ -107,6 +107,17 @@ class WorkspaceBase(unittest.TestCase):
         entorno["PATH"] = str(Path(shutil.which("git")).parent)
         return entorno
 
+    def dejar_rastro_visor_contratos(self, nombre, fecha=HOY):
+        """Simula lo que `visor_contratos/servir.py` anota por contrato mostrado (R2, bug
+        054): estos fixtures aprueban el contrato a mano, así que dejan también el rastro
+        que la puerta 3 de `despachar` exige (R3), o `despachar` bloquearía sin haber roto
+        nada — el gate es real y estos tests aprueban de verdad, solo sin abrir un navegador.
+        """
+        registro = self.ws / ".runtime" / "visor-contratos.log"
+        registro.parent.mkdir(parents=True, exist_ok=True)
+        with open(registro, "a", encoding="utf-8") as rastro:
+            rastro.write(f"{fecha}T00:00:00 contrato mostrado: {nombre}\n")
+
     def capturar(self, resumen="Cambio solicitado"):
         resultado = self.ejecutar(
             self.peticion, "capturar", "--resumen", resumen,
@@ -181,6 +192,7 @@ class WorkspaceBase(unittest.TestCase):
         spec.write_text(
             cabecera + self.CUERPO.format(nnn=carpeta.name), encoding="utf-8"
         )
+        self.dejar_rastro_visor_contratos(carpeta.name)
         despachada = self.ejecutar(
             self.unidad, "despachar", carpeta.name, "--documental"
         )
@@ -323,6 +335,7 @@ vista muestra el estado anterior a la escritura hasta la siguiente carga complet
                           count=1, flags=re.M)
         cuerpo = self.CUERPO_BUG if tipo == "bug" else self.CUERPO
         ruta.write_text(cabecera + cuerpo.format(nnn=nombre), encoding="utf-8")
+        self.dejar_rastro_visor_contratos(nombre)
         despachada = self.ejecutar(self.unidad, "despachar", nombre)
         self.assertEqual(
             despachada.returncode, 0, despachada.stdout + despachada.stderr

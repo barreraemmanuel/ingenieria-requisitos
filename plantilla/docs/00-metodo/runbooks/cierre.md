@@ -148,8 +148,10 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
 5. **Cuando la política exige app, lanzarla y hacer que el usuario la pruebe** (mismo
    `AGENTS.md`), con los
    ejemplos reales de sus criterios. **Sin su OK no hay cierre**; "no es lo que
-   pedí" no se discute: se abre una unidad tipo `bug`. La fecha de ese OK es lo que se le
-   pasa al comando del paso 6.
+   pedí" no se discute: se abre una unidad tipo `bug` — y su contrato pide el mismo OK que
+   cualquier otro, con el visor de contratos levantado en el turno en que se le pregunte
+   (`python3 main/visor_contratos/servir.py --workspace . --minutos 0`). La fecha de ese OK es
+   lo que se le pasa al comando del paso 6.
 
    **Lo que se le pega en la conversación** (esto, y nada más):
 
