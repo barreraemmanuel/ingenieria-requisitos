@@ -806,14 +806,17 @@ def ruta_proceso_canonico(tipo, ref):
     if tipo == "deploy":
         relativa = resuelta.relative_to(RAIZ).as_posix()
         if not re.fullmatch(
-            r"docs/(?:05-trabajo|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md"
+            # Bug 038: la unidad ya archivada también se despliega (es el caso normal:
+            # desplegar DESPUÉS de cerrar); misma expresión que lint_metodo.py.
+            r"docs/(?:05-trabajo(?:/archivo)?|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md"
             r"|docs/05-trabajo/despliegues/[a-z0-9][a-z0-9-]*\.md",
             relativa,
         ):
             raise ErrorPeticion(
                 "deploy exige la ficha canónica docs/05-trabajo/NNN-slug/despliegue.md "
-                "(o docs/bugs/NNN-slug/despliegue.md para un hotfix), o —si el despliegue "
-                "es de LOTE, varias unidades a la vez— docs/05-trabajo/despliegues/<slug>.md"
+                "(o docs/05-trabajo/archivo/NNN-slug/despliegue.md si la unidad ya está "
+                "cerrada, o docs/bugs/NNN-slug/despliegue.md para un hotfix), o —si el "
+                "despliegue es de LOTE, varias unidades a la vez— docs/05-trabajo/despliegues/<slug>.md"
             )
     return resuelta
 

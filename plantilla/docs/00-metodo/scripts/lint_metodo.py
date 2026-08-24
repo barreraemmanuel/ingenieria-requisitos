@@ -558,7 +558,8 @@ def revisar_cola_peticiones():
                     # una unidad ya archivada vive en 05-trabajo/archivo/ y es tan válida
                     # como la activa (igual que hacen `unidad` y `auditoria` más arriba).
                     esperada = re.fullmatch(
-                        r"docs/(?:05-trabajo(?:/archivo)?|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md",
+                        r"docs/(?:05-trabajo(?:/archivo)?|bugs)/\d{3}-[a-z0-9][a-z0-9-]*/despliegue\.md"
+                        r"|docs/05-trabajo/despliegues/[a-z0-9][a-z0-9-]*\.md",
                         str(ref),
                     )
                     if canonica is None or not esperada:

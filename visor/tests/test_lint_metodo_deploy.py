@@ -53,6 +53,28 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         self.assertNotIn(DENUNCIA, salida.stdout + salida.stderr,
                          "una unidad archivada también se despliega: su ficha es un deploy válido")
 
+    def test_el_despliegue_de_lote_tambien_es_valido_para_el_linter(self):
+        ref = "docs/05-trabajo/despliegues/ola-agosto.md"
+        self.ficha_despliegue(ref)
+        self.peticion_con_deploy(ref)
+        salida = self.lint()
+        self.assertNotIn(DENUNCIA, salida.stdout + salida.stderr)
+
+    def test_peticion_py_acepta_la_misma_ruta_de_archivo_que_el_linter(self):
+        # Las dos mordazas: sin esto, la ruta que el linter acepta es la que peticion.py rechaza.
+        import importlib.util, sys
+        scripts = SCRIPT.parent
+        if str(scripts) not in sys.path:
+            sys.path.insert(0, str(scripts))
+        spec = importlib.util.spec_from_file_location("peticion_038", scripts / "peticion.py")
+        peticion = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(peticion)
+        peticion.RAIZ = self.raiz.resolve()  # macOS: /var → /private/var
+        ref = "docs/05-trabajo/archivo/013-flask-a-django/despliegue.md"
+        self.ficha_despliegue(ref)
+        resuelta = peticion.ruta_proceso_canonico("deploy", ref)
+        self.assertTrue(str(resuelta).endswith("archivo/013-flask-a-django/despliegue.md"))
+
     def test_una_ruta_fuera_de_las_tres_carpetas_sigue_siendo_inexistente(self):
         ref = "docs/conocimiento/despliegue.md"
         self.ficha_despliegue(ref)
