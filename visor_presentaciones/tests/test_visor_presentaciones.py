@@ -173,9 +173,12 @@ class PruebasServidor(unittest.TestCase):
         return respuesta.status, cabeceras_respuesta, contenido
 
     def test_get_sirve_plantilla_manifiesto_recibos_y_ruta_directa(self):
+        # Unidad 056: una sola plantilla con menú + panel (hash), no una
+        # página por vista; la ruta directa sirve la MISMA plantilla que "/".
         estado, cabeceras, html = self.pedir("GET", "/presentacion/propuesta-uno")
         self.assertEqual(estado, 200)
-        self.assertIn(b'id="vista-propuesta"', html)
+        self.assertIn(b'id="menu"', html)
+        self.assertIn(b'id="panel"', html)
         self.assertIn(b"Content-Security-Policy", str(cabeceras).encode())
         self.assertEqual(cabeceras["Cache-Control"], "no-store")
 
@@ -199,20 +202,23 @@ class PruebasServidor(unittest.TestCase):
         _, _, html = self.pedir("GET", "/")
         texto = html.decode("utf-8")
         for esperado in (
-            'id="vista-bandeja"', 'id="vista-lector"', 'id="vista-propuesta"',
-            'id="vista-validacion"', 'name="eleccion"', 'id="comentario"',
-            'id="confirmar"', 'role="alert"', ':focus-visible',
-            '@media (max-width: 700px)', 'aria-live="polite"',
+            'id="menu"', 'id="listado"', 'id="panel"',
+            'name="eleccion"', 'id="comentario"',
+            ':focus-visible',
+            '@media (max-width: 700px)', '@media (max-width: 860px)',
+            'aria-live="polite"',
         ):
             self.assertIn(esperado, texto)
 
-    def test_plantilla_usa_el_lenguaje_visual_del_visor_de_flujos(self):
+    def test_plantilla_usa_el_lenguaje_visual_del_visor_de_contratos(self):
+        # Unidad 056: la plantilla se rehizo sobre el esqueleto del visor de
+        # contratos (antes copiaba la paleta del visor de flujos a 920px).
         _, _, html = self.pedir("GET", "/")
         texto = html.decode("utf-8")
         for esperado in (
             "--paper: #F3F5F1", "--sans: -apple-system",
             ":root[data-theme=\"dark\"]", ".boton-tema",
-            "outline: 2px solid var(--warn)", "max-width: 920px",
+            "outline: 2px solid var(--warn)", "max-width: 1180px",
         ):
             self.assertIn(esperado, texto)
 

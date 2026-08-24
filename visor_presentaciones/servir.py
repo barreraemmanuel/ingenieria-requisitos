@@ -14,7 +14,7 @@ import uuid
 import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 try:
     from . import manifestar
@@ -23,6 +23,21 @@ except ImportError:  # También funciona como `python3 visor_presentaciones/serv
 
 BASE = Path(__file__).resolve().parent
 PLANTILLA = BASE / "plantilla.html"
+RENDER_JS = BASE.parent / "visor_contratos" / "render.js"
+# Extensión → content-type; el resto de código llega como texto plano y la
+# página decide con la extensión si pinta markdown o código con números de línea.
+CONTENT_TYPE_ADJUNTO = {".md": "text/markdown; charset=utf-8"}
+
+
+def detectar_workspace(datos):
+    """Sube desde `datos` buscando la raíz del workspace (tiene `docs/` y
+    `main/`, como este propio meta-repo): es la frontera de R5 para adjuntos.
+    Si no aparece (fixtures de test u otros layouts), cae en `datos` mismo:
+    los adjuntos sólo podrán vivir dentro de los propios datos servidos."""
+    for candidato in (datos, *datos.parents):
+        if (candidato / "docs").is_dir() and (candidato / "main").is_dir():
+            return candidato
+    return datos
 
 
 def huella_datos(datos):
@@ -57,8 +72,32 @@ def _ruta_en_datos(datos, ruta):
     return resuelta
 
 
-def hacer_handler(datos, estado):
+def _adjuntos_declarados(manifiesto):
+    """Todas las rutas de `adjuntos` declaradas en el manifiesto (R4): sólo se
+    sirve lo que el propio manifiesto valida, nunca una ruta adivinada."""
+    return {
+        ruta
+        for p in manifiesto["presentaciones"]
+        for ruta in p.get("adjuntos", [])
+    }
+
+
+def _ruta_de_adjunto(workspace, ruta):
+    """Resuelve el adjunto dentro de `workspace` o rechaza (R5): `..`, ruta
+    absoluta o enlace simbólico que escape se tratan igual — 403, nada leído."""
+    if ".." in ruta.split("/") or ruta.startswith(("/", "~")):
+        raise ValueError("ruta de adjunto insegura")
+    resuelta = (workspace / ruta).resolve(strict=True)
+    try:
+        resuelta.relative_to(workspace.resolve(strict=True))
+    except ValueError:
+        raise ValueError("adjunto fuera del workspace")
+    return resuelta
+
+
+def hacer_handler(datos, estado, workspace=None):
     datos = Path(datos).resolve()
+    workspace = Path(workspace).resolve() if workspace is not None else detectar_workspace(datos)
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -66,6 +105,10 @@ def hacer_handler(datos, estado):
             ruta = urlsplit(self.path).path
             if ruta in ("/", "/index.html"):
                 return self._fichero(PLANTILLA, "text/html; charset=utf-8")
+            if ruta == "/render.js":
+                # Motor de bloques compartido con el visor de contratos
+                # (unidad 056, bug 055): un solo fichero, sin copia.
+                return self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
             if ruta == "/meta.json":
                 return self._json(200, {
                     "servicio": "visor-presentaciones",
@@ -97,7 +140,30 @@ def hacer_handler(datos, estado):
                     return self._json(200, {"recibos": recibos})
                 except (OSError, ValueError) as exc:
                     return self._json(400, {"error": str(exc) or "recibos inválidos"})
+            if ruta.startswith("/adjunto/"):
+                return self._adjunto(ruta[len("/adjunto/"):])
             return self._json(404, {"error": "ruta inexistente"})
+
+        def _adjunto(self, ruta_cruda):
+            # R5: fuera del workspace, `..`, absoluta o symlink que escape →
+            # 403 y nada leído. No declarado en el manifiesto → 404: no es una
+            # puerta a cualquier fichero del workspace, sólo a lo validado.
+            ruta = unquote(ruta_cruda)
+            try:
+                manifiesto = _leer_manifiesto(datos)
+            except (OSError, ValueError, json.JSONDecodeError) as exc:
+                return self._json(400, {"error": str(exc)})
+            if ruta not in _adjuntos_declarados(manifiesto):
+                return self._json(404, {"error": "adjunto no declarado"})
+            try:
+                resuelta = _ruta_de_adjunto(workspace, ruta)
+            except (ValueError, OSError):
+                return self._json(403, {"error": "adjunto fuera del workspace"})
+            tipo = CONTENT_TYPE_ADJUNTO.get(Path(ruta).suffix.lower(), "text/plain; charset=utf-8")
+            try:
+                return self._fichero(resuelta, tipo)
+            except OSError:
+                return self._json(404, {"error": "adjunto ilegible"})
 
         def do_POST(self):
             estado["ultimo"] = time.time()
@@ -170,12 +236,16 @@ def hacer_handler(datos, estado):
 def main():
     p = argparse.ArgumentParser()
     p.add_argument("--datos", required=True)
+    p.add_argument("--workspace", help="raíz del meta-repo/main para servir adjuntos; se detecta sola si se omite")
     p.add_argument("--puerto", type=int, default=8767)
     p.add_argument("--sin-navegador", action="store_true")
     args = p.parse_args()
     datos = Path(args.datos).resolve()
     _leer_manifiesto(datos)
-    servidor = ServidorPresentaciones(("127.0.0.1", args.puerto), hacer_handler(datos, {"ultimo": time.time()}))
+    workspace = Path(args.workspace).resolve() if args.workspace else None
+    servidor = ServidorPresentaciones(
+        ("127.0.0.1", args.puerto), hacer_handler(datos, {"ultimo": time.time()}, workspace)
+    )
     url = f"http://127.0.0.1:{servidor.server_port}/"
     print("Presentaciones locales: " + url, flush=True)
     if not args.sin_navegador:

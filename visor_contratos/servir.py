@@ -42,6 +42,7 @@ CAMPOS = ("unidad", "tipo", "carril", "estado", "aprobado", "actividad")
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PLANTILLA = os.path.join(BASE, "plantilla.html")
+RENDER_JS = os.path.join(BASE, "render.js")
 SUBRUTA_TRABAJO = ("docs", "05-trabajo")
 SUBRUTA_BUGS = ("docs", "bugs")
 RASTRO = "visor-contratos.log"
@@ -233,6 +234,10 @@ def hacer_handler(workspace, estado):
             pedida = urlsplit(self.path).path
             if pedida in ("/", "/index.html"):
                 self._fichero(PLANTILLA, "text/html; charset=utf-8")
+            elif pedida == "/render.js":
+                # Motor de bloques compartido con el visor de presentaciones
+                # (unidad 056): un solo fichero, sin copia (bug 055).
+                self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
             elif pedida == "/meta.json":
                 self._json(200, {"workspace": workspace})
             elif pedida == "/unidades.json":
@@ -327,6 +332,8 @@ def main():
         sys.exit("No existe la carpeta de unidades: " + trabajo)
     if not os.path.isfile(PLANTILLA):
         sys.exit("Falta la plantilla: " + PLANTILLA)
+    if not os.path.isfile(RENDER_JS):
+        sys.exit("Falta el motor de render: " + RENDER_JS)
 
     estado = {"ultimo": time.time()}
     try:

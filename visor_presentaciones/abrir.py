@@ -28,9 +28,10 @@ class Resultado:
     proceso: object = None
 
 
-def argumentos_prueba(puerto=0, presentacion=None):
+def argumentos_prueba(puerto=0, presentacion=None, workspace=None):
     return argparse.Namespace(
-        puerto=puerto, presentacion=presentacion, sin_navegador=True
+        puerto=puerto, presentacion=presentacion, sin_navegador=True,
+        workspace=workspace,
     )
 
 
@@ -90,6 +91,9 @@ def abrir(datos, args):
         sys.executable, str(BASE / "servir.py"), "--datos", str(datos),
         "--puerto", str(puerto), "--sin-navegador",
     ]
+    workspace = getattr(args, "workspace", None)
+    if workspace:
+        comando += ["--workspace", str(workspace)]
     with registro.open("ab") as salida:
         proceso = subprocess.Popen(
             comando, stdin=subprocess.DEVNULL, stdout=salida,
@@ -126,6 +130,7 @@ def main():
     parser.add_argument("--datos", required=True)
     parser.add_argument("--presentacion")
     parser.add_argument("--puerto", type=int)
+    parser.add_argument("--workspace", help="raíz del meta-repo/main para servir adjuntos")
     parser.add_argument("--sin-navegador", action="store_true")
     args = parser.parse_args()
     try:

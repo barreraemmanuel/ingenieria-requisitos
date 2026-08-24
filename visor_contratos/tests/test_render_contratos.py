@@ -5,10 +5,13 @@ El servidor entregaba el contrato en menos de un milisegundo y la página se que
 por `*`, `-`, `#`, `>` o `|` y ninguna rama anterior la había consumido (negrita a
 principio de párrafo, una raya `---`, un `# ` repetido). Estos tests extraen la función
 de la plantilla y la ejecutan con node bajo un tope de tiempo: sin node, se saltan.
+
+Unidad 056: el motor (`esc`, `enLinea`, `fila`, `bloques`) salió de la plantilla a
+`render.js`, fichero compartido con el visor de presentaciones — se lee de ahí, ya no
+troceando el `<script>` de `plantilla.html`.
 """
 
 import json
-import re
 import shutil
 import subprocess
 import tempfile
@@ -17,17 +20,15 @@ from pathlib import Path
 
 BASE = Path(__file__).resolve().parent.parent
 PLANTILLA = BASE / "plantilla.html"
+RENDER_JS = BASE / "render.js"
 NODE = shutil.which("node")
 TOPE_SEGUNDOS = 5
 
 
 def funciones_de_render():
-    """El bloque de script que define `bloques()`, hasta `trocear` (sin DOM)."""
-    html = PLANTILLA.read_text(encoding="utf-8")
-    scripts = re.findall(r"<script[^>]*>(.*?)</script>", html, re.S)
-    script = next(s for s in scripts if "function bloques" in s)
-    inicio = script.index("function esc")
-    return script[inicio:script.index("function trocear")]
+    """El motor de bloques: `esc`, `enLinea`, `fila` y `bloques`, tal cual vive
+    en el fichero compartido (unidad 056, bug 055)."""
+    return RENDER_JS.read_text(encoding="utf-8")
 
 
 def renderizar(lineas):

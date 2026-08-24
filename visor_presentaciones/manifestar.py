@@ -12,8 +12,13 @@ CAMPOS = {
     "propuesta": COMUNES | {"resumen", "opciones", "comentario_obligatorio"},
     "validacion": COMUNES | {"pasos", "evidencia", "opciones", "comentario_obligatorio"},
 }
+# Campo opcional (unidad 056): `adjuntos` en validacion, propuesta y lector.
+# Nunca en bandeja (es sólo el índice de peticiones).
+CON_ADJUNTOS = {"lector", "propuesta", "validacion"}
 ID = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9._-]{0,99}$")
 SENSIBLE = re.compile(r"PRIVATE KEY|Authorization\s*:\s*Bearer|[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}", re.I)
+# Ruta relativa de adjunto: sin absolutas, sin `~`, sin `\`, sin segmento `..`.
+RUTA_ADJUNTO = re.compile(r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 
 
 def _texto(valor, nombre):
@@ -33,6 +38,19 @@ def _lista_textos(valor, nombre):
         _texto(item, nombre)
 
 
+def _adjuntos(valor):
+    if not isinstance(valor, list):
+        raise ValueError("adjuntos: debe ser una lista")
+    for ruta in valor:
+        if not isinstance(ruta, str) or not ruta:
+            raise ValueError("adjuntos: ruta vacía o inválida")
+        if len(ruta) > 400 or not RUTA_ADJUNTO.match(ruta):
+            raise ValueError("adjuntos: ruta con caracteres no permitidos")
+        if ".." in ruta.split("/"):
+            raise ValueError("adjuntos: ruta insegura")
+    return valor
+
+
 def validar(datos):
     if not isinstance(datos, dict) or set(datos) != {"version", "presentaciones"}:
         raise ValueError("campos raíz inválidos")
@@ -42,13 +60,17 @@ def validar(datos):
     for p in datos["presentaciones"]:
         if not isinstance(p, dict) or p.get("tipo") not in TIPOS:
             raise ValueError("tipo de presentación inválido")
-        if set(p) != CAMPOS[p["tipo"]]:
+        campos = CAMPOS[p["tipo"]]
+        opcionales = {"adjuntos"} if p["tipo"] in CON_ADJUNTOS else set()
+        if not campos <= set(p) <= campos | opcionales:
             raise ValueError("campo de presentación inválido")
         if not isinstance(p["id"], str) or not ID.fullmatch(p["id"]) or p["id"] in ids:
             raise ValueError("id inválido o repetido")
         ids.add(p["id"])
         _texto(p["titulo"], "titulo")
         _texto(p["version"], "version")
+        if "adjuntos" in p:
+            _adjuntos(p["adjuntos"])
         if p["tipo"] == "bandeja":
             _texto(p["estado"], "estado")
             if not isinstance(p["peticiones"], list):
