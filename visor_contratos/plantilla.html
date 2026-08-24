@@ -359,14 +359,19 @@
         continue;
       }
 
-      var parrafo = [];
+      /* Párrafo. La primera línea se toma SIEMPRE: si llegó aquí es que ninguna
+         rama anterior la consumió (una negrita a principio de párrafo, una raya
+         `---`, un `# ` repetido…) y dejarla sin avanzar `i` colgaba la página
+         (bug 055). Las siguientes se cortan donde empieza otro bloque. */
+      var parrafo = [limpia];
+      i++;
       while (i < lineas.length) {
         var p = lineas[i].trim();
         if (!p || /^([-*>|#]|\d+\.\s)/.test(p) || /^```/.test(p)) break;
         parrafo.push(p);
         i++;
       }
-      if (parrafo.length) html += "<p>" + enLinea(parrafo.join(" ")) + "</p>";
+      html += "<p>" + enLinea(parrafo.join(" ")) + "</p>";
     }
     return html;
   }
