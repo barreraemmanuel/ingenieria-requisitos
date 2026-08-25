@@ -18,6 +18,7 @@ Un test por criterio del contrato, al nivel que declara §Verificación:
 - R8 — solo lectura: ningún POST y la guarda de rutas de los `.md`.
 """
 
+import html.parser
 import http.client
 import importlib.util
 import json
@@ -687,6 +688,127 @@ def bloque_interruptor(texto):
     inicio = texto.index('var GUARDADO = "visor-tema";')
     fin = texto.index("})();", inicio)
     return [l.strip() for l in texto[inicio:fin].splitlines() if l.strip()]
+
+
+class _Scripts(html.parser.HTMLParser):
+    """Recorta cada <script> de una plantilla tal y como lo ve el navegador."""
+
+    def __init__(self):
+        super().__init__(convert_charrefs=False)
+        self.scripts = []       # [(atributos, contenido)] de los que tienen cuerpo
+        self.cierres_sueltos = 0
+        self._dentro = None
+
+    def handle_starttag(self, tag, attrs):
+        if tag == "script":
+            self._dentro = dict(attrs)
+
+    def handle_endtag(self, tag):
+        if tag != "script":
+            return
+        if self._dentro is None:
+            self.cierres_sueltos += 1     # un </script> sin su apertura
+        self._dentro = None
+
+    def handle_data(self, data):
+        if self._dentro is not None:
+            self.scripts.append((self._dentro, data))
+
+
+def sin_comentarios(js):
+    """[(nº de línea, línea sin comentarios)] — para no confundir prosa con código."""
+    fuera = []
+    en_bloque = False
+    for numero, linea in enumerate(js.splitlines(), 1):
+        limpia, resto = "", linea
+        while resto:
+            if en_bloque:
+                corte = resto.find("*/")
+                if corte == -1:
+                    resto = ""
+                else:
+                    en_bloque, resto = False, resto[corte + 2:]
+            else:
+                abre, hasta_fin = resto.find("/*"), resto.find("//")
+                if hasta_fin != -1 and (abre == -1 or hasta_fin < abre):
+                    limpia, resto = limpia + resto[:hasta_fin], ""
+                elif abre != -1:
+                    limpia, resto = limpia + resto[:abre], resto[abre + 2:]
+                    en_bloque = True
+                else:
+                    limpia, resto = limpia + resto, ""
+        fuera.append((numero, limpia.strip()))
+    return fuera
+
+
+def scripts_de(texto):
+    parser = _Scripts()
+    parser.feed(texto)
+    parser.close()
+    return parser
+
+
+class ScriptsDeLaPlantillaTest(unittest.TestCase):
+    """R7 — el JS de la plantilla es JS de verdad: sin <script> anidados.
+
+    Un `<script>` pegado dentro de otro no rompe ningún test de texto (el
+    recorte por `var GUARDADO` lo salta) pero el navegador lo lee como
+    `SyntaxError: Unexpected token '<'` en la PRIMERA línea del bloque: el
+    interruptor de tema no llega a existir. Se comprueba extrayendo cada
+    `<script>` con `html.parser` y validándolo con `node --check` si hay node.
+    """
+
+    def setUp(self):
+        self.texto = PLANTILLA.read_text(encoding="utf-8")
+        self.parser = scripts_de(self.texto)
+
+    def test_ningun_script_lleva_otro_script_dentro(self):
+        """Ninguna etiqueta <script> pegada dentro del cuerpo de otro.
+
+        Se mira código, no prosa: nombrar `<script src=…>` DENTRO de un
+        comentario de JS es legítimo y no rompe nada, así que los comentarios
+        se quitan antes de mirar. Lo que no puede aparecer es una línea de
+        CÓDIGO que empiece por `<script`/`</script`, que es exactamente como se
+        cuela un bloque copiado con su etiqueta.
+        """
+        self.assertGreater(len(self.parser.scripts), 0, "no se leyó ningún <script>")
+        for indice, (_, cuerpo) in enumerate(self.parser.scripts):
+            for numero, linea in sin_comentarios(cuerpo):
+                if linea.lower().startswith(("<script", "</script")):
+                    self.fail("el script %d de plantilla.html abre otro <script> en su "
+                              "línea %d (%r); el navegador lo lee como SyntaxError y el "
+                              "bloque entero no se ejecuta" % (indice, numero, linea))
+
+    def test_no_sobra_ningun_cierre_de_script(self):
+        self.assertEqual(0, self.parser.cierres_sueltos,
+                         "hay %d </script> sin su <script>" % self.parser.cierres_sueltos)
+
+    def test_cada_script_es_javascript_valido(self):
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("sin node: lo cubren los dos tests anteriores")
+        for indice, (attrs, cuerpo) in enumerate(self.parser.scripts):
+            if attrs.get("src"):
+                continue
+            with self.subTest(script=indice):
+                with tempfile.TemporaryDirectory() as tmp:
+                    js = Path(tmp) / ("script_%d.js" % indice)
+                    js.write_text(cuerpo, encoding="utf-8")
+                    hecho = subprocess.run([node, "--check", str(js)],
+                                           capture_output=True, text=True)
+                    self.assertEqual(0, hecho.returncode,
+                                     "script %d de plantilla.html no es JS válido:\n%s"
+                                     % (indice, hecho.stderr))
+
+    def test_el_interruptor_de_tema_va_en_un_solo_script_como_en_la_056(self):
+        cuerpos = [c for _, c in self.parser.scripts if 'var GUARDADO = "visor-tema";' in c]
+        self.assertEqual(1, len(cuerpos),
+                         "el interruptor de tema debe vivir en un único <script>")
+        contratos = scripts_de(PLANTILLA_CONTRATOS.read_text(encoding="utf-8"))
+        suyos = [c for _, c in contratos.scripts if 'var GUARDADO = "visor-tema";' in c]
+        self.assertEqual(1, len(suyos), "la 056 no se leyó")
+        self.assertEqual(suyos[0].strip().splitlines()[-1].strip(),
+                         cuerpos[0].strip().splitlines()[-1].strip())
 
 
 class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
