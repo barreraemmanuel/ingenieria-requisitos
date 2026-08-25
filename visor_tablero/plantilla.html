@@ -1,0 +1,609 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title>Tablero de control · ingeniería de requisitos</title>
+<style>
+  /* PLANTILLA FIJA del TABLERO DE CONTROL. Sólo lee. La paleta, la cabecera,
+     el menú lateral y el interruptor de tema se copian LITERALES de
+     visor_contratos/plantilla.html (unidad 056) y un test los compara línea a
+     línea: si cambias uno, cambia el otro. Lo de abajo del todo es lo propio
+     del tablero, que allí no existe. */
+  /* ---------- paleta (misma que manual-ingenieria-requisitos.html) ----------
+     Claro por defecto, oscuro automático según el sistema, y data-theme para forzarlo.
+     Los papeles semánticos se conservan para daltonismo: persona = cálido (warn),
+     automático·código = azul (accent), automático·IA = verde (ok). */
+  :root {
+    --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+    --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+    --line: #CDD5CE; --line-soft: #E1E7E0;
+    --accent: #1F5673; --accent-bg: #E4EDF2;
+    --ok: #3D6B4C; --ok-bg: #E3EDE4;
+    --warn: #8E6410; --warn-bg: #F2EBDA;
+    --fail: #A03127; --fail-bg: #F4E4E1;
+    --alt: #5B4A78; --alt-bg: #ECE8F3;
+    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+      --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+      --line: #2B363E; --line-soft: #202A31;
+      --accent: #7FB4D4; --accent-bg: #16242E;
+      --ok: #77B189; --ok-bg: #17251C;
+      --warn: #CE9F45; --warn-bg: #251F12;
+      --fail: #E08578; --fail-bg: #2A1815;
+      --alt: #A99AC8; --alt-bg: #1E1A26;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+    --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+    --line: #2B363E; --line-soft: #202A31;
+    --accent: #7FB4D4; --accent-bg: #16242E;
+    --ok: #77B189; --ok-bg: #17251C;
+    --warn: #CE9F45; --warn-bg: #251F12;
+    --fail: #E08578; --fail-bg: #2A1815;
+    --alt: #A99AC8; --alt-bg: #1E1A26;
+  }
+  :root[data-theme="light"] {
+    --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+    --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+    --line: #CDD5CE; --line-soft: #E1E7E0;
+    --accent: #1F5673; --accent-bg: #E4EDF2;
+    --ok: #3D6B4C; --ok-bg: #E3EDE4;
+    --warn: #8E6410; --warn-bg: #F2EBDA;
+    --fail: #A03127; --fail-bg: #F4E4E1;
+    --alt: #5B4A78; --alt-bg: #ECE8F3;
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  html { -webkit-text-size-adjust: 100%; }
+  body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+  .pagina { max-width: 1180px; margin: 0 auto; padding: 32px 20px 90px; }
+
+  header { position: relative; padding-right: 44px; }
+  header .marca { font-size: 11px; font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--warn); }
+  .boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+  .boton-tema:hover { border-color: var(--accent); color: var(--ink); }
+  .boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }
+  .sub { color: var(--muted); font-size: 13.5px; }
+
+  .aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 2px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: 13.5px; box-shadow: 0 4px 16px rgba(11, 11, 11, .18); }
+  .aviso-flotante.visible { display: block; }
+
+  .cuerpo { display: flex; gap: 26px; align-items: flex-start; margin-top: 22px; }
+
+  .menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px; }
+  .titulo-menu { font-size: 11px; font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+  .menu-unidades input[type="search"] { width: 100%; font: 13px var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; }
+  .menu-unidades button { display: block; width: 100%; text-align: left; font: 13.5px var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 2px 0; cursor: pointer; }
+  .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
+  .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+  .menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
+  .menu-unidades button .nombre { display: block; font-weight: bold; }
+  .menu-unidades .vacio { font-size: 13px; color: var(--faint); padding: 6px 2px; }
+
+  .chip { display: inline-block; font-size: 10.5px; font-weight: bold; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 2px 8px; margin: 4px 4px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+  .chip-pendiente { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+  .chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+
+  .panel { flex: 1 1 auto; min-width: 0; }
+
+  .md { font-size: 15px; max-width: 78ch; }
+  .md h4 { font-size: 15px; margin: 14px 0 4px; }
+  .md h5 { font-size: 13.5px; color: var(--muted); margin: 12px 0 4px; }
+  .md p { margin: 8px 0; }
+  .md ul, .md ol { margin: 8px 0 8px 22px; }
+  .md li { margin: 3px 0; }
+  .md li.tarea { list-style: none; margin-left: -18px; }
+  .md li.tarea .caja { color: var(--muted); margin-right: 6px; }
+  .md li.tarea.hecha { color: var(--muted); }
+  .md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: var(--line-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  .md pre { margin: 10px 0; padding: 10px 12px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+  .md pre code { border: 0; background: none; padding: 0; }
+  .md blockquote { margin: 10px 0; padding: 6px 14px; border-left: 3px solid var(--line); color: var(--muted); font-size: 14px; }
+  .md table { border-collapse: collapse; margin: 10px 0; font-size: 13.5px; width: 100%; }
+  .md th, .md td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
+  .md th { background: var(--line-soft); }
+  .md a { color: var(--accent); }
+
+  /* ---------- lo propio del tablero ----------
+     Cuatro secciones y una rejilla de tarjetas. Nada de esto existe en el visor
+     de contratos: allí se lee UN documento, aquí se mira un workspace entero. */
+  .menu-unidades a { display: block; font: 13.5px var(--sans); color: var(--ink); text-decoration: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
+  .menu-unidades a:hover { border-color: var(--line); background: var(--panel); }
+  .menu-unidades a.activa { background: var(--accent-bg); border-color: var(--accent); font-weight: bold; }
+  .menu-unidades .arbol { margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
+  .menu-unidades .arbol a { font-size: 12.5px; padding: 4px 8px; color: var(--muted); }
+  .menu-unidades .arbol .grupo { font-size: 10.5px; font-weight: bold; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 8px 2px 2px; }
+
+  .tira { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+  .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 8px 12px; }
+  .dato .etiqueta { font-size: 10.5px; font-weight: bold; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
+  .dato .valor { font-size: 15px; margin-top: 2px; }
+  .dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
+  .dato.roto { border-color: var(--warn); background: var(--warn-bg); }
+  .dato.roto .valor { color: var(--warn); font-size: 13.5px; }
+
+  h2.seccion { font-size: 19px; margin: 26px 0 2px; }
+  h2.seccion:first-child { margin-top: 0; }
+  .seccion-nota { color: var(--faint); font-size: 12.5px; }
+  .tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-top: 12px; }
+  .tarjeta { border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px 14px; }
+  .tarjeta.viva { border-left: 4px solid var(--ok); }
+  .tarjeta.quieta { border-left: 4px solid var(--line); color: var(--muted); }
+  .tarjeta.bloqueada { border-left: 4px solid var(--warn); }
+  .tarjeta h3 { font-size: 15px; margin-bottom: 2px; }
+  .tarjeta .linea { font-size: 13px; color: var(--muted); margin-top: 4px; }
+  .tarjeta .rutas { font-size: 12px; color: var(--faint); margin-top: 6px; word-break: break-all; }
+  .tarjeta a { color: var(--accent); }
+  .con-avatar { display: flex; gap: 10px; align-items: flex-start; }
+  .lista-plana { list-style: none; margin-top: 10px; }
+  .lista-plana li { border-bottom: 1px solid var(--line-soft); padding: 7px 2px; font-size: 14px; display: flex; gap: 10px; justify-content: space-between; }
+  .lista-plana li:last-child { border-bottom: 0; }
+  .lista-plana .espera { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+  .lista-plana a { color: var(--accent); text-decoration: none; }
+  .lista-plana a:hover { text-decoration: underline; }
+  .vacio-corto { color: var(--faint); font-size: 13px; padding: 8px 2px; }
+  .aviso-fuente { border: 1px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: 13.5px; margin-top: 10px; color: var(--warn); }
+  .barra { height: 6px; border-radius: 999px; background: var(--line-soft); margin-top: 6px; overflow: hidden; }
+  .barra span { display: block; height: 100%; background: var(--accent); }
+  .dia { font-size: 12px; font-weight: bold; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 14px 0 2px; }
+
+  /* ---------- avatares (R1) ----------
+     SVG en línea, sin un solo recurso externo: tres siluetas, una por rol, que
+     RESPIRAN mientras el agente vive y se quedan quietas en cuanto termina. Es
+     la señal de un vistazo que pidió el usuario, y es honesta: sólo se anima
+     `.avatar.vivo`, que sólo lo pone un recibo abierto con el PID vivo. */
+  .avatar { flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; }
+  .avatar svg { width: 30px; height: 30px; }
+  .avatar .cara { fill: var(--line-soft); stroke: var(--muted); stroke-width: 1.4; }
+  .avatar .ojo { fill: var(--muted); }
+  .avatar .util { fill: none; stroke: var(--muted); stroke-width: 1.8; stroke-linecap: round; }
+  .avatar[data-avatar="constructor"] .util { stroke: var(--accent); }
+  .avatar[data-avatar="revisor"] .util { stroke: var(--alt); }
+  .avatar[data-avatar="padre"] .util { stroke: var(--warn); }
+  .avatar.vivo { border-color: var(--ok); animation: latido 2.4s ease-in-out infinite; }
+  .avatar.vivo .util { animation: trabajar 1.1s ease-in-out infinite; transform-origin: 12px 17px; }
+  .avatar.vivo .ojo { animation: parpadeo 4.2s steps(1, end) infinite; }
+  @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 var(--ok-bg); } 50% { box-shadow: 0 0 0 5px var(--ok-bg); } }
+  @keyframes trabajar { 0%, 100% { transform: rotate(-11deg); } 50% { transform: rotate(11deg); } }
+  @keyframes parpadeo { 0%, 92%, 100% { opacity: 1; } 95% { opacity: .1; } }
+  @media (prefers-reduced-motion: reduce) {
+    .avatar.vivo, .avatar.vivo .util, .avatar.vivo .ojo { animation: none; }
+  }
+
+  @media (max-width: 860px) {
+    .cuerpo { display: block; }
+    .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: 20px; }
+  }
+</style>
+</head>
+<body>
+<script>
+  /* Tema: por defecto manda el sistema (prefers-color-scheme). Si el usuario toca el botón,
+     su elección manda y se recuerda. Se aplica ANTES de pintar para no dar un fogonazo.
+     Bloque literal del visor de contratos (misma clave de memoria: el ajuste viaja entre las
+     webs); un test lo compara línea a línea. */
+<script>
+  /* Tema: por defecto manda el sistema (prefers-color-scheme). Si el usuario toca el botón,
+     su elección manda y se recuerda. Se aplica ANTES de pintar para no dar un fogonazo.
+     Bloque literal del visor de flujos (misma clave de memoria: el ajuste viaja entre las
+     dos webs); un test lo compara línea a línea. */
+  (function () {
+    var GUARDADO = "visor-tema";
+    var raiz = document.documentElement;
+    var elegido = null;
+    try { elegido = localStorage.getItem(GUARDADO); } catch (e) { elegido = null; }
+    if (elegido === "dark" || elegido === "light") raiz.dataset.theme = elegido;
+
+    function oscuroAhora() {
+      if (raiz.dataset.theme) return raiz.dataset.theme === "dark";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    function pintarBoton(boton) {
+      var oscuro = oscuroAhora();
+      boton.textContent = oscuro ? "☀" : "☾";
+      boton.title = oscuro ? "Cambiar a claro" : "Cambiar a oscuro";
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      var boton = document.getElementById("boton-tema");
+      if (!boton) return;
+      pintarBoton(boton);
+      boton.addEventListener("click", function () {
+        var nuevo = oscuroAhora() ? "light" : "dark";
+        raiz.dataset.theme = nuevo;
+        try { localStorage.setItem(GUARDADO, nuevo); } catch (e) { /* sin memoria, da igual */ }
+        pintarBoton(boton);
+      });
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+        if (!raiz.dataset.theme) pintarBoton(boton);
+      });
+    });
+  })();
+</script>
+</script>
+  <div class="pagina">
+    <header>
+      <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
+      <div class="marca">ingeniería de requisitos · tablero de control</div>
+      <h1>Qué hay en curso</h1>
+      <div class="sub" id="sub">Cargando…</div>
+      <div class="tira" id="cabecera"></div>
+    </header>
+
+    <div class="aviso-flotante" id="banner">⚠ El tablero perdió la conexión.
+    Pide a tu IA que vuelva a abrir la sesión y recarga esta página.</div>
+
+    <div class="cuerpo">
+      <aside class="menu-unidades" id="menu" aria-label="Secciones del tablero">
+        <div class="titulo-menu">Tablero</div>
+        <nav id="secciones">
+          <a href="#ahora" data-seccion="ahora">Ahora</a>
+          <a href="#te-toca" data-seccion="te-toca">Te toca a ti</a>
+          <a href="#por-hacer" data-seccion="por-hacer">Por hacer</a>
+          <a href="#historial" data-seccion="historial">Historial</a>
+          <a href="#documentacion" data-seccion="documentacion">Documentación</a>
+        </nav>
+        <div class="arbol" id="arbol">
+          <div class="titulo-menu">Documentación</div>
+          <div class="vacio-corto">Cargando…</div>
+        </div>
+      </aside>
+
+      <main class="panel" id="panel">
+        <div class="vacio">Leyendo el workspace…</div>
+      </main>
+    </div>
+  </div>
+
+<script src="/render.js"></script>
+<script>
+(function () {
+  "use strict";
+
+  /* El tablero SÓLO mira: no hay un fetch con método distinto de GET en toda la
+     página, y el servidor responde 405 a cualquier POST. Aprobar, decidir y
+     cerrar se hacen en las otras tres webs, que son las que escriben. */
+
+  var SONDEO = 5000;                 // R6: la cabecera se refresca sola cada 5 s
+  var SECCIONES = ["ahora", "te-toca", "por-hacer", "historial", "documentacion"];
+  var ROLES = ["constructor", "revisor", "padre"];
+
+  var panel = document.getElementById("panel");
+  var cabecera = document.getElementById("cabecera");
+  var arbol = document.getElementById("arbol");
+  var banner = document.getElementById("banner");
+  var sub = document.getElementById("sub");
+  var foto = null;
+  var actual = "ahora";
+  var documento = null;              // {ruta, texto} cuando se está leyendo un .md
+
+  /* esc/enLinea/bloques (el motor de bloques markdown) viven en render.js,
+     compartido con el visor de contratos y el de presentaciones: lo carga un
+     <script src="/render.js"> antes de este bloque. Aquí no hay copia. */
+
+  function fecha(iso) {
+    if (!iso) return "—";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return esc(iso);
+    return d.toLocaleString("es-ES", {day: "2-digit", month: "2-digit",
+                                      hour: "2-digit", minute: "2-digit"});
+  }
+
+  function dias(n) {
+    if (n === null || n === undefined) return "";
+    if (n === 0) return "hoy";
+    return "hace " + n + (n === 1 ? " día" : " días");
+  }
+
+  function duracion(minutos) {
+    if (minutos === null || minutos === undefined) return "sin hora de arranque";
+    if (minutos < 60) return minutos + " min";
+    return Math.floor(minutos / 60) + " h " + (minutos % 60) + " min";
+  }
+
+  /* Los avatares: tres siluetas distintas, cada una con su herramienta. El SVG
+     va aquí dentro a propósito (nada externo, ni una petición más). */
+  function avatar(rol, vivo) {
+    var util = {
+      constructor: '<path class="util" d="M7 17 L12 12 M12 12 L17 7 M14 4 L20 10"/>',
+      revisor: '<circle class="util" cx="12" cy="13" r="4.5"/><path class="util" d="M15.5 16.5 L19 20"/>',
+      padre: '<path class="util" d="M6 8 L12 4 L18 8 M6 8 V16 M18 8 V16 M6 16 H18"/>'
+    }[rol] || '<path class="util" d="M8 12 H16"/>';
+    return '<div class="avatar' + (vivo ? " vivo" : "") + '" data-avatar="' +
+      esc(rol) + '" title="' + esc(rol) + '" aria-label="' + esc(rol) + '">' +
+      '<svg viewBox="0 0 24 24" role="img" aria-hidden="true">' +
+      '<circle class="cara" cx="12" cy="8" r="4"/>' +
+      '<circle class="ojo" cx="10.6" cy="7.6" r=".9"/>' +
+      '<circle class="ojo" cx="13.4" cy="7.6" r=".9"/>' +
+      util + "</svg></div>";
+  }
+
+  /* G-2302, y el R6 del contrato: una fuente que no se pudo leer se DICE. Un
+     cero silencioso donde no se pudo mirar es la única mentira que este tablero
+     no se puede permitir, porque es la que parece un tablero en verde. */
+  function fuenteRota(bloque) {
+    if (!bloque || bloque.estado === "ok") return "";
+    var motivo = bloque.detalle || (bloque.estado === "ausente"
+      ? "la fuente no existe" : "no se pudo comprobar");
+    return '<div class="aviso-fuente">No se pudo leer esta fuente: ' +
+      esc(motivo) + " — no es que no haya nada.</div>";
+  }
+
+  function dato(etiqueta, valor, roto) {
+    return '<div class="dato' + (roto ? " roto" : "") + '"><div class="etiqueta">' +
+      esc(etiqueta) + '</div><div class="valor">' + valor + "</div></div>";
+  }
+
+  function pintarCabecera(c) {
+    var html = "";
+    var v = c.version;
+    html += v.estado === "ok"
+      ? dato("Método", esc(v.local) + " <small>local · publicada " +
+             esc(v.publicada) + (v.al_dia ? "" : " ⚠") + "</small>")
+      : dato("Método", esc(v.detalle || "no se pudo leer la versión"), true);
+    ["main", "meta"].forEach(function (cual) {
+      var e = c.sin_empujar[cual];
+      var titulo = cual === "main" ? "Sin empujar · main" : "Sin empujar · meta-repo";
+      html += e.estado === "ok"
+        ? dato(titulo, e.commits + (e.commits === 1 ? " commit" : " commits"))
+        : dato(titulo, esc(e.detalle || "no se pudo comprobar"), true);
+    });
+    var k = c.canario;
+    html += k.estado === "ok"
+      ? dato("Canario", esc(k.veredicto) + (k.porcentaje === null ? "" :
+             " <small>" + k.porcentaje.toFixed(0) + " % de " + esc(String(k.modelo)) +
+             "</small>"))
+      : dato("Canario", esc(k.detalle || "no se pudo comprobar"), true);
+    var s = c.servidores;
+    if (s.estado !== "ok") {
+      html += dato("Servidores", esc(s.detalle || "no se pudo comprobar"), true);
+    } else if (!s.lista.length) {
+      html += dato("Servidores", "<small>ninguno levantado</small>");
+    } else {
+      html += dato("Servidores", s.lista.map(function (x) {
+        return esc(x.servicio) + " :" + x.puerto + ' <small>desde ' +
+          (x.arbol ? esc(x.arbol) : "no pude ver qué árbol sirve") + "</small>";
+      }).join("<br>"));
+    }
+    cabecera.innerHTML = html;
+  }
+
+  function pintarAhora(d) {
+    var html = '<h2 class="seccion">Ahora</h2>' +
+      '<div class="seccion-nota">Agentes con recibo abierto y cerrojo vivo. ' +
+      'Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
+    if (!d.vivos.length) {
+      html += '<div class="vacio-corto">Ahora mismo no trabaja ningún agente.</div>';
+    } else {
+      html += '<div class="tarjetas">' + d.vivos.map(function (a) {
+        var rutas = a.ficheros && a.ficheros.length
+          ? "Toca: " + a.ficheros.map(esc).join(", ")
+          : (a.ficheros_estado === "ok"
+             ? "Todavía no ha tocado nada en su worktree"
+             : "No pude mirar su worktree");
+        return '<div class="tarjeta viva"><div class="con-avatar">' +
+          avatar(a.avatar, true) + "<div><h3>" + esc(a.unidad) + "</h3>" +
+          '<div class="linea">' + esc(a.rol) + " · " + esc(a.modelo) + "</div>" +
+          '<div class="linea">' + esc(duracion(a.minutos)) + " trabajando</div>" +
+          '<div class="linea">Último paso: ' +
+          esc(a.checkpoint ? a.checkpoint.nombre + " · " + a.checkpoint.detalle
+                           : "sin checkpoints") + "</div>" +
+          '<div class="rutas">' + rutas + "</div>" +
+          "</div></div></div>";
+      }).join("") + "</div>";
+    }
+    html += '<div class="dia">Han terminado hoy</div>';
+    html += d.terminados_hoy.length
+      ? '<div class="tarjetas">' + d.terminados_hoy.map(function (a) {
+          return '<div class="tarjeta quieta"><div class="con-avatar">' +
+            avatar(a.avatar, false) + "<div><h3>" + esc(a.unidad) + "</h3>" +
+            '<div class="linea">' + esc(a.rol) + " · " +
+            esc(a.resultado || "sin resultado en el recibo") + "</div>" +
+            '<div class="linea">' + esc(duracion(a.minutos)) + "</div>" +
+            "</div></div></div>";
+        }).join("") + "</div>"
+      : '<div class="vacio-corto">Hoy no ha terminado ningún agente.</div>';
+    return html;
+  }
+
+  function filas(lista, campo, vacio) {
+    if (!lista.length) return '<div class="vacio-corto">' + vacio + "</div>";
+    return '<ul class="lista-plana">' + lista.map(function (f) {
+      var texto = esc(f[campo] || "");
+      var cuerpo = f.enlace
+        ? '<a href="' + esc(f.enlace) + '">' + texto + "</a>"
+        : texto;
+      return "<li><span>" + cuerpo + "</span><span class=\"espera\">" +
+        esc(dias(f.dias)) + "</span></li>";
+    }).join("") + "</ul>";
+  }
+
+  function pintarTeToca(d) {
+    return '<h2 class="seccion">Te toca a ti</h2>' +
+      '<div class="seccion-nota">Lo que está parado esperando una decisión ' +
+      'tuya. Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d) +
+      '<div class="dia">Contratos por aprobar</div>' +
+      filas(d.contratos, "unidad", "Ningún contrato espera tu OK.") +
+      '<div class="dia">Entregas por validar</div>' +
+      filas(d.en_validacion, "unidad", "Nada pendiente de validar.") +
+      '<div class="dia">Peticiones sin encaminar</div>' +
+      '<div class="seccion-nota">Todavía no hay una web donde decidirlas: se ' +
+      'evalúan hablando con el agente.</div>' +
+      filas(d.peticiones, "resumen", "Ninguna petición capturada sin evaluar.");
+  }
+
+  function pintarPorHacer(d) {
+    var html = '<h2 class="seccion">Por hacer</h2>' +
+      '<div class="seccion-nota">Leído ' + esc(fecha(d.leido)) + ".</div>" +
+      fuenteRota(d);
+    html += d.unidades.length
+      ? '<div class="tarjetas">' + d.unidades.map(function (u) {
+          var plan = u.plan
+            ? '<div class="barra"><span style="width:' +
+              Math.round(100 * u.plan.hechos / u.plan.total) + '%"></span></div>' +
+              '<div class="linea">Plan: ' + u.plan.hechos + " de " + u.plan.total +
+              "</div>"
+            : "";
+          var bloqueo = u.bloqueo
+            ? '<div class="linea">⚠ No arranca: comparte ' +
+              u.bloqueo.ficheros.map(esc).join(", ") + " con " +
+              u.bloqueo.con.map(esc).join(", ") + "</div>"
+            : "";
+          return '<div class="tarjeta' + (u.bloqueo ? " bloqueada" : "") +
+            '"><h3><a href="' + esc(u.enlace) + '">' + esc(u.unidad) + "</a></h3>" +
+            '<div class="linea">' + esc(u.fase) + " · " + esc(u.tipo) +
+            (u.pendiente_de_aprobar
+              ? ' <span class="chip chip-pendiente">sin aprobar</span>'
+              : ' <span class="chip chip-aprobado">aprobado</span>') + "</div>" +
+            plan + bloqueo + "</div>";
+        }).join("") + "</div>"
+      : '<div class="vacio-corto">No queda ninguna unidad abierta.</div>';
+    var estados = Object.keys(d.peticiones || {}).sort();
+    html += '<div class="dia">Peticiones</div>';
+    html += estados.length
+      ? estados.map(function (e) {
+          return '<div class="linea"><strong>' + esc(e) + "</strong> · " +
+            d.peticiones[e].length + "</div>" +
+            filas(d.peticiones[e], "resumen", "");
+        }).join("")
+      : '<div class="vacio-corto">Ninguna petición abierta.</div>';
+    return html;
+  }
+
+  function pintarHistorial(d) {
+    var html = '<h2 class="seccion">Historial</h2>' +
+      '<div class="seccion-nota">Entregas cerradas, de la más reciente a la ' +
+      'más vieja. Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
+    var dia = null;
+    html += d.entregas.length
+      ? '<ul class="lista-plana">' + d.entregas.map(function (e) {
+          var cabeza = "";
+          if (e.fecha !== dia) { dia = e.fecha; cabeza = '<div class="dia">' +
+            esc(e.fecha || "sin fecha") + "</div>"; }
+          return cabeza + '<li><span><a href="' + esc(e.enlace) + '">' +
+            esc(e.titulo) + '</a></span><span class="espera">' +
+            esc(e.origen) + "</span></li>";
+        }).join("") + "</ul>"
+      : '<div class="vacio-corto">Todavía no hay nada cerrado.</div>';
+    html += '<div class="dia">Commits de main hoy</div>';
+    if (d.commits.estado !== "ok") {
+      html += fuenteRota(d.commits);
+    } else if (!d.commits.lista.length) {
+      html += '<div class="vacio-corto">Hoy no se ha fusionado nada en main.</div>';
+    } else {
+      html += '<ul class="lista-plana">' + d.commits.lista.map(function (c) {
+        return "<li><span>" + esc(c.titulo) + '</span><span class="espera">' +
+          esc(c.sha) + "</span></li>";
+      }).join("") + "</ul>";
+    }
+    return html;
+  }
+
+  function pintarDocumentacion(d) {
+    if (documento) {
+      return '<h2 class="seccion">' + esc(documento.ruta) + "</h2>" +
+        '<div class="md">' + bloques(documento.texto.split("\n")) + "</div>";
+    }
+    return '<h2 class="seccion">Documentación</h2>' +
+      '<div class="seccion-nota">Elige un documento del menú. La portada es ' +
+      esc(d.portada || "—") + ".</div>" + fuenteRota(d) +
+      '<div class="vacio-corto">' + d.ficheros.length + " documentos en docs/.</div>";
+  }
+
+  function pintarArbol(d) {
+    if (d.estado !== "ok") { arbol.innerHTML = fuenteRota(d); return; }
+    var grupos = {};
+    d.ficheros.forEach(function (ruta) {
+      var trozos = ruta.split("/");
+      var grupo = trozos.length > 2 ? trozos[1] : "docs";
+      (grupos[grupo] = grupos[grupo] || []).push(ruta);
+    });
+    var html = '<div class="titulo-menu">Documentación</div>';
+    if (d.portada) {
+      html += '<a href="#documentacion/' + esc(d.portada) + '">Portada · ESTADO</a>';
+    }
+    Object.keys(grupos).sort().forEach(function (grupo) {
+      html += '<div class="grupo">' + esc(grupo) + "</div>";
+      html += grupos[grupo].map(function (ruta) {
+        var nombre = ruta.split("/").pop().replace(/\.md$/, "");
+        return '<a href="#documentacion/' + esc(ruta) + '">' + esc(nombre) + "</a>";
+      }).join("");
+    });
+    arbol.innerHTML = html;
+  }
+
+  function pintar() {
+    if (!foto) return;
+    document.querySelectorAll("#secciones a").forEach(function (a) {
+      a.classList.toggle("activa", a.dataset.seccion === actual);
+    });
+    if (actual === "ahora") panel.innerHTML = pintarAhora(foto.ahora);
+    else if (actual === "te-toca") panel.innerHTML = pintarTeToca(foto.te_toca);
+    else if (actual === "por-hacer") panel.innerHTML = pintarPorHacer(foto.por_hacer);
+    else if (actual === "historial") panel.innerHTML = pintarHistorial(foto.historial);
+    else panel.innerHTML = pintarDocumentacion(foto.documentacion);
+  }
+
+  function abrirDocumento(ruta) {
+    fetch("/doc/" + ruta, {cache: "no-store"}).then(function (r) {
+      if (!r.ok) throw new Error(r.status === 403
+        ? "ese documento está fuera del meta-repo" : "no existe ese documento");
+      return r.text();
+    }).then(function (texto) {
+      documento = {ruta: ruta, texto: texto};
+      pintar();
+    }).catch(function (e) {
+      documento = {ruta: ruta, texto: "# No se pudo abrir\n\n" + e.message};
+      pintar();
+    });
+  }
+
+  function irAlHash() {
+    var crudo = (location.hash || "#ahora").slice(1);
+    var corte = crudo.indexOf("/");
+    var seccion = corte === -1 ? crudo : crudo.slice(0, corte);
+    if (SECCIONES.indexOf(seccion) === -1) seccion = "ahora";
+    actual = seccion;
+    if (seccion === "documentacion" && corte !== -1) {
+      abrirDocumento(crudo.slice(corte + 1));
+      return;
+    }
+    documento = null;
+    pintar();
+  }
+
+  function sondear() {
+    fetch("/estado.json", {cache: "no-store"}).then(function (r) {
+      return r.json();
+    }).then(function (datos) {
+      if (datos.error) throw new Error(datos.error);
+      banner.classList.remove("visible");
+      var primera = foto === null;
+      foto = datos;
+      sub.textContent = "Leído " + fecha(datos.generado) + " · " +
+        foto.ahora.vivos.length + " agente(s) trabajando ahora";
+      pintarCabecera(datos.cabecera);
+      pintarArbol(datos.documentacion);
+      if (primera || !documento) pintar();
+    }).catch(function () {
+      banner.classList.add("visible");
+    });
+  }
+
+  window.addEventListener("hashchange", irAlHash);
+  document.addEventListener("DOMContentLoaded", function () {
+    irAlHash();
+    sondear();
+    setInterval(sondear, SONDEO);
+  });
+})();
+</script>
+</body>
+</html>

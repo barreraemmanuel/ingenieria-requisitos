@@ -61,3 +61,7 @@ files) de su aplicación, con una web local para que los valide mirando.
    `visor/migrar_skills.py` (saca del descubrimiento skills locales de proceso sin borrarlas;
    las técnicas solo se conservan mediante `--permitir`) y
    `visor/doctor.py` (primer arranque: ¿funciona la herramienta en esta máquina?).
+4. **El tablero de control** (unidad 058) muestra en una sola web qué agentes
+   trabajan ahora, qué espera una decisión tuya, qué queda por hacer, qué se
+   entregó y toda la documentación del meta-repo. Sólo lee, no escribe nada:
+   `python3 visor_tablero/abrir.py --workspace <ruta del meta-repo>`.
