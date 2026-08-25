@@ -23,10 +23,29 @@ except ImportError:  # También funciona como `python3 visor_presentaciones/serv
 
 BASE = Path(__file__).resolve().parent
 PLANTILLA = BASE / "plantilla.html"
-RENDER_JS = BASE.parent / "visor_contratos" / "render.js"
+# El motor de bloques se comparte con el visor de contratos (unidad 056): en el repo de
+# código vive en `visor_contratos/`, y en un workspace de alumno el bootstrap lo copia al
+# lado de este fichero — es el ÚNICO sitio donde puede estar allí (bug 064). Se busca en
+# los dos layouts, en cada petición: el fichero puede aparecer o desaparecer en caliente.
+RENDER_JS_LAYOUTS = (BASE / "render.js", BASE.parent / "visor_contratos" / "render.js")
+# Por encima de este tope el adjunto se sirve truncado con un aviso: la 051 (R2) prometió
+# que la web nunca vuelca salida extensa.
+TOPE_ADJUNTO = 200 * 1024
 # Extensión → content-type; el resto de código llega como texto plano y la
 # página decide con la extensión si pinta markdown o código con números de línea.
 CONTENT_TYPE_ADJUNTO = {".md": "text/markdown; charset=utf-8"}
+PRIVADO = ".private"
+REDACTADO = "[REDACTADO: dato sensible, no se sirve]"
+AVISO_TRUNCADO = ("\n\n[ADJUNTO TRUNCADO: se muestran los primeros {tope} KB de "
+                  "{total} KB. Abre el fichero en tu editor para verlo entero.]\n")
+
+
+def ruta_render_js():
+    """El motor, en el layout que toque: workspace primero, repo de código después."""
+    for candidato in RENDER_JS_LAYOUTS:
+        if candidato.is_file():
+            return candidato
+    return RENDER_JS_LAYOUTS[0]
 
 
 def detectar_workspace(datos):
@@ -88,11 +107,33 @@ def _ruta_de_adjunto(workspace, ruta):
     if ".." in ruta.split("/") or ruta.startswith(("/", "~")):
         raise ValueError("ruta de adjunto insegura")
     resuelta = (workspace / ruta).resolve(strict=True)
+    raiz = workspace.resolve(strict=True)
     try:
-        resuelta.relative_to(workspace.resolve(strict=True))
+        relativa = resuelta.relative_to(raiz)
     except ValueError:
         raise ValueError("adjunto fuera del workspace")
+    # `.private/` es la carpeta de evidencia sensible del método: está DENTRO del
+    # workspace, así que la frontera de R5 no la para. Se mira la ruta ya resuelta
+    # porque a ella se llega también por un enlace que no sale del workspace.
+    if PRIVADO in relativa.parts:
+        raise ValueError("adjunto en .private/")
     return resuelta
+
+
+def filtrar_adjunto(texto):
+    """El cuerpo que se sirve: lo sensible tachado y un tope con aviso visible.
+
+    Misma frontera que el manifiesto (`manifestar.SENSIBLE`, unidad 051 R2/R5): un
+    adjunto no puede ser la puerta trasera por la que salen las credenciales o media
+    hora de logs que el manifiesto no habría dejado pasar.
+    """
+    limpio = manifestar.SENSIBLE.sub(REDACTADO, texto)
+    crudo = limpio.encode("utf-8")
+    if len(crudo) <= TOPE_ADJUNTO:
+        return crudo
+    recorte = crudo[:TOPE_ADJUNTO].decode("utf-8", errors="ignore")
+    aviso = AVISO_TRUNCADO.format(tope=TOPE_ADJUNTO // 1024, total=len(crudo) // 1024)
+    return (recorte + aviso).encode("utf-8")
 
 
 def hacer_handler(datos, estado, workspace=None):
@@ -108,7 +149,7 @@ def hacer_handler(datos, estado, workspace=None):
             if ruta == "/render.js":
                 # Motor de bloques compartido con el visor de contratos
                 # (unidad 056, bug 055): un solo fichero, sin copia.
-                return self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
+                return self._fichero(ruta_render_js(), "text/javascript; charset=utf-8")
             if ruta == "/meta.json":
                 return self._json(200, {
                     "servicio": "visor-presentaciones",
@@ -161,9 +202,13 @@ def hacer_handler(datos, estado, workspace=None):
                 return self._json(403, {"error": "adjunto fuera del workspace"})
             tipo = CONTENT_TYPE_ADJUNTO.get(Path(ruta).suffix.lower(), "text/plain; charset=utf-8")
             try:
-                return self._fichero(resuelta, tipo)
+                # El adjunto se lee como texto (es lo que la web pinta) y sale por
+                # el mismo filtro que el manifiesto: nada crudo llega al navegador.
+                crudo = resuelta.read_bytes()
             except OSError:
                 return self._json(404, {"error": "adjunto ilegible"})
+            cuerpo = filtrar_adjunto(crudo.decode("utf-8", errors="replace"))
+            return self._fichero(resuelta, tipo, cuerpo)
 
         def do_POST(self):
             estado["ultimo"] = time.time()
@@ -207,8 +252,15 @@ def hacer_handler(datos, estado, workspace=None):
                 raise ValueError("el comentario es obligatorio")
             return {"id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ-") + uuid.uuid4().hex, "presentacion": p["id"], "version": p["version"], "contenido_revisado": esperado, "eleccion": d["eleccion"], "comentario": comentario, "fecha": datetime.now(timezone.utc).isoformat()}
 
-        def _fichero(self, ruta, tipo):
-            cuerpo = Path(ruta).read_bytes()
+        def _fichero(self, ruta, tipo, cuerpo=None):
+            # Un fichero que falta es un 404, jamás una excepción que suba hasta
+            # `do_GET`: eso cortaba la conexión sin respuesta y el navegador se
+            # quedaba con la página a medias (bug 064 R2).
+            if cuerpo is None:
+                try:
+                    cuerpo = Path(ruta).read_bytes()
+                except OSError:
+                    return self._json(404, {"error": "fichero inexistente"})
             self.send_response(200)
             self._cabeceras(tipo, len(cuerpo))
             self.end_headers()

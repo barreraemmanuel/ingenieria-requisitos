@@ -372,5 +372,63 @@ class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
                 self.assertIn(declaracion, self.presentaciones)
 
 
+class AdjuntosFiltradosTest(unittest.TestCase):
+    """Bug 064 R3 — el adjunto pasa por la MISMA frontera que el manifiesto.
+
+    La 051 firmó (R2/R5) que la web nunca enseña secretos ni vuelca salida
+    extensa: el manifiesto lo garantiza con `manifestar.SENSIBLE` y un tope de
+    2000 caracteres por campo. `/adjunto/` se saltaba las dos cosas y servía
+    el cuerpo entero del fichero tal cual.
+    """
+
+    def setUp(self):
+        self.workspace, self.datos = montar_workspace_y_datos()
+        self.addCleanup(shutil.rmtree, self.workspace, True)
+        manifiesto = manifiesto_con_adjuntos()
+        manifiesto["presentaciones"][2]["adjuntos"] = [
+            "docs/despliegue.md", "main/grande.txt", "docs/notas.md",
+        ]
+        (self.datos / "manifiesto.json").write_text(
+            json.dumps(manifiesto), encoding="utf-8")
+        (self.workspace / "docs" / "despliegue.md").write_text(
+            "# Despliegue\n\nLlamada de ejemplo:\n\n"
+            "    curl -H 'Authorization: Bearer x' https://api.local/v1\n",
+            encoding="utf-8",
+        )
+        (self.workspace / "main" / "grande.txt").write_text(
+            "linea de relleno para pasar del tope\n" * 12000, encoding="utf-8")
+        # `.private/` es la carpeta de evidencia sensible del método: aunque
+        # `manifestar` ya rechaza declararla (empieza por punto), un enlace
+        # dentro del workspace la alcanzaba igual.
+        (self.workspace / ".private").mkdir()
+        (self.workspace / ".private" / "secreto.md").write_text(
+            "credencial del usuario\n", encoding="utf-8")
+        (self.workspace / "docs" / "notas.md").symlink_to(
+            self.workspace / ".private" / "secreto.md")
+        self.servidor = ServidorDePrueba(self.datos, self.workspace)
+        self.addCleanup(self.servidor.parar)
+
+    def test_el_adjunto_con_un_bearer_dentro_sale_filtrado(self):
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/despliegue.md")
+        self.assertEqual(200, estado)
+        self.assertNotIn(b"Authorization: Bearer x", cuerpo)
+        self.assertNotRegex(cuerpo.decode("utf-8"), servir.manifestar.SENSIBLE)
+        # El resto del adjunto sigue sirviendo: se tacha lo sensible, no todo.
+        self.assertIn(b"# Despliegue", cuerpo)
+
+    def test_el_adjunto_enorme_se_trunca_con_aviso_visible(self):
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/main/grande.txt")
+        self.assertEqual(200, estado)
+        self.assertLessEqual(len(cuerpo), servir.TOPE_ADJUNTO + 2000)
+        self.assertIn("truncado", cuerpo.decode("utf-8").lower())
+
+    def test_un_adjunto_que_acaba_en_private_nunca_se_sirve(self):
+        """R3: `.private/` queda fuera aunque se llegue por un enlace que no
+        sale del workspace (la guarda de la 056 sólo mira la frontera)."""
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/notas.md")
+        self.assertEqual(403, estado)
+        self.assertNotIn(b"credencial", cuerpo)
+
+
 if __name__ == "__main__":
     unittest.main()

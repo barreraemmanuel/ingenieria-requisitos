@@ -149,7 +149,20 @@ ARCHIVOS_REQUISITOS = (
     "RUNBOOK/arranque.md", "RUNBOOK/fases.md", "RUNBOOK/comun.md",
     "RUNBOOK/modo-c.md", "RUNBOOK/modo-d.md",
 )
-ARCHIVOS_PRESENTACIONES = ("abrir.py", "manifestar.py", "servir.py", "plantilla.html")
+# El motor de bloques (`render.js`) vive en visor_contratos/ desde la 056 — un solo
+# fichero, sin copia — pero al workspace sólo viaja `visor_presentaciones/`: si no se
+# reparte AQUÍ, `GET /render.js` no encuentra nada y la web nace en blanco (bug 064).
+# Por eso el destino es la carpeta de presentaciones y el origen, el del visor que lo
+# guarda: `origen_presentacion` es la única fuente de esa correspondencia.
+ARCHIVOS_PRESENTACIONES = ("abrir.py", "manifestar.py", "servir.py", "plantilla.html",
+                           "render.js")
+ORIGEN_PRESENTACIONES = {"render.js": ("visor_contratos", "render.js")}
+
+
+def origen_presentacion(nombre):
+    """Fichero del repo de código del que sale `visor_presentaciones/<nombre>`."""
+    return BASE.parent.joinpath(*ORIGEN_PRESENTACIONES.get(nombre,
+                                                           ("visor_presentaciones", nombre)))
 
 
 def version_metodo():
@@ -1010,8 +1023,7 @@ def main():
     presentaciones = requisitos / "visor_presentaciones"
     presentaciones.mkdir()
     for nombre in ARCHIVOS_PRESENTACIONES:
-        shutil.copyfile(BASE.parent / "visor_presentaciones" / nombre,
-                        presentaciones / nombre)
+        shutil.copyfile(origen_presentacion(nombre), presentaciones / nombre)
     (docs / "01-constitucion").mkdir()
     shutil.copyfile(constitucion, docs / "01-constitucion" / "manifiesto.md")
     shutil.copyfile(PLANTILLA / "bias" / fichero_bias,

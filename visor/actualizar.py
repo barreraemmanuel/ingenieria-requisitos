@@ -289,6 +289,12 @@ def contenido_esperado(workspace):
                   if nombre == "requirements-dev.txt" or nombre.startswith("RUNBOOK")
                   else BASE / nombre)
         esperado[f"docs/00-metodo/requisitos/{nombre}"] = origen.read_text(encoding="utf-8")
+    # La web de presentaciones (051/056) la coloca el bootstrap y hasta ahora nadie la
+    # actualizaba: los workspaces ya creados se quedaban con la versión del día que
+    # nacieron y, sobre todo, SIN `render.js` — la web abría en blanco (bug 064).
+    for nombre in bootstrap.ARCHIVOS_PRESENTACIONES:
+        esperado[f"docs/00-metodo/requisitos/visor_presentaciones/{nombre}"] = (
+            bootstrap.origen_presentacion(nombre).read_text(encoding="utf-8"))
     for origen in sorted((PLANTILLA / "githooks").rglob("*")):
         if origen.is_file():
             rel = origen.relative_to(PLANTILLA / "githooks")
