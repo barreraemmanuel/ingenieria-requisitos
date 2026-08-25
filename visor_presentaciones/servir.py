@@ -29,6 +29,11 @@ PLANTILLA = BASE / "plantilla.html"
 # lado de este fichero — es el ÚNICO sitio donde puede estar allí (bug 064). Se busca en
 # los dos layouts, en cada petición: el fichero puede aparecer o desaparecer en caliente.
 RENDER_JS_LAYOUTS = (BASE / "render.js", BASE.parent / "visor_contratos" / "render.js")
+# La hoja común de las cuatro webs (unidad 076). Como `render.js`, tiene un
+# solo sitio vivo y dos layouts posibles: en el WORKSPACE cuelga de
+# `docs/00-metodo/requisitos/base.css` (la reparte `bootstrap.py` junto a la
+# plantilla del visor de flujos) y en el repo de código, de `visor/base.css`.
+BASE_CSS_LAYOUTS = (BASE.parent / "base.css", BASE.parent / "visor" / "base.css")
 # Por encima de este tope el adjunto se sirve truncado con un aviso: la 051 (R2) prometió
 # que la web nunca vuelca salida extensa.
 TOPE_ADJUNTO = 200 * 1024
@@ -61,6 +66,14 @@ def ruta_render_js():
         if candidato.is_file():
             return candidato
     return RENDER_JS_LAYOUTS[0]
+
+
+def ruta_base_css():
+    """La hoja común, en el layout que toque: workspace primero, repo después."""
+    for candidato in BASE_CSS_LAYOUTS:
+        if candidato.is_file():
+            return candidato
+    return BASE_CSS_LAYOUTS[0]
 
 
 def detectar_workspace(datos):
@@ -170,6 +183,9 @@ def hacer_handler(datos, estado, workspace=None):
                 # Motor de bloques compartido con el visor de contratos
                 # (unidad 056, bug 055): un solo fichero, sin copia.
                 return self._fichero(ruta_render_js(), "text/javascript; charset=utf-8")
+            if ruta == "/base.css":
+                # Hoja común de las cuatro webs (unidad 076).
+                return self._fichero(ruta_base_css(), "text/css; charset=utf-8")
             if ruta == "/meta.json":
                 return self._json(200, {
                     "servicio": "visor-presentaciones",

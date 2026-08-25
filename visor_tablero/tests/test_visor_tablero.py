@@ -679,6 +679,10 @@ class CabeceraConFuentesCaidasTest(ConWorkspace):
 
 # --------------------------------------------------------------------------- R7
 
+BASE_CSS = BASE.parent / "visor" / "base.css"
+ENLACE_BASE_CSS = '<link rel="stylesheet" href="/base.css">'
+
+
 def bloque_paleta(texto):
     inicio = texto.index(":root {")
     marca = texto.index(':root[data-theme="light"]', inicio)
@@ -820,25 +824,34 @@ class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
         self.tablero = PLANTILLA.read_text(encoding="utf-8")
         self.contratos = PLANTILLA_CONTRATOS.read_text(encoding="utf-8")
 
-    def test_la_paleta_es_la_misma_linea_a_linea(self):
-        esperado = bloque_paleta(self.contratos)
-        self.assertGreater(len(esperado), 20, "la paleta de contratos no se leyó")
-        self.assertEqual(esperado, bloque_paleta(self.tablero))
+    def test_la_paleta_ya_no_se_copia_sino_que_se_enlaza(self):
+        """R7, releído por la 076.
+
+        Antes esto comparaba la paleta línea a línea entre las dos plantillas
+        porque estaba DUPLICADA. Ahora vive una sola vez en `visor/base.css` y
+        lo que hay que vigilar es que ninguna de las dos se la vuelva a traer.
+        """
+        paleta = bloque_paleta(BASE_CSS.read_text(encoding="utf-8"))
+        self.assertGreater(len(paleta), 20, "la paleta de base.css no se leyó")
+        for nombre, texto in (("tablero", self.tablero),
+                              ("contratos", self.contratos)):
+            with self.subTest(web=nombre):
+                self.assertIn(ENLACE_BASE_CSS, texto)
+                self.assertNotIn(":root", texto)
 
     def test_el_interruptor_de_tema_se_comporta_igual(self):
         esperado = bloque_interruptor(self.contratos)
         self.assertGreater(len(esperado), 15, "el interruptor no se leyó")
         self.assertEqual(esperado, bloque_interruptor(self.tablero))
 
-    def test_la_cabecera_y_el_menu_lateral_son_los_mismos(self):
+    def test_la_cabecera_y_el_menu_lateral_viven_en_la_hoja_comun(self):
+        """Una sola definición para las dos webs, en `visor/base.css`."""
+        hoja = BASE_CSS.read_text(encoding="utf-8")
         for declaracion in (
             "header { position: relative; padding-right: 44px; }",
-            '.boton-tema { position: absolute; top: -2px; right: 0; width: 34px; '
-            'height: 34px; border-radius: 50%; border: 1px solid var(--line); '
-            'background: var(--sheet); color: var(--muted); font-size: 15px; '
-            'line-height: 1; cursor: pointer; }',
-            "h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }",
-            ".sub { color: var(--muted); font-size: 13.5px; }",
+            ".boton-tema { position: absolute; top: -2px; right: 0;",
+            "h1 { font-size: var(--t-h1);",
+            ".sub { color: var(--muted);",
             ".menu-unidades { flex: 0 0 268px;",
             ".chip-pendiente { background: var(--warn-bg); border-color: "
             "var(--warn); color: var(--warn); }",
@@ -846,14 +859,16 @@ class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
             "color: var(--ok); }",
         ):
             with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.contratos)
-                self.assertIn(declaracion, self.tablero)
+                self.assertIn(declaracion, hoja)
+                self.assertNotIn(declaracion, self.tablero)
+                self.assertNotIn(declaracion, self.contratos)
 
     def test_la_tipografia_es_la_misma(self):
+        hoja = BASE_CSS.read_text(encoding="utf-8")
         for declaracion in ("--sans: -apple-system, BlinkMacSystemFont",
                             "font: 16px/1.5 var(--sans)"):
             with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.tablero)
+                self.assertIn(declaracion, hoja)
 
     def test_los_avatares_son_svg_en_linea_y_se_animan_solo_mientras_viven(self):
         for rol in ("constructor", "revisor", "padre"):

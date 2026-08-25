@@ -1,0 +1,191 @@
+/* =========================================================================
+   base.css — la hoja común de las CUATRO webs locales (unidad 076)
+
+   Hasta la 076 este bloque estaba COPIADO LITERAL en las cuatro plantillas y
+   un test lo comparaba línea a línea: la copia se sostenía a mano y desentonó
+   sola (letra secundaria minúscula, títulos sin escalones, párrafos pegados).
+   Ahora vive aquí, y las cuatro webs — flujos (:8765), contratos (:8766),
+   tablero (:8768) y presentaciones (:9043) — la enlazan como `/base.css`, que
+   cada `servir.py` sirve LEÍDA de este fichero. Una sola copia viva.
+
+   Reglas de la casa:
+   - Aquí va lo COMÚN: paleta y tema, esqueleto (cabecera, marca, barra de las
+     cuatro webs, menú lateral, panel, plegables, interruptor ☾/☀), y la escala
+     tipográfica y de espaciado. Lo propio de cada web se queda en su plantilla.
+   - Una plantilla NO repite un selector de aquí ni redefine una variable de
+     aquí: `visor/tests/test_base_css.py` lo comprueba en las cuatro.
+   - Ni una URL externa: las webs funcionan con la red apagada.
+   ========================================================================= */
+
+/* ---------- paleta (misma que manual-ingenieria-requisitos.html) ----------
+   Claro por defecto, oscuro automático según el sistema, y data-theme para forzarlo.
+   Los papeles semánticos se conservan para daltonismo: persona = cálido (warn),
+   automático·código = azul (accent), automático·IA = verde (ok). */
+:root {
+  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+  --line: #CDD5CE; --line-soft: #E1E7E0;
+  --accent: #1F5673; --accent-bg: #E4EDF2;
+  --ok: #3D6B4C; --ok-bg: #E3EDE4;
+  --warn: #8E6410; --warn-bg: #F2EBDA;
+  --fail: #A03127; --fail-bg: #F4E4E1;
+  --alt: #5B4A78; --alt-bg: #ECE8F3;
+  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* ---------- escala tipográfica (R2 de la 076) ----------
+     Un solo escalón entre cada tamaño y un SUELO: nada informativo baja de
+     --t-nota; sólo las etiquetas de una palabra en mayúsculas (marca, chips,
+     títulos de menú) pueden llegar a --t-etiqueta. El texto de lectura va al
+     tamaño del cuerpo, no por debajo, y con más interlineado que la interfaz. */
+  --t-etiqueta: 11px;
+  --t-nota: 12.5px;
+  --t-menor: 13.5px;
+  --t-medio: 14.5px;
+  --t-cuerpo: 16px;
+  --t-lectura: 16px;
+  --t-h3: 17px;
+  --t-h2: 20px;
+  --t-h1: 25px;
+  --lh-lectura: 1.55;
+
+  /* ---------- aire (R2) ----------
+     Entre párrafos, --e-parrafo. Entre BLOQUES (tabla, tarjeta, plegable,
+     bloque de código), --e-bloque: un bloque necesita más aire que una línea. */
+  --e-parrafo: 11px;
+  --e-bloque: 18px;
+
+  /* El ancho de la PÁGINA. El de la COLUMNA DE TEXTO es otra cosa y se mide
+     en `ch` (ver `.md`): 78 caracteres, la medida de Butterick. */
+  --ancho-pagina: 1180px;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+    --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+    --line: #2B363E; --line-soft: #202A31;
+    --accent: #7FB4D4; --accent-bg: #16242E;
+    --ok: #77B189; --ok-bg: #17251C;
+    --warn: #CE9F45; --warn-bg: #251F12;
+    --fail: #E08578; --fail-bg: #2A1815;
+    --alt: #A99AC8; --alt-bg: #1E1A26;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
+  --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
+  --line: #2B363E; --line-soft: #202A31;
+  --accent: #7FB4D4; --accent-bg: #16242E;
+  --ok: #77B189; --ok-bg: #17251C;
+  --warn: #CE9F45; --warn-bg: #251F12;
+  --fail: #E08578; --fail-bg: #2A1815;
+  --alt: #A99AC8; --alt-bg: #1E1A26;
+}
+:root[data-theme="light"] {
+  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
+  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
+  --line: #CDD5CE; --line-soft: #E1E7E0;
+  --accent: #1F5673; --accent-bg: #E4EDF2;
+  --ok: #3D6B4C; --ok-bg: #E3EDE4;
+  --warn: #8E6410; --warn-bg: #F2EBDA;
+  --fail: #A03127; --fail-bg: #F4E4E1;
+  --alt: #5B4A78; --alt-bg: #ECE8F3;
+}
+
+/* ---------- cimientos ---------- */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+.pagina { max-width: var(--ancho-pagina); margin: 0 auto; padding: 32px 20px 90px; }
+
+/* ---------- escala de títulos ----------
+   Tres escalones que se distinguen de un vistazo (25 / 20 / 17) y valen igual
+   para la interfaz y para el markdown renderizado dentro de `.md`. */
+h1 { font-size: var(--t-h1); line-height: 1.2; margin: 6px 0 2px; }
+h2 { font-size: var(--t-h2); line-height: 1.25; }
+h3 { font-size: var(--t-h3); line-height: 1.3; }
+
+/* ---------- cabecera e interruptor de tema ---------- */
+header { position: relative; padding-right: 44px; }
+header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--warn); }
+.boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
+.boton-tema:hover { border-color: var(--accent); color: var(--ink); }
+.boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.sub { color: var(--muted); font-size: var(--t-menor); }
+
+/* ---------- barra común de las cuatro webs (bug 067) ----------
+   Una web, una función, y desde cualquiera se llega a las otras tres. La
+   actual va marcada con `.actual` + aria-current. */
+.barra-webs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+.barra-webs a { font: bold var(--t-etiqueta) var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: var(--sheet); }
+.barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
+.barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+.barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 2px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: var(--t-menor); box-shadow: 0 4px 16px rgba(11, 11, 11, .18); }
+.aviso-flotante.visible { display: block; }
+
+/* ---------- esqueleto: menú lateral + panel ---------- */
+.cuerpo { display: flex; gap: 26px; align-items: flex-start; margin-top: 22px; }
+
+.menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px; }
+.titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
+.menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; margin-bottom: 10px; }
+.menu-unidades button { display: block; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 3px 0; cursor: pointer; }
+.menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
+.menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
+.menu-unidades button .nombre { display: block; font-weight: bold; }
+.menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
+
+.panel { flex: 1 1 auto; min-width: 0; }
+.panel .vacio { border: 1px dashed var(--line); border-radius: 10px; padding: 24px; color: var(--muted); font-size: var(--t-medio); background: var(--sheet); }
+
+/* ---------- etiquetas ----------
+   Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta. */
+.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 3px 10px; margin: 4px 4px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+.chip-pendiente { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
+.chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+
+/* ---------- bloques de lectura ----------
+   Todos separados por --e-bloque: entre dos tarjetas cabe una línea de aire. */
+.cabecera-contrato { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; background: var(--sheet); padding: 16px 18px; }
+.cabecera-contrato .ruta { font-size: var(--t-nota); color: var(--faint); margin-top: 5px; word-break: break-all; }
+.bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; background: var(--sheet); padding: 16px 18px; }
+.bluf > h3 { margin-bottom: 8px; }
+.bluf + .bluf { margin-top: var(--e-bloque); }
+.plegable { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px 18px; }
+.plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-medio); color: var(--muted); }
+.plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
+.plegable[open] > summary { margin-bottom: 10px; }
+
+/* ---------- texto de lectura (markdown renderizado) ----------
+   Al tamaño del cuerpo y con más interlineado: es lo que de verdad se LEE.
+   El ancho se mide en `ch` — 78 caracteres, la medida de Butterick. */
+.md { font-size: var(--t-lectura); line-height: 1.55; max-width: 78ch; }
+.md h4 { font-size: var(--t-cuerpo); margin: var(--e-bloque) 0 5px; }
+.md h5 { font-size: var(--t-menor); color: var(--muted); margin: var(--e-parrafo) 0 4px; }
+.md h2, .md h3 { margin: var(--e-bloque) 0 6px; }
+.md p { margin: var(--e-parrafo) 0; }
+.md ul, .md ol { margin: var(--e-parrafo) 0 var(--e-parrafo) 22px; }
+.md li { margin: 4px 0; }
+.md li.tarea { list-style: none; margin-left: -18px; }
+.md li.tarea .caja { color: var(--muted); margin-right: 6px; }
+.md li.tarea.hecha { color: var(--muted); }
+.md code { font-family: var(--mono); font-size: var(--t-menor); background: var(--line-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+.md pre { margin: var(--e-bloque) 0; padding: 12px 14px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.md pre code { border: 0; background: none; padding: 0; }
+.md blockquote { margin: var(--e-bloque) 0; padding: 8px 16px; border-left: 3px solid var(--line); color: var(--muted); font-size: var(--t-medio); }
+.md table { border-collapse: collapse; margin: var(--e-bloque) 0; font-size: var(--t-menor); width: 100%; }
+.md th, .md td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
+.md th { background: var(--line-soft); }
+.md a { color: var(--accent); }
+
+@media (max-width: 860px) {
+  .cuerpo { display: block; }
+  .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: 20px; }
+}
+@media (max-width: 760px) {
+  .pagina { padding-left: 12px; padding-right: 12px; }
+}

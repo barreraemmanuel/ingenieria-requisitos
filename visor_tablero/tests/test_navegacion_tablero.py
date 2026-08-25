@@ -118,19 +118,7 @@ def menu_de(texto):
     return parser.entradas
 
 
-def bloque_comun(texto):
-    """El bloque de estilos que las tres webs comparten, línea a línea.
-
-    Va desde el comentario de la paleta hasta el cierre del `@media` de 860px:
-    es exactamente lo que hoy tienen IGUAL el visor de contratos y el de
-    presentaciones (la 056), y lo que el tablero tiene que tener igual.
-    """
-    lineas = texto.splitlines()
-    inicio = next(i for i, l in enumerate(lineas)
-                  if l.strip().startswith("/* ---------- paleta"))
-    fin = next(i for i, l in enumerate(lineas)
-               if l.strip().startswith("@media (max-width: 860px)"))
-    return lineas[inicio:fin + 4]
+ENLACE_BASE_CSS = '<link rel="stylesheet" href="/base.css">'
 
 
 def scripts_inline(texto):
@@ -359,28 +347,41 @@ class BarraComunTest(unittest.TestCase):
 # --------------------------------------------------------------------------- R4
 
 class MismoEsqueletoQueLa056Test(unittest.TestCase):
-    """R4 — estilos idénticos línea a línea y navegación por hash."""
+    """R4 — mismo esqueleto que la 056 (desde la 076, una sola hoja) y
+    navegación por hash."""
 
     def setUp(self):
         self.tablero = PLANTILLA.read_text(encoding="utf-8")
         self.presentaciones = PLANTILLA_056.read_text(encoding="utf-8")
         self.contratos = PLANTILLA_CONTRATOS.read_text(encoding="utf-8")
 
-    def test_el_bloque_comun_de_estilos_es_el_mismo_linea_a_linea(self):
-        esperado = bloque_comun(self.presentaciones)
-        self.assertGreater(len(esperado), 60, "el bloque de la 056 no se leyó")
-        self.assertEqual(esperado, bloque_comun(self.contratos))
-        self.assertEqual(esperado, bloque_comun(self.tablero))
+    def test_las_tres_enlazan_la_hoja_comun_en_vez_de_copiarla(self):
+        """R4, releído por la 076: el esqueleto ya no se copia, se ENLAZA.
 
-    def test_la_barra_comun_se_estila_igual_en_las_tres(self):
+        Hasta la 076 este test comparaba los `<style>` línea a línea porque el
+        bloque común estaba duplicado en las tres plantillas. Ahora vive en
+        `visor/base.css` y lo único que hay que vigilar es que ninguna se
+        descuelgue: la copia literal no puede volver por la puerta de atrás.
+        """
         for nombre, texto in (("tablero", self.tablero),
                               ("contratos", self.contratos),
                               ("presentaciones", self.presentaciones)):
             with self.subTest(web=nombre):
-                self.assertTrue(".barra-webs a.actual" in texto,
-                                "%s no estila la barra común" % nombre)
-        self.assertTrue(".barra-webs a.actual" in "\n".join(bloque_comun(self.tablero)),
-                        "la barra se estila fuera del bloque común")
+                self.assertIn(ENLACE_BASE_CSS, texto,
+                              "%s no enlaza la hoja común" % nombre)
+                self.assertNotIn(":root", texto,
+                                 "%s vuelve a copiar la paleta" % nombre)
+
+    def test_la_barra_comun_se_estila_en_la_hoja_comun(self):
+        hoja = (RAIZ / "visor" / "base.css").read_text(encoding="utf-8")
+        self.assertIn(".barra-webs a.actual", hoja,
+                      "la barra ya no se estila en base.css")
+        for nombre, texto in (("tablero", self.tablero),
+                              ("contratos", self.contratos),
+                              ("presentaciones", self.presentaciones)):
+            with self.subTest(web=nombre):
+                self.assertNotIn(".barra-webs", texto,
+                                 "%s estila la barra por su cuenta" % nombre)
 
     def test_las_tres_secciones_van_por_hash_con_enlaces_de_verdad(self):
         entradas = menu_de(self.tablero)

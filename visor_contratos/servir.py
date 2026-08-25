@@ -43,6 +43,10 @@ CAMPOS = ("unidad", "tipo", "carril", "estado", "aprobado", "actividad")
 BASE = os.path.dirname(os.path.abspath(__file__))
 PLANTILLA = os.path.join(BASE, "plantilla.html")
 RENDER_JS = os.path.join(BASE, "render.js")
+# La hoja común de las cuatro webs (unidad 076): se lee de visor/, su único
+# sitio, igual que `render.js` se lee de aquí. Ruta resuelta desde el módulo,
+# nunca desde el cwd: el visor se lanza desde donde le da la gana al usuario.
+BASE_CSS = os.path.join(os.path.dirname(BASE), "visor", "base.css")
 SUBRUTA_TRABAJO = ("docs", "05-trabajo")
 SUBRUTA_BUGS = ("docs", "bugs")
 RASTRO = "visor-contratos.log"
@@ -238,6 +242,9 @@ def hacer_handler(workspace, estado):
                 # Motor de bloques compartido con el visor de presentaciones
                 # (unidad 056): un solo fichero, sin copia (bug 055).
                 self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
+            elif pedida == "/base.css":
+                # Hoja común de las cuatro webs (unidad 076).
+                self._fichero(BASE_CSS, "text/css; charset=utf-8")
             elif pedida == "/meta.json":
                 self._json(200, {"workspace": workspace})
             elif pedida == "/unidades.json":

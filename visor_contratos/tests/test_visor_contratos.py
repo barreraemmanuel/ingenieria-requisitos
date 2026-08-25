@@ -382,6 +382,10 @@ class WorkspaceRealTest(unittest.TestCase):
         self.assertIn("## Criterios de aceptación", contrato)
 
 
+BASE_CSS = PLANTILLA.parent.parent / "visor" / "base.css"
+ENLACE_BASE_CSS = '<link rel="stylesheet" href="/base.css">'
+
+
 def bloque_paleta(texto):
     """Las líneas de la paleta: desde `:root {` hasta cerrar el bloque
     `:root[data-theme="light"]`, sin espacios de sangrado ni líneas vacías."""
@@ -405,10 +409,20 @@ class TemaIgualQueElVisorDeFlujosTest(unittest.TestCase):
         self.contratos = PLANTILLA.read_text(encoding="utf-8")
         self.flujos = PLANTILLA_FLUJOS.read_text(encoding="utf-8")
 
-    def test_la_paleta_es_la_misma_linea_a_linea(self):
-        esperado = bloque_paleta(self.flujos)
-        self.assertGreater(len(esperado), 20, "la paleta de flujos no se pudo leer")
-        self.assertEqual(esperado, bloque_paleta(self.contratos))
+    def test_la_paleta_ya_no_se_copia_sino_que_se_enlaza(self):
+        """R2, releído por la 076.
+
+        El riesgo de divergencia visual se cerraba comparando la paleta línea
+        a línea entre las dos plantillas. Desde la 076 no hay dos paletas que
+        comparar: hay una, en `visor/base.css`, y las dos webs la enlazan.
+        """
+        paleta = bloque_paleta(BASE_CSS.read_text(encoding="utf-8"))
+        self.assertGreater(len(paleta), 20, "la paleta de base.css no se leyó")
+        for nombre, texto in (("contratos", self.contratos),
+                              ("flujos", self.flujos)):
+            with self.subTest(web=nombre):
+                self.assertIn(ENLACE_BASE_CSS, texto)
+                self.assertNotIn(":root", texto)
 
     def test_el_interruptor_de_tema_se_comporta_igual(self):
         esperado = bloque_interruptor(self.flujos)
@@ -416,12 +430,13 @@ class TemaIgualQueElVisorDeFlujosTest(unittest.TestCase):
         self.assertEqual(esperado, bloque_interruptor(self.contratos))
 
     def test_la_tipografia_es_la_misma(self):
+        hoja = BASE_CSS.read_text(encoding="utf-8")
         for declaracion in (
             "--sans: -apple-system, BlinkMacSystemFont",
             "font: 16px/1.5 var(--sans)",
         ):
             with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.contratos)
+                self.assertIn(declaracion, hoja)
 
     def test_no_toca_la_plantilla_del_visor_de_flujos(self):
         """El visor de flujos sigue siendo el que pinta planos.json."""
