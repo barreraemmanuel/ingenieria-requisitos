@@ -1230,7 +1230,7 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         if not portante:
             fail(f"{rel(ruta)}: §Verificación sin '**Criterio portante:**' relleno — "
                  f"Arréglalo: escribe `**Criterio portante:** R-n` en §Verificación de {rel(ruta)} "
-                 f"y vuelve a ejecutar: python3 docs/00-metodo/scripts/unidad.py despachar {unidad['nombre']}")
+                 f"y vuelve a ejecutar: python3 docs/00-metodo/scripts/unidad.py despachar {args.unidad}")
             err("\n  Declara CUÁL de los R* es el criterio portante: el que, si no estuviera\n"
                 "  implementado, deja el resto sin sentido. Uno solo, nombrado como `R-n`.\n"
                 "  Al cerrar hay que DEMOSTRAR que su test muerde —romperlo a propósito, pegar\n"
