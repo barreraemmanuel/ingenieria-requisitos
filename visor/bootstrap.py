@@ -84,15 +84,15 @@ IGNORAR = {"__pycache__", ".DS_Store"}
 # histórico no puede colarse en todos los workspaces por estar dentro de la carpeta.
 RUNBOOKS = ("adopcion", "auditoria", "bug", "cierre", "control-plane", "deploy", "directo", "documentacion",
             "expres", "feature", "hotfix", "investigacion", "migracion", "planificacion",
-            "peticiones", "primer-despliegue", "refactor")
+            "peticiones", "primer-despliegue", "refactor", "sanidad")
 PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "despliegue", "directo",
               "especificacion", "hallazgos", "informe", "investigacion", "plano-operativo",
               "peticion-investigacion-informe", "peticion-investigacion-plan",
-              "peticion-investigacion-sintesis", "roadmap", "sintesis")
+              "peticion-investigacion-sintesis", "roadmap", "sanidad", "sintesis")
 SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py", "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
            "lint_salidas.py", "lease.py",
-           "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py")
+           "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
     "001-docs-fuera-del-repo.md",
@@ -125,9 +125,11 @@ DECISIONES = (
     "028-ci-es-guia-no-gate.md",
     "029-una-regla-tiene-ejecutor-o-se-retira.md",
     "030-el-test-portante-tiene-que-morder.md",
+    "031-sanidad-repara-papeles-nunca-codigo.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
+    "auditoria-sanidad.md",
     "auditoria-metodo.md", "auditoria-seguridad.md", "seguridad-por-stack.md", "sandbox.md",
     "proceso-nativo.md", "detectores.md",
     # La línea base del guardián de salidas (unidad 049) viaja PEGADA a los scripts que

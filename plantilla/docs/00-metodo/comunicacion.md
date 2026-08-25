@@ -16,6 +16,7 @@ fijas:
 | "un cambio pequeño que encaja donde ya está" | carril directo |
 | "una copia aparte del código para no tocar lo bueno" | worktree |
 | "una decisión que dejamos escrita" | ADR |
+| "la revisión de limpieza del proyecto" | sanidad |
 
 `cupo`, `meta-repo`, `NNN`, `frontmatter`, `linter`: o se dicen por lo que son, o no se dicen.
 Nombres de fichero y de script SÍ, con lo que hacen al lado — "he tocado papeles" no informa de

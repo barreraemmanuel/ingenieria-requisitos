@@ -89,6 +89,26 @@ Reglas de la entrevista:
   `plantillas/plano-operativo.md` (`rol: observabilidad`). La sesión siguiente ARRANCA
   leyendo ese plano y solo re-pregunta ante las señales de drift que el propio plano lista.
 
+## SANIDAD (mide, repara papeles, nunca código)
+
+- **Qué hace:** pasa la revisión de limpieza del workspace con `scripts/sanidad.py`: mide los
+  once ejes (pendiente, deuda, papeles, rutas, docs en el código, código muerto, tests,
+  docstrings, drift, decisiones, dependencias), repara lo mecánico del meta-repo y convierte
+  lo del código en peticiones con evidencia. Receta: `runbooks/sanidad.md`; checklist:
+  `auditoria-sanidad.md`.
+- **Lee:** todo. **Escribe:** SOLO lo que `sanidad.py reparar` sabe hacer (lista cerrada:
+  archivar actas, reescribir rutas rotas con destino único, borrar generados), el libro
+  `05-trabajo/SANIDAD.md`, su informe (unidad `auditoria` documental `sanidad-AAAA-MM`), las
+  peticiones que captura y la sección «Sanidad» de `ESTADO.md`. Git del meta-repo con rutas
+  explícitas y mensaje `sanidad: …`.
+- **Nunca:** tocar `main/`, un worktree ni los planos; crear, despachar o cerrar unidades de
+  código; decidir qué hallazgo se acepta (eso es del usuario, en el visor de contratos);
+  presentar un eje no comprobado como correcto.
+- **Cadencia:** cada 5 cierres o 14 días (`sanidad.py atraso` lo cuenta y el arranque lo
+  avisa), y siempre antes de publicar una versión del método.
+- **Arranque:** `sanidad.py medir` es lo primero; sin libro, la primera pasada solo mide y
+  anota (no hay contra qué comparar).
+
 ## DEPLOY (el único con manos en producción)
 
 - **Qué hace:** ejecuta la puesta en marcha y las subidas de etapa (local → LAN → VPS) y los

@@ -156,7 +156,9 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
   `ADR-NNN` señala siempre, sin ambigüedad, a esta carpeta.
 - `requisitos/` — el kit heredado de la herramienta de ingeniería de requisitos: runbook,
   visor web y scripts para mantener vivos los `planos.json` de `02-flujos/` (ADR-007).
-- `auditoria-metodo.md`, `auditoria-calidad.md`, `auditoria-seguridad.md`,
+- `detectores.md` — **qué mira cada guardián y qué NO ve**: la tabla que impide confundir
+  «el linter está verde» con «esto está bien». Todo `lint_*.py` tiene su fila.
+- `auditoria-metodo.md`, `auditoria-calidad.md`, `auditoria-sanidad.md`, `auditoria-seguridad.md`,
   `seguridad-por-stack.md`, `sandbox.md` y `scripts/lint_deploy.py` — seguridad, aislamiento y
   gate de pre-despliegue.
 - `scripts/ejecucion.py` — **control plane obligatorio** de constructores delegados y revisores:
@@ -206,6 +208,15 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
   con cambios sin guardar, rama que dice estar terminada sin un solo commit) y **secretos
   horneables** (Dockerfile sin `.dockerignore` que excluya el `.env`). Se ejecuta al arrancar
   sesión del padre, al final de cada cierre, y en CI.
+- `scripts/sanidad.py` — **el guardián de sanidad** (ADR-031): `medir` da once ejes de salud
+  del workspace y del código —pendiente, deuda, papeles, rutas, docs en el código, código
+  muerto, tests, docstrings, drift, decisiones, dependencias— con veredicto, número y **con
+  qué midió**; lo que no pudo medir sale `NO_COMPROBADO`, jamás `OK`. `reparar` aplica una
+  lista CERRADA de arreglos de papeles del meta-repo (archivar actas, reescribir rutas rotas
+  con destino único, borrar generados) y no toca código, planos ni git; `capturar` convierte
+  lo del código en peticiones con evidencia; `atraso` cuenta cierres y días desde la última
+  pasada. El libro comparable vive en `05-trabajo/SANIDAD.md`. Rol: `roles.md` §SANIDAD;
+  receta: `runbooks/sanidad.md`; checklist eje a eje: `auditoria-sanidad.md`.
 - `scripts/lint_ci.py` — **el contrato del CI por stack** (ADR-018): acepta el repositorio
   todavía vacío y, en cuanto hay código, exige suite completa, lint, seguridad, workflows y
   Dependabot reales; Actions por SHA y cero `|| true`. Se ejecuta sobre el worktree antes del

@@ -25,6 +25,7 @@
 | El **revisor fresco** | El diff contra el contrato, con ojos que no construyeron | Lo que el contrato no pidió. Y no puede saber si un número del parte está inventado — para eso está `lint_cierre.py` |
 | El **OK del usuario sobre la app** | Que la cosa haga lo prometido, con datos reales suyos | Lo de al lado. Y valida **una** unidad: el 17-08 se firmaron quince entregas con la misma fecha, que es justo el agujero que cerró la 033 |
 | El **hook `pre-push`** | Que ningún commit llegue a la principal sin origen persistente | Una frase que nunca salió del chat. El repositorio no puede detectarla: por eso AGENTS.md exige capturar como primera escritura |
+| `sanidad.py` (entra con la 059) | Once ejes de salud del meta-repo y del código: papeles y actas, rutas rotas, docs que viven en el código, código muerto, cobertura y tests debilitados, docstrings, drift docs↔código, decisiones tecnológicas sin registro, dependencias sueltas o vulnerables, trabajo pendiente y deuda con edad | Si un papel vale aunque nadie lo cite; código llamado por reflexión; docstrings vacías de contenido; promesas que el código incumple sin cambiar de ruta; deuda que nadie escribió. Sin herramienta o sin red mide por aproximación y lo dice: la aproximación es peor, no falsa |
 | `caja_negra.py` | Los incidentes que alguien se acuerda de registrar | **Un agente atascado que no se declara atascado.** Registrar es manual y su análisis es posterior y semántico |
 
 ## Lo que ningún mecanismo de esta lista va a arreglar
@@ -35,6 +36,9 @@
   conducta, posición); lo que empeora por debajo de los tres es invisible.
 - **Windows.** Ni una comprobación de este workspace corre en Windows. Tres bugs P0 del frente
   de Windows están diagnosticados leyendo código, no ejecutándolo.
+- **Cualquier stack que no sea Python (o Node en lo que da `package.json`).** Los ejes
+  de código de `sanidad.py` salen `NO_COMPROBADO` con el motivo «stack sin detector»: eso
+  es una fila futura de esta tabla, no un aprobado.
 - **Que el trabajo sea el correcto.** Todos estos guardianes comprueban que lo hecho esté bien
   hecho. Ninguno comprueba que fuera lo que había que hacer: eso lo decide el mapa, y el mapa
   lo aprueba una persona.
