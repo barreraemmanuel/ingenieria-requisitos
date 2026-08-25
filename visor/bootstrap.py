@@ -778,6 +778,19 @@ def proteger_main(owner, nombre):
     return None
 
 
+def opciones_git_clone():
+    """Opciones para el PROPIO `git clone`: en Windows, `core.longpaths` desde el primer byte.
+
+    Bug 044 (ronda 2): `ajustar_rutas_largas()` configura el repo después de clonarlo,
+    pero es el clon el que materializa el árbol profundo dentro de `<workspace>/main/`;
+    con un `node_modules` corriente muere con «Filename too long» antes de que el ajuste
+    exista. `-c core.longpaths=true` se lo aplica al clon mismo. Fuera de Windows, nada.
+    """
+    if sys.platform != "win32":
+        return []
+    return ["-c", "core.longpaths=true"]
+
+
 def ajustar_rutas_largas(repo):
     """En Windows, deja que git pase del límite de 260 caracteres de MAX_PATH.
 
@@ -825,7 +838,7 @@ def montar_git(destino, nombre_codigo, titulo, remoto_codigo, remoto_meta):
     # --- El repo de código, en main/ ---
     main_dir = destino / "main"
     if remoto_codigo and not remoto_esta_vacio(remoto_codigo):
-        rc, out = git(destino, "clone", remoto_codigo, "main")   # su rama por defecto, no `main`
+        rc, out = git(destino, *opciones_git_clone(), "clone", remoto_codigo, "main")   # su rama por defecto, no `main`
         if rc != 0:
             morir(f"no pude clonar el repo de código ({remoto_codigo}):\n{out}")
         ajustar_rutas_largas(main_dir)

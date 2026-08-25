@@ -27,6 +27,19 @@ if str(SCRIPTS_METODO) not in sys.path:
 import repo_config
 
 
+def opciones_git_clone():
+    """Opciones para el PROPIO `git clone`: en Windows, `core.longpaths` desde el primer byte.
+
+    Bug 044 (ronda 2): `ajustar_rutas_largas()` configura el repo después de clonarlo,
+    pero es el clon el que materializa el árbol profundo dentro de `<workspace>/main/`;
+    con un `node_modules` corriente muere con «Filename too long» antes de que el ajuste
+    exista. `-c core.longpaths=true` se lo aplica al clon mismo. Fuera de Windows, nada.
+    """
+    if sys.platform != "win32":
+        return []
+    return ["-c", "core.longpaths=true"]
+
+
 def ejecutar(*comando, cwd=RAIZ):
     # stdin va CERRADO y git tiene prohibido preguntar por terminal: un remoto que pide
     # credenciales o un host SSH sin verificar se convertía aquí en una espera muda con el
@@ -130,7 +143,7 @@ def main():
         morir(f"{codigo} existe, pero no es un repositorio Git")
     elif remoto:
         print(f"[3/5] clonando el repo de código en {ruta_local}…")
-        clonado = ejecutar("git", "clone", "--branch", rama, remoto, codigo)
+        clonado = ejecutar("git", *opciones_git_clone(), "clone", "--branch", rama, remoto, codigo)
         if clonado.returncode:
             morir(f"no pude clonar {remoto}:\n{clonado.stdout.strip()}")
     else:
