@@ -4,6 +4,41 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.8.0 — 2026-08-25
+
+**Veintitrés trabajos fusionados desde la 1.7.7 y ninguno subió el número.** Otra vez lo mismo:
+el aviso de arranque compara solo `VERSION`, así que callaba y los workspaces seguían creyéndose
+al día. Salta a 1.8.0, y no a 1.7.8, porque el PR #54 sigue reservando 1.7.4-1.7.6 y porque
+esto no es un parche: entran roles, guardianes y scripts nuevos.
+
+- **El agente te llama cuando te necesita.** Pedir un OK abre la web sola, sin depender de que
+  el agente se acuerde (057), y suena un aviso en cualquier PC que use el método (063).
+- **El canario deja de estar ciego.** Mide por ventana real, distingue conducta de capacidad y
+  se engancha al hook Stop (062); ve también las escrituras hechas por la terminal —`sed`,
+  heredocs, `git`, `tee`, `python`— y no inventa «turnos secos» si no hay comando en el jsonl
+  (075).
+- **Guardianes nuevos.** `lint_juntas.py` vigila lo que se rompe entre dos piezas que por
+  separado están bien, en los dos sentidos (050). `lint_salidas.py`: un bloqueo que no dice
+  cómo salir es un defecto, y la lista no puede crecer (049). El parte de cierre tiene que
+  cuadrar con algo que se pueda volver a mirar (045) y el test portante tiene que morder, y se
+  demuestra (046). `mapa de detectores`: qué mira y qué NO puede ver cada guardián (047).
+- **SANIDAD: un rol y un guardián.** `sanidad.py` mide el workspace, lleva libro y dispara
+  la ola de reparaciones; doctrina en ADR-031 (059).
+- **Despliegue de serie sin GitHub Actions.** VPS con Docker, Cloudflare delante, Bugsink
+  detrás y la BD copiada a Drive, todo por script local; ADR-032 (060). La ficha de despliegue
+  de una unidad archivada vuelve a ser un proceso deploy válido (038).
+- **El modelo sale del carril, no de la memoria del agente** (tabla carril×rol en
+  `repo_config`), el revisor ya no necesita worktree y la ficha no se queda en 0444 (065).
+- **El cierre mide desde la base de hoy y no fusiona sin guardianes** (066). El linter deja
+  de imponer un tope numérico de unidades en vuelo: solo bloquea compartir ficheros; ADR-027
+  (061). `coste.py` dice en qué se va el cupo (048).
+- **Visores.** El visor de contratos tiene ejecutor, sigue a `u.origen` y avisa de refrescar
+  `aprobado:` en la puerta R3 (054). La huella del linter salta las actividades sin planos,
+  igual que `peticion.py` (053).
+- **Windows, lo que faltaba tras la 1.7.7:** el entorno del agente delegado conserva las
+  variables de Windows (037) y los gates corren con el `bash` de Git for Windows y la ruta en
+  formato POSIX, con `which` sin `cwd` para el `git` (039).
+
 ## 1.7.7 — 2026-08-24
 
 **Seis trabajos que llevaban días hechos y sin repartir.** Desde la 1.7.3 entraron al método
