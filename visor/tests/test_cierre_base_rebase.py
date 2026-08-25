@@ -213,7 +213,7 @@ class ComandoPrefusionTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory(prefix="cmd-prefusion-")
         self.addCleanup(self.tmp.cleanup)
-        self.raiz = Path(self.tmp.name)
+        self.raiz = Path(self.tmp.name).resolve()  # macOS: /var → /private/var
         (self.raiz / "worktrees").mkdir()
         (self.raiz / "docs/bugs").mkdir(parents=True)
         (self.raiz / "docs/bugs" / f"{self.RAMA}.md").write_text(
