@@ -11,7 +11,9 @@ Un test por criterio del contrato, al nivel que declara §Verificación:
   en vuelo chocan y en qué ficheros (unitario: el mismo cruce que `despachar`).
 - R4 — «Historial»: entregas cerradas por fecha de OK y commits de `main` del día.
 - R5 — «Documentación»: árbol de `docs/`, `.md` servido y `render.js` COMPARTIDO
-  con el visor de contratos (el mismo fichero, no una copia).
+  con el visor de contratos (el mismo fichero, no una copia). Desde el bug 067 la
+  PÁGINA ya no pinta esa sección (la duplicaba); el dato y la ruta `/doc/` siguen,
+  intactos, porque `estado.py` no se toca.
 - R6 — cabecera: versión, commits sin empujar, canario y servidores; una fuente
   que no se puede leer se dice, nunca sale como cero.
 - R7 — estilos idénticos a los del visor de contratos, línea a línea (unitario).
@@ -865,11 +867,17 @@ class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
         self.assertIn("/estado.json", self.tablero)
         self.assertIn("5000", self.tablero)
 
-    def test_tiene_las_cuatro_secciones_por_hash(self):
-        for hash_ in ("#ahora", "#te-toca", "#por-hacer", "#historial",
-                      "#documentacion"):
+    def test_tiene_las_tres_secciones_por_hash(self):
+        """Bug 067: quedan TRES. «Historial» y «Documentación» duplicaban el
+        visor de contratos y la web de presentaciones, y se fueron con el
+        contrato del 067 (R1); `estado.py` las sigue calculando."""
+        for hash_ in ("#ahora", "#te-toca", "#por-hacer"):
             with self.subTest(hash=hash_):
-                self.assertIn(hash_, self.tablero)
+                self.assertTrue(hash_ in self.tablero, "falta la sección " + hash_)
+        for hash_ in ("#historial", "#documentacion"):
+            with self.subTest(hash=hash_):
+                self.assertFalse(hash_ in self.tablero,
+                                 "el tablero vuelve a duplicar " + hash_)
 
 
 # --------------------------------------------------------------------------- R8

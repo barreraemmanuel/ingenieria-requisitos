@@ -6,11 +6,12 @@
 <link rel="icon" href="data:,">
 <title>Tablero de control · ingeniería de requisitos</title>
 <style>
-  /* PLANTILLA FIJA del TABLERO DE CONTROL. Sólo lee. La paleta, la cabecera,
-     el menú lateral y el interruptor de tema se copian LITERALES de
-     visor_contratos/plantilla.html (unidad 056) y un test los compara línea a
-     línea: si cambias uno, cambia el otro. Lo de abajo del todo es lo propio
-     del tablero, que allí no existe. */
+  /* PLANTILLA FIJA del TABLERO DE CONTROL. Sólo lee. El bloque de estilos
+     COMÚN de abajo (paleta, cabecera, barra de las cuatro webs, menú lateral,
+     panel, plegables e interruptor de tema) se copia LITERAL de
+     visor_contratos/plantilla.html y visor_presentaciones/plantilla.html (la
+     056), y un test lo compara línea a línea: si cambias uno, cambia los tres.
+     Debajo va lo propio del tablero, que en aquéllas no existe. */
   /* ---------- paleta (misma que manual-ingenieria-requisitos.html) ----------
      Claro por defecto, oscuro automático según el sistema, y data-theme para forzarlo.
      Los papeles semánticos se conservan para daltonismo: persona = cálido (warn),
@@ -73,6 +74,16 @@
   h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }
   .sub { color: var(--muted); font-size: 13.5px; }
 
+  /* ---------- barra común de las cuatro webs (bug 067) ----------
+     El mismo bloque en el tablero, el visor de contratos y presentaciones: una
+     web, una función, y desde cualquiera se llega a las otras tres. La actual
+     va marcada con `.actual` + aria-current. */
+  .barra-webs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+  .barra-webs a { font: bold 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--sheet); }
+  .barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
+  .barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
+  .barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
   .aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 2px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: 13.5px; box-shadow: 0 4px 16px rgba(11, 11, 11, .18); }
   .aviso-flotante.visible { display: block; }
 
@@ -93,6 +104,18 @@
   .chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
 
   .panel { flex: 1 1 auto; min-width: 0; }
+  .panel .vacio { border: 1px dashed var(--line); border-radius: 10px; padding: 24px; color: var(--muted); font-size: 14px; background: var(--sheet); }
+  .cabecera-contrato { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; background: var(--sheet); padding: 14px 18px; }
+  .cabecera-contrato h2 { font-size: 20px; line-height: 1.25; }
+  .cabecera-contrato .ruta { font-size: 12px; color: var(--faint); margin-top: 4px; word-break: break-all; }
+
+  .bluf { margin-top: 18px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; background: var(--sheet); padding: 14px 18px; }
+  .bluf > h3 { font-size: 17px; margin-bottom: 6px; }
+  .bluf + .bluf { margin-top: 14px; }
+  .plegable { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 10px 18px; }
+  .plegable > summary { cursor: pointer; font-weight: bold; font-size: 14.5px; color: var(--muted); }
+  .plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
+  .plegable[open] > summary { margin-bottom: 8px; }
 
   .md { font-size: 15px; max-width: 78ch; }
   .md h4 { font-size: 15px; margin: 14px 0 4px; }
@@ -112,15 +135,19 @@
   .md th { background: var(--line-soft); }
   .md a { color: var(--accent); }
 
+  @media (max-width: 860px) {
+    .cuerpo { display: block; }
+    .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: 20px; }
+  }
   /* ---------- lo propio del tablero ----------
-     Cuatro secciones y una rejilla de tarjetas. Nada de esto existe en el visor
-     de contratos: allí se lee UN documento, aquí se mira un workspace entero. */
+     Tres secciones y una rejilla de tarjetas. Nada de esto existe en el visor
+     de contratos: allí se lee UN documento, aquí se mira un workspace entero.
+     Ni una regla de aquí pisa las del bloque común: sólo añade. */
   .menu-unidades a { display: block; font: 13.5px var(--sans); color: var(--ink); text-decoration: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
   .menu-unidades a:hover { border-color: var(--line); background: var(--panel); }
   .menu-unidades a.activa { background: var(--accent-bg); border-color: var(--accent); font-weight: bold; }
-  .menu-unidades .arbol { margin-top: 12px; border-top: 1px solid var(--line-soft); padding-top: 10px; }
-  .menu-unidades .arbol a { font-size: 12.5px; padding: 4px 8px; color: var(--muted); }
-  .menu-unidades .arbol .grupo { font-size: 10.5px; font-weight: bold; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); margin: 8px 2px 2px; }
+  .menu-unidades .recuento { float: right; font-weight: normal; font-size: 12px; color: var(--faint); }
+  .menu-unidades a.activa .recuento { color: var(--accent); }
 
   .tira { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
   .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 8px 12px; }
@@ -155,7 +182,11 @@
   .barra span { display: block; height: 100%; background: var(--accent); }
   .dia { font-size: 12px; font-weight: bold; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 14px 0 2px; }
 
-  /* ---------- avatares (R1) ----------
+  /* R2 del bug 067: el enlace no se apaga ni desaparece — al lado se DICE que
+     esa web no está levantada. Un enlace muerto miente; esto no. */
+  .apagada { margin-left: 8px; font-size: 12px; font-weight: bold; color: var(--warn); white-space: nowrap; }
+
+  /* ---------- avatares ----------
      SVG en línea, sin un solo recurso externo: tres siluetas, una por rol, que
      RESPIRAN mientras el agente vive y se quedan quietas en cuanto termina. Es
      la señal de un vistazo que pidió el usuario, y es honesta: sólo se anima
@@ -176,11 +207,6 @@
   @keyframes parpadeo { 0%, 92%, 100% { opacity: 1; } 95% { opacity: .1; } }
   @media (prefers-reduced-motion: reduce) {
     .avatar.vivo, .avatar.vivo .util, .avatar.vivo .ojo { animation: none; }
-  }
-
-  @media (max-width: 860px) {
-    .cuerpo { display: block; }
-    .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: 20px; }
   }
 </style>
 </head>
@@ -225,6 +251,12 @@
   <div class="pagina">
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
+      <nav class="barra-webs" aria-label="Las cuatro webs del método">
+        <a href="http://127.0.0.1:8768/" data-web="tablero" class="actual" aria-current="page">Tablero</a>
+        <a href="http://127.0.0.1:8766/" data-web="contratos">Contratos</a>
+        <a href="http://127.0.0.1:9043/" data-web="presentaciones">Presentaciones</a>
+        <a href="http://127.0.0.1:8765/" data-web="flujos">Flujos</a>
+      </nav>
       <div class="marca">ingeniería de requisitos · tablero de control</div>
       <h1>Qué hay en curso</h1>
       <div class="sub" id="sub">Cargando…</div>
@@ -238,16 +270,10 @@
       <aside class="menu-unidades" id="menu" aria-label="Secciones del tablero">
         <div class="titulo-menu">Tablero</div>
         <nav id="secciones">
-          <a href="#ahora" data-seccion="ahora">Ahora</a>
-          <a href="#te-toca" data-seccion="te-toca">Te toca a ti</a>
-          <a href="#por-hacer" data-seccion="por-hacer">Por hacer</a>
-          <a href="#historial" data-seccion="historial">Historial</a>
-          <a href="#documentacion" data-seccion="documentacion">Documentación</a>
+          <a href="#ahora" data-seccion="ahora">Ahora<span class="recuento" data-recuento="ahora">·</span></a>
+          <a href="#te-toca" data-seccion="te-toca">Te toca a ti<span class="recuento" data-recuento="te-toca">·</span></a>
+          <a href="#por-hacer" data-seccion="por-hacer">Por hacer<span class="recuento" data-recuento="por-hacer">·</span></a>
         </nav>
-        <div class="arbol" id="arbol">
-          <div class="titulo-menu">Documentación</div>
-          <div class="vacio-corto">Cargando…</div>
-        </div>
       </aside>
 
       <main class="panel" id="panel">
@@ -263,20 +289,32 @@
 
   /* El tablero SÓLO mira: no hay un fetch con método distinto de GET en toda la
      página, y el servidor responde 405 a cualquier POST. Aprobar, decidir y
-     cerrar se hacen en las otras tres webs, que son las que escriben. */
+     cerrar se hacen en las otras tres webs, que son las que escriben.
 
-  var SONDEO = 5000;                 // R6: la cabecera se refresca sola cada 5 s
-  var SECCIONES = ["ahora", "te-toca", "por-hacer", "historial", "documentacion"];
-  var ROLES = ["constructor", "revisor", "padre"];
+     Y desde el bug 067 tampoco las COPIA: aquí quedan tres secciones —qué está
+     pasando ahora y qué te toca a ti— y cada línea lleva a la web donde eso se
+     hace de verdad. Leer contratos ya cerrados, entregas y documentación vive
+     en el visor de contratos y en presentaciones; `/estado.json` sigue
+     trayendo `historial` y `documentacion` (estado.py no se toca), pero esta
+     página ya no los pinta. */
+
+  var SONDEO = 5000;                 // la cabecera se refresca sola cada 5 s
+  var SECCIONES = ["ahora", "te-toca", "por-hacer"];
+
+  /* R2 (bug 067): las otras webs del método, con su puerto por defecto y el
+     nombre con el que cada una se anuncia en `cabecera.servidores`. */
+  var WEBS = {
+    contratos: {servicio: "visor de contratos", puerto: 8766},
+    presentaciones: {servicio: "visor de presentaciones", puerto: 9043},
+    flujos: {servicio: "visor de flujos", puerto: 8765}
+  };
 
   var panel = document.getElementById("panel");
   var cabecera = document.getElementById("cabecera");
-  var arbol = document.getElementById("arbol");
   var banner = document.getElementById("banner");
   var sub = document.getElementById("sub");
   var foto = null;
   var actual = "ahora";
-  var documento = null;              // {ruta, texto} cuando se está leyendo un .md
 
   /* esc/enLinea/bloques (el motor de bloques markdown) viven en render.js,
      compartido con el visor de contratos y el de presentaciones: lo carga un
@@ -319,9 +357,9 @@
       util + "</svg></div>";
   }
 
-  /* G-2302, y el R6 del contrato: una fuente que no se pudo leer se DICE. Un
-     cero silencioso donde no se pudo mirar es la única mentira que este tablero
-     no se puede permitir, porque es la que parece un tablero en verde. */
+  /* G-2302: una fuente que no se pudo leer se DICE. Un cero silencioso donde no
+     se pudo mirar es la única mentira que este tablero no se puede permitir,
+     porque es la que parece un tablero en verde. */
   function fuenteRota(bloque) {
     if (!bloque || bloque.estado === "ok") return "";
     var motivo = bloque.detalle || (bloque.estado === "ausente"
@@ -334,6 +372,52 @@
     return '<div class="dato' + (roto ? " roto" : "") + '"><div class="etiqueta">' +
       esc(etiqueta) + '</div><div class="valor">' + valor + "</div></div>";
   }
+
+  /* ---------- R2: cada cosa, a la web donde se hace ----------
+     `cabecera.servidores` ya dice qué webs están levantadas y en qué puerto.
+     Con eso: el enlace apunta al puerto REAL si la web está viva, y si no lo
+     está se avisa al lado. Si NO se pudieron mirar los puertos (`estado` que
+     no es "ok"), no se declara nada apagado: no saber no es saber que no. */
+
+  function webDe(f, cual) {
+    var quien = WEBS[cual];
+    var servidores = f && f.cabecera ? f.cabecera.servidores : null;
+    if (!servidores || servidores.estado !== "ok") {
+      return {base: "http://127.0.0.1:" + quien.puerto, viva: null};
+    }
+    for (var i = 0; i < servidores.lista.length; i++) {
+      if (servidores.lista[i].servicio === quien.servicio) {
+        return {base: "http://127.0.0.1:" +
+                      (servidores.lista[i].puerto || quien.puerto), viva: true};
+      }
+    }
+    return {base: "http://127.0.0.1:" + quien.puerto, viva: false};
+  }
+
+  function enlaceA(f, cual, ruta, texto) {
+    var web = webDe(f, cual);
+    var html = '<a href="' + esc(web.base + ruta) + '" data-web="' + esc(cual) +
+      '">' + esc(texto) + "</a>";
+    if (web.viva === false) {
+      html += '<span class="apagada">web apagada · pídele a tu IA que la abra</span>';
+    }
+    return html;
+  }
+
+  function aContrato(f, unidad, texto) {
+    return enlaceA(f, "contratos", "/contrato/" + encodeURIComponent(unidad) + ".md",
+                   texto || unidad);
+  }
+
+  function lista(items, pintarUno, vacio) {
+    if (!items.length) return '<div class="vacio-corto">' + vacio + "</div>";
+    return '<ul class="lista-plana">' + items.map(function (fila) {
+      return "<li><span>" + pintarUno(fila) + '</span><span class="espera">' +
+        esc(dias(fila.dias)) + "</span></li>";
+    }).join("") + "</ul>";
+  }
+
+  /* ---------- cabecera ---------- */
 
   function pintarCabecera(c) {
     var html = "";
@@ -369,7 +453,19 @@
     cabecera.innerHTML = html;
   }
 
-  function pintarAhora(d) {
+  /* ---------- las tres secciones ---------- */
+
+  function tarjetaQuieta(a) {
+    return '<div class="tarjeta quieta"><div class="con-avatar">' +
+      avatar(a.avatar, false) + "<div><h3>" + esc(a.unidad) + "</h3>" +
+      '<div class="linea">' + esc(a.rol) + " · " +
+      esc(a.resultado || "sin resultado en el recibo") + "</div>" +
+      '<div class="linea">' + esc(duracion(a.minutos)) + "</div>" +
+      "</div></div></div>";
+  }
+
+  function pintarAhora(f) {
+    var d = f.ahora;
     var html = '<h2 class="seccion">Ahora</h2>' +
       '<div class="seccion-nota">Agentes con recibo abierto y cerrojo vivo. ' +
       'Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
@@ -393,50 +489,42 @@
           "</div></div></div>";
       }).join("") + "</div>";
     }
-    html += '<div class="dia">Han terminado hoy</div>';
+    /* R5: en «Ahora» sólo hay vida. Los que ya terminaron hoy siguen contados,
+       pero plegados: se abren si te interesan, no gritan si no. */
+    html += '<details class="plegable"><summary>Han terminado hoy · ' +
+      d.terminados_hoy.length + "</summary>";
     html += d.terminados_hoy.length
-      ? '<div class="tarjetas">' + d.terminados_hoy.map(function (a) {
-          return '<div class="tarjeta quieta"><div class="con-avatar">' +
-            avatar(a.avatar, false) + "<div><h3>" + esc(a.unidad) + "</h3>" +
-            '<div class="linea">' + esc(a.rol) + " · " +
-            esc(a.resultado || "sin resultado en el recibo") + "</div>" +
-            '<div class="linea">' + esc(duracion(a.minutos)) + "</div>" +
-            "</div></div></div>";
-        }).join("") + "</div>"
+      ? '<div class="tarjetas">' + d.terminados_hoy.map(tarjetaQuieta).join("") + "</div>"
       : '<div class="vacio-corto">Hoy no ha terminado ningún agente.</div>';
-    return html;
+    return html + "</details>";
   }
 
-  function filas(lista, campo, vacio) {
-    if (!lista.length) return '<div class="vacio-corto">' + vacio + "</div>";
-    return '<ul class="lista-plana">' + lista.map(function (f) {
-      var texto = esc(f[campo] || "");
-      var cuerpo = f.enlace
-        ? '<a href="' + esc(f.enlace) + '">' + texto + "</a>"
-        : texto;
-      return "<li><span>" + cuerpo + "</span><span class=\"espera\">" +
-        esc(dias(f.dias)) + "</span></li>";
-    }).join("") + "</ul>";
-  }
-
-  function pintarTeToca(d) {
+  function pintarTeToca(f) {
+    var d = f.te_toca;
     return '<h2 class="seccion">Te toca a ti</h2>' +
       '<div class="seccion-nota">Lo que está parado esperando una decisión ' +
-      'tuya. Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d) +
+      'tuya. Cada línea lleva a la web donde se decide. Leído ' +
+      esc(fecha(d.leido)) + ".</div>" + fuenteRota(d) +
       '<div class="dia">Contratos por aprobar</div>' +
-      filas(d.contratos, "unidad", "Ningún contrato espera tu OK.") +
+      lista(d.contratos, function (c) { return aContrato(f, c.unidad, c.unidad); },
+            "Ningún contrato espera tu OK.") +
       '<div class="dia">Entregas por validar</div>' +
-      filas(d.en_validacion, "unidad", "Nada pendiente de validar.") +
+      lista(d.en_validacion, function (v) {
+        return enlaceA(f, "presentaciones", "/", v.unidad);
+      }, "Nada pendiente de validar.") +
       '<div class="dia">Peticiones sin encaminar</div>' +
       '<div class="seccion-nota">Todavía no hay una web donde decidirlas: se ' +
       'evalúan hablando con el agente.</div>' +
-      filas(d.peticiones, "resumen", "Ninguna petición capturada sin evaluar.");
+      lista(d.peticiones, function (p) { return esc(p.resumen || ""); },
+            "Ninguna petición capturada sin evaluar.");
   }
 
-  function pintarPorHacer(d) {
+  function pintarPorHacer(f) {
+    var d = f.por_hacer;
     var html = '<h2 class="seccion">Por hacer</h2>' +
-      '<div class="seccion-nota">Leído ' + esc(fecha(d.leido)) + ".</div>" +
-      fuenteRota(d);
+      '<div class="seccion-nota">Cada unidad abre su contrato en el visor de ' +
+      'contratos, y su flujo en el visor de flujos. Leído ' +
+      esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
     html += d.unidades.length
       ? '<div class="tarjetas">' + d.unidades.map(function (u) {
           var plan = u.plan
@@ -450,13 +538,17 @@
               u.bloqueo.ficheros.map(esc).join(", ") + " con " +
               u.bloqueo.con.map(esc).join(", ") + "</div>"
             : "";
+          var flujo = u.actividad
+            ? '<div class="linea">Flujo: ' +
+              enlaceA(f, "flujos", "/", u.actividad) + "</div>"
+            : "";
           return '<div class="tarjeta' + (u.bloqueo ? " bloqueada" : "") +
-            '"><h3><a href="' + esc(u.enlace) + '">' + esc(u.unidad) + "</a></h3>" +
+            '"><h3>' + aContrato(f, u.carpeta, u.unidad) + "</h3>" +
             '<div class="linea">' + esc(u.fase) + " · " + esc(u.tipo) +
             (u.pendiente_de_aprobar
               ? ' <span class="chip chip-pendiente">sin aprobar</span>'
               : ' <span class="chip chip-aprobado">aprobado</span>') + "</div>" +
-            plan + bloqueo + "</div>";
+            plan + bloqueo + flujo + "</div>";
         }).join("") + "</div>"
       : '<div class="vacio-corto">No queda ninguna unidad abierta.</div>';
     var estados = Object.keys(d.peticiones || {}).sort();
@@ -465,111 +557,47 @@
       ? estados.map(function (e) {
           return '<div class="linea"><strong>' + esc(e) + "</strong> · " +
             d.peticiones[e].length + "</div>" +
-            filas(d.peticiones[e], "resumen", "");
+            lista(d.peticiones[e], function (p) { return esc(p.resumen || ""); }, "");
         }).join("")
       : '<div class="vacio-corto">Ninguna petición abierta.</div>';
     return html;
   }
 
-  function pintarHistorial(d) {
-    var html = '<h2 class="seccion">Historial</h2>' +
-      '<div class="seccion-nota">Entregas cerradas, de la más reciente a la ' +
-      'más vieja. Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
-    var dia = null;
-    html += d.entregas.length
-      ? '<ul class="lista-plana">' + d.entregas.map(function (e) {
-          var cabeza = "";
-          if (e.fecha !== dia) { dia = e.fecha; cabeza = '<div class="dia">' +
-            esc(e.fecha || "sin fecha") + "</div>"; }
-          return cabeza + '<li><span><a href="' + esc(e.enlace) + '">' +
-            esc(e.titulo) + '</a></span><span class="espera">' +
-            esc(e.origen) + "</span></li>";
-        }).join("") + "</ul>"
-      : '<div class="vacio-corto">Todavía no hay nada cerrado.</div>';
-    html += '<div class="dia">Commits de main hoy</div>';
-    if (d.commits.estado !== "ok") {
-      html += fuenteRota(d.commits);
-    } else if (!d.commits.lista.length) {
-      html += '<div class="vacio-corto">Hoy no se ha fusionado nada en main.</div>';
-    } else {
-      html += '<ul class="lista-plana">' + d.commits.lista.map(function (c) {
-        return "<li><span>" + esc(c.titulo) + '</span><span class="espera">' +
-          esc(c.sha) + "</span></li>";
-      }).join("") + "</ul>";
-    }
-    return html;
-  }
+  /* ---------- menú, rutas por hash y sondeo ---------- */
 
-  function pintarDocumentacion(d) {
-    if (documento) {
-      return '<h2 class="seccion">' + esc(documento.ruta) + "</h2>" +
-        '<div class="md">' + bloques(documento.texto.split("\n")) + "</div>";
-    }
-    return '<h2 class="seccion">Documentación</h2>' +
-      '<div class="seccion-nota">Elige un documento del menú. La portada es ' +
-      esc(d.portada || "—") + ".</div>" + fuenteRota(d) +
-      '<div class="vacio-corto">' + d.ficheros.length + " documentos en docs/.</div>";
-  }
-
-  function pintarArbol(d) {
-    if (d.estado !== "ok") { arbol.innerHTML = fuenteRota(d); return; }
-    var grupos = {};
-    d.ficheros.forEach(function (ruta) {
-      var trozos = ruta.split("/");
-      var grupo = trozos.length > 2 ? trozos[1] : "docs";
-      (grupos[grupo] = grupos[grupo] || []).push(ruta);
+  function pintarRecuentos(f) {
+    var cuentas = {
+      "ahora": f.ahora.vivos.length,
+      "te-toca": f.te_toca.contratos.length + f.te_toca.en_validacion.length +
+                 f.te_toca.peticiones.length,
+      "por-hacer": f.por_hacer.unidades.length
+    };
+    document.querySelectorAll("#secciones .recuento").forEach(function (marca) {
+      var cuenta = cuentas[marca.dataset.recuento];
+      marca.textContent = cuenta === undefined ? "·" : String(cuenta);
     });
-    var html = '<div class="titulo-menu">Documentación</div>';
-    if (d.portada) {
-      html += '<a href="#documentacion/' + esc(d.portada) + '">Portada · ESTADO</a>';
-    }
-    Object.keys(grupos).sort().forEach(function (grupo) {
-      html += '<div class="grupo">' + esc(grupo) + "</div>";
-      html += grupos[grupo].map(function (ruta) {
-        var nombre = ruta.split("/").pop().replace(/\.md$/, "");
-        return '<a href="#documentacion/' + esc(ruta) + '">' + esc(nombre) + "</a>";
-      }).join("");
-    });
-    arbol.innerHTML = html;
   }
 
   function pintar() {
     if (!foto) return;
     document.querySelectorAll("#secciones a").forEach(function (a) {
-      a.classList.toggle("activa", a.dataset.seccion === actual);
+      var suya = a.dataset.seccion === actual;
+      a.classList.toggle("activa", suya);
+      if (suya) a.setAttribute("aria-current", "page");
+      else a.removeAttribute("aria-current");
     });
-    if (actual === "ahora") panel.innerHTML = pintarAhora(foto.ahora);
-    else if (actual === "te-toca") panel.innerHTML = pintarTeToca(foto.te_toca);
-    else if (actual === "por-hacer") panel.innerHTML = pintarPorHacer(foto.por_hacer);
-    else if (actual === "historial") panel.innerHTML = pintarHistorial(foto.historial);
-    else panel.innerHTML = pintarDocumentacion(foto.documentacion);
+    if (actual === "ahora") panel.innerHTML = pintarAhora(foto);
+    else if (actual === "te-toca") panel.innerHTML = pintarTeToca(foto);
+    else panel.innerHTML = pintarPorHacer(foto);
   }
 
-  function abrirDocumento(ruta) {
-    fetch("/doc/" + ruta, {cache: "no-store"}).then(function (r) {
-      if (!r.ok) throw new Error(r.status === 403
-        ? "ese documento está fuera del meta-repo" : "no existe ese documento");
-      return r.text();
-    }).then(function (texto) {
-      documento = {ruta: ruta, texto: texto};
-      pintar();
-    }).catch(function (e) {
-      documento = {ruta: ruta, texto: "# No se pudo abrir\n\n" + e.message};
-      pintar();
-    });
-  }
-
+  /* Rutas por hash, como el visor de flujos y el de presentaciones: el menú son
+     enlaces `#seccion` de verdad, así que el botón atrás del navegador
+     devuelve a la sección anterior sin recargar nada. */
   function irAlHash() {
-    var crudo = (location.hash || "#ahora").slice(1);
-    var corte = crudo.indexOf("/");
-    var seccion = corte === -1 ? crudo : crudo.slice(0, corte);
+    var seccion = (location.hash || "#ahora").slice(1);
     if (SECCIONES.indexOf(seccion) === -1) seccion = "ahora";
     actual = seccion;
-    if (seccion === "documentacion" && corte !== -1) {
-      abrirDocumento(crudo.slice(corte + 1));
-      return;
-    }
-    documento = null;
     pintar();
   }
 
@@ -579,13 +607,12 @@
     }).then(function (datos) {
       if (datos.error) throw new Error(datos.error);
       banner.classList.remove("visible");
-      var primera = foto === null;
       foto = datos;
       sub.textContent = "Leído " + fecha(datos.generado) + " · " +
         foto.ahora.vivos.length + " agente(s) trabajando ahora";
       pintarCabecera(datos.cabecera);
-      pintarArbol(datos.documentacion);
-      if (primera || !documento) pintar();
+      pintarRecuentos(datos);
+      pintar();
     }).catch(function () {
       banner.classList.add("visible");
     });
@@ -597,6 +624,12 @@
     sondear();
     setInterval(sondear, SONDEO);
   });
+
+  /* Banco de pruebas (bug 067): la suite llama a estas tres con una foto de
+     `/estado.json` y comprueba los enlaces sin abrir un navegador. La página no
+     las usa por aquí — pinta llamándolas directamente en `pintar()`. */
+  window.tablero = {pintarAhora: pintarAhora, pintarTeToca: pintarTeToca,
+                    pintarPorHacer: pintarPorHacer};
 })();
 </script>
 </body>

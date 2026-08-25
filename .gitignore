@@ -26,6 +26,7 @@
 !/visor/
 !/visor_contratos/
 !/visor_presentaciones/
+!/visor_tablero/
 
 # Y dentro de lo versionado, la basura de siempre.
 __pycache__/
