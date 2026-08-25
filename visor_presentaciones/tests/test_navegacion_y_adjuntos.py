@@ -24,6 +24,7 @@ import shutil
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -387,16 +388,24 @@ class AdjuntosFiltradosTest(unittest.TestCase):
         manifiesto = manifiesto_con_adjuntos()
         manifiesto["presentaciones"][2]["adjuntos"] = [
             "docs/despliegue.md", "main/grande.txt", "docs/notas.md",
+            "main/tira.txt",
         ]
         (self.datos / "manifiesto.json").write_text(
             json.dumps(manifiesto), encoding="utf-8")
         (self.workspace / "docs" / "despliegue.md").write_text(
             "# Despliegue\n\nLlamada de ejemplo:\n\n"
-            "    curl -H 'Authorization: Bearer x' https://api.local/v1\n",
+            "    curl -H 'Authorization: Bearer x' https://api.local/v1\n"
+            "\nDudas: soporte.tecnico@ejemplo.local\n"
+            "\n-----BEGIN RSA PRIVATE KEY-----\nMIIEowIB\n",
             encoding="utf-8",
         )
         (self.workspace / "main" / "grande.txt").write_text(
             "linea de relleno para pasar del tope\n" * 12000, encoding="utf-8")
+        # Un mega en UNA sola línea y sin ninguna `@`: el peor caso de la
+        # alternativa de correo de `SENSIBLE`. Es lo que tiene un SVG con una
+        # imagen embebida o un `.min.js` — ficheros que un alumno adjunta.
+        (self.workspace / "main" / "tira.txt").write_text(
+            "a" * (1024 * 1024) + "\n", encoding="utf-8")
         # `.private/` es la carpeta de evidencia sensible del método: aunque
         # `manifestar` ya rechaza declararla (empieza por punto), un enlace
         # dentro del workspace la alcanzaba igual.
@@ -415,6 +424,30 @@ class AdjuntosFiltradosTest(unittest.TestCase):
         self.assertNotRegex(cuerpo.decode("utf-8"), servir.manifestar.SENSIBLE)
         # El resto del adjunto sigue sirviendo: se tacha lo sensible, no todo.
         self.assertIn(b"# Despliegue", cuerpo)
+
+    def test_el_adjunto_tacha_correos_y_claves_privadas(self):
+        """R3: acotar la regex por coste no puede perder lo que tachaba."""
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/despliegue.md")
+        self.assertEqual(200, estado)
+        self.assertNotIn(b"soporte.tecnico@ejemplo.local", cuerpo)
+        self.assertNotIn(b"PRIVATE KEY", cuerpo)
+        self.assertNotRegex(cuerpo.decode("utf-8"), servir.manifestar.SENSIBLE)
+
+    def test_una_tira_larga_sin_arroba_no_cuelga_el_servidor(self):
+        """R3: el tope acota el COSTE, no sólo el tamaño de la respuesta.
+
+        Filtrar el fichero ENTERO antes de recortarlo dejaba correr la
+        alternativa de correo (cuadrática sobre tiras sin `@`) sobre el mega
+        completo: decenas de segundos con el servidor bloqueado, un adjunto
+        para tumbar la web. Se recorta primero y se filtra sólo el recorte.
+        """
+        arranque = time.monotonic()
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/main/tira.txt")
+        tardanza = time.monotonic() - arranque
+        self.assertEqual(200, estado)
+        self.assertLess(tardanza, 1.0, "un adjunto grande cuelga el servidor")
+        self.assertLessEqual(len(cuerpo), servir.TOPE_ADJUNTO + 2000)
+        self.assertIn("truncado", cuerpo.decode("utf-8").lower())
 
     def test_el_adjunto_enorme_se_trunca_con_aviso_visible(self):
         estado, _, cuerpo = self.servidor.pedir("/adjunto/main/grande.txt")

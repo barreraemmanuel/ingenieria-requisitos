@@ -6,6 +6,7 @@ import hashlib
 import http.server
 import json
 import os
+import re
 import socket
 import sys
 import threading
@@ -31,6 +32,20 @@ RENDER_JS_LAYOUTS = (BASE / "render.js", BASE.parent / "visor_contratos" / "rend
 # Por encima de este tope el adjunto se sirve truncado con un aviso: la 051 (R2) prometió
 # que la web nunca vuelca salida extensa.
 TOPE_ADJUNTO = 200 * 1024
+# Margen de lectura sobre el tope: se leen unos bytes de más para que el recorte caiga
+# dentro de un carácter multibyte sin inventarse el final, y NADA más. El fichero puede
+# tener megas; el servidor nunca los carga.
+MARGEN_ADJUNTO = 4 * 1024
+# La MISMA frontera que `manifestar.SENSIBLE`, con las tiras acotadas. La alternativa de
+# correo del manifiesto (`[\w.+-]+@...`) es cuadrática sobre cualquier tira larga sin `@`
+# (una línea base64 de un SVG embebido, un `.min.js`): 20 KB tardaban 0,9 s y 200 KB
+# decenas de segundos, así que un solo adjunto colgaba el servidor. Un campo del
+# manifiesto son 2000 caracteres y ahí no se nota; un adjunto es un fichero de disco.
+# El límite de 64 es el del local-part en RFC 5321: no se pierde ningún correo real.
+SENSIBLE_ADJUNTO = re.compile(
+    r"PRIVATE KEY|Authorization\s*:\s*Bearer|[\w.+-]{1,64}@[\w.-]{1,255}\.[A-Za-z]{2,24}",
+    re.I,
+)
 # Extensión → content-type; el resto de código llega como texto plano y la
 # página decide con la extensión si pinta markdown o código con números de línea.
 CONTENT_TYPE_ADJUNTO = {".md": "text/markdown; charset=utf-8"}
@@ -120,20 +135,25 @@ def _ruta_de_adjunto(workspace, ruta):
     return resuelta
 
 
-def filtrar_adjunto(texto):
-    """El cuerpo que se sirve: lo sensible tachado y un tope con aviso visible.
+def filtrar_adjunto(texto, total=None):
+    """El cuerpo que se sirve: recortado al tope PRIMERO y luego tachado.
 
     Misma frontera que el manifiesto (`manifestar.SENSIBLE`, unidad 051 R2/R5): un
     adjunto no puede ser la puerta trasera por la que salen las credenciales o media
     hora de logs que el manifiesto no habría dejado pasar.
+
+    El orden importa y no es cosmético: filtrar antes de recortar hacía que el tope
+    acotara lo que se ENVÍA pero no lo que se PROCESA, y la regex corría sobre el
+    fichero entero. `total` es el tamaño real en disco, para que el aviso siga diciendo
+    la verdad aunque aquí sólo haya llegado el primer trozo.
     """
-    limpio = manifestar.SENSIBLE.sub(REDACTADO, texto)
-    crudo = limpio.encode("utf-8")
-    if len(crudo) <= TOPE_ADJUNTO:
-        return crudo
+    crudo = texto.encode("utf-8")
+    total = len(crudo) if total is None else total
+    if total <= TOPE_ADJUNTO:
+        return SENSIBLE_ADJUNTO.sub(REDACTADO, texto).encode("utf-8")
     recorte = crudo[:TOPE_ADJUNTO].decode("utf-8", errors="ignore")
-    aviso = AVISO_TRUNCADO.format(tope=TOPE_ADJUNTO // 1024, total=len(crudo) // 1024)
-    return (recorte + aviso).encode("utf-8")
+    aviso = AVISO_TRUNCADO.format(tope=TOPE_ADJUNTO // 1024, total=total // 1024)
+    return (SENSIBLE_ADJUNTO.sub(REDACTADO, recorte) + aviso).encode("utf-8")
 
 
 def hacer_handler(datos, estado, workspace=None):
@@ -204,10 +224,14 @@ def hacer_handler(datos, estado, workspace=None):
             try:
                 # El adjunto se lee como texto (es lo que la web pinta) y sale por
                 # el mismo filtro que el manifiesto: nada crudo llega al navegador.
-                crudo = resuelta.read_bytes()
+                # Se leen como mucho el tope y el margen: un fichero de megas ni se
+                # carga en memoria ni se filtra entero (el tope acota el COSTE).
+                total = resuelta.stat().st_size
+                with resuelta.open("rb") as fichero:
+                    crudo = fichero.read(TOPE_ADJUNTO + MARGEN_ADJUNTO)
             except OSError:
                 return self._json(404, {"error": "adjunto ilegible"})
-            cuerpo = filtrar_adjunto(crudo.decode("utf-8", errors="replace"))
+            cuerpo = filtrar_adjunto(crudo.decode("utf-8", errors="replace"), total)
             return self._fichero(resuelta, tipo, cuerpo)
 
         def do_POST(self):
