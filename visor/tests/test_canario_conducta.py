@@ -646,3 +646,71 @@ class SiembraDelHookStopTest(BaseConducta):
 
 if __name__ == "__main__":
     unittest.main()
+
+# --------------------------------------------------------------------------- bug 075
+
+
+class EscriturasDesdeBashTest(BaseConducta):
+    """Bug 075: escribir desde la terminal también es tocar un fichero.
+
+    Con un modo de permisos que manda escribir por Bash (`sed -i`, heredocs, `tee`, `git
+    commit`), el canario de la 062 no veía ninguna escritura y disparaba «N turnos sin tocar
+    un fichero» en una sesión que acababa de fusionar dos unidades (Nate, 25-08: «no debería
+    avisar si no hay síntomas»).
+    """
+
+    ESCRITURAS = [
+        "sed -i '' 's/a/b/' docs/x.md",
+        "cat > docs/y.md <<'EOF'\nhola\nEOF",
+        "python3 - <<'EOF'\nimport pathlib\npathlib.Path('z').write_text('x')\nEOF",
+        "git add docs/x.md && git commit -q -m 'docs: x'",
+        "echo hola | tee .runtime/salida.txt",
+        "cp a.txt b.txt",
+        "mkdir -p .runtime/cierre && echo ok >> .runtime/cierre/log.txt",
+    ]
+
+    def _turnos_bash(self, comandos, veces):
+        eventos = []
+        for i in range(veces):
+            comando = comandos[i % len(comandos)]
+            eventos += self.turno_con_herramienta(
+                f"b{i}", "Bash", {"command": comando}, "")
+        return eventos
+
+    def test_escribir_por_bash_no_es_un_turno_seco(self):
+        veces = canario.DEFECTOS["turnos_sin_ficheros"] + 10
+        self.sesion_claude(tokens=100_000, eventos=self._turnos_bash(self.ESCRITURAS, veces))
+
+        self.assertIsNone(self.diagnostico()["sintoma"])
+
+    def test_solo_mirar_por_bash_sigue_siendo_seco(self):
+        veces = canario.DEFECTOS["turnos_sin_ficheros"]
+        lecturas = ["ls docs", "grep -n foo docs/x.md", "cat docs/y.md 2>&1 | head",
+                    "git status --short", "python3 -c 'print(1)' 2>/dev/null"]
+        self.sesion_claude(tokens=100_000, eventos=self._turnos_bash(lecturas, veces))
+
+        informe = self.diagnostico()
+        self.assertEqual(informe["veredicto"], "sintomas")
+        self.assertEqual(informe["sintoma"]["tipo"], "sin_ficheros")
+
+    def test_redirigir_stderr_no_cuenta_como_escritura(self):
+        veces = canario.DEFECTOS["turnos_sin_ficheros"]
+        self.sesion_claude(tokens=100_000, eventos=self._turnos_bash(
+            ["ls 2>&1", "cat x 2>/dev/null", "grep a b >/dev/null"], veces))
+
+        self.assertEqual(self.diagnostico()["sintoma"]["tipo"], "sin_ficheros")
+
+    def test_sin_comandos_en_el_jsonl_no_hay_aviso(self):
+        """R2: un harness que no escribe el comando no da evidencia; sin evidencia no hay aviso."""
+        veces = canario.DEFECTOS["turnos_sin_ficheros"] + 5
+        eventos = []
+        for i in range(veces):
+            eventos += self.turno_con_herramienta(f"m{i}", "Bash", {}, "")
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        self.assertIsNone(self.diagnostico()["sintoma"])
+
+    def test_la_lista_de_escrituras_vive_junto_a_las_herramientas_de_fichero(self):
+        self.assertTrue(hasattr(canario, "ESCRITURAS_DESDE_BASH"))
+        for comando in self.ESCRITURAS:
+            self.assertTrue(canario.ESCRITURAS_DESDE_BASH.search(comando), comando)

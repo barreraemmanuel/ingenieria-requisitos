@@ -521,6 +521,29 @@ MARCAS_DE_TEST = re.compile(
 HERRAMIENTAS_DE_FICHERO = {"edit", "write", "multiedit", "notebookedit", "str_replace_editor",
                            "apply_patch", "create_file"}
 
+# Bug 075: la terminal también escribe. Con un modo de permisos que manda usar Bash (sed,
+# heredocs, tee, python3 -) en vez de Edit/Write, ninguna escritura contaba y el canario
+# gritaba «N turnos sin tocar un fichero» en una sesión que acababa de fusionar dos unidades.
+# Un comando de Bash toca un fichero si lleva una de estas formas. Las redirecciones de
+# stderr (`2>&1`, `2>/dev/null`) y a `/dev/null` NO son escrituras: se descartan antes.
+HERRAMIENTAS_DE_SHELL = {"bash", "shell", "run_shell_command", "execute_command", "terminal"}
+_SIN_RUIDO = re.compile(r"\d?>\s*&\d|\d?>>?\s*/dev/null")
+ESCRITURAS_DESDE_BASH = re.compile(
+    r"(?:^|[\s;&|(])(?:sed\s+-[a-zA-Z]*i|tee\b|cp\b|mv\b|rm\b|mkdir\b|touch\b|rmdir\b|"
+    r"install\b|patch\b|git\s+(?:commit|mv|rm|merge|rebase|cherry-pick|revert|reset|checkout|"
+    r"restore|stash|apply|am|pull|clone|worktree|init)\b|"
+    r"python3?\s+-\s*<<|python3?\s+-c\b.*(?:write_text|write_bytes|open\([^)]*['\"][wa])|"
+    r"pip3?\s+install\b|npm\s+(?:install|ci)\b)|"
+    r"(?<![\d&])>>?(?!\s*&)|<<-?\s*['\"]?\w+['\"]?", re.S)
+
+
+def bash_escribe(comando):
+    """¿Este comando de terminal toca un fichero? Heurística por texto, sin ejecutar nada."""
+    if not comando:
+        return False
+    limpio = _SIN_RUIDO.sub(" ", comando)
+    return bool(ESCRITURAS_DESDE_BASH.search(limpio))
+
 # Herramientas que EJECUTAN algo: son las únicas cuyo TEXTO de salida puede leerse como
 # fallo (bug 062, hueco H3 del revisor). Un `Read` o un `Grep` devuelven el contenido del
 # proyecto, y casi cualquier fuente lleva dentro las palabras `error`, `failed` o `denied`:
@@ -615,7 +638,7 @@ def leer_claude(fichero):
         contenido = mensaje.get("content")
         if not isinstance(contenido, list):
             continue
-        herramientas, toco_fichero = 0, False
+        herramientas, toco_fichero, sin_evidencia = 0, False, False
         for bloque in contenido:
             if not isinstance(bloque, dict):
                 continue
@@ -628,6 +651,14 @@ def leer_claude(fichero):
                     toco_fichero = True
                     if fichero_tocado:
                         ediciones.append(str(fichero_tocado))
+                elif nombre.lower() in HERRAMIENTAS_DE_SHELL:
+                    # Bug 075: la terminal también escribe. Y si el harness no guardó el
+                    # comando, este turno no es evidencia de nada: ni seco ni húmedo.
+                    comando_shell = entrada.get("command")
+                    if not comando_shell:
+                        sin_evidencia = True
+                    elif bash_escribe(str(comando_shell)):
+                        toco_fichero = True
                 orden = entrada.get("command") or fichero_tocado or entrada.get(
                     "pattern") or json.dumps(entrada, sort_keys=True, ensure_ascii=False)
                 comandos[bloque.get("id")] = (
@@ -650,7 +681,7 @@ def leer_claude(fichero):
                     verde = not roto and bool(re.search(r"\b(?:ok|passed|passing|all tests)\b",
                                                         texto, re.I))
                     pruebas.append((orden, verde))
-        if herramientas:
+        if herramientas and (toco_fichero or not sin_evidencia):
             turnos_secos.append(toco_fichero)
     if tokens is None:
         return None
