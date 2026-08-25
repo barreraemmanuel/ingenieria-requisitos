@@ -365,8 +365,13 @@ def main():
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--scripts", default="docs/00-metodo/scripts",
                    help="carpeta de scripts a vigilar")
-    p.add_argument("--base", default="docs/00-metodo/salidas-baseline.json",
-                   help="línea base congelada")
+    # Sin `--base`, la línea base es la HERMANA de la carpeta de scripts, no una ruta fija:
+    # el mismo árbol se mira desde el workspace (`docs/00-metodo/scripts`) y desde la
+    # herramienta (`plantilla/docs/00-metodo/scripts`). Con una ruta fija, pasar solo
+    # `--scripts plantilla/...` inventariaba la herramienta y buscaba la línea base del
+    # workspace: FAIL «no existe la línea base», que es un rechazo que miente sobre su causa.
+    p.add_argument("--base", default=None,
+                   help="línea base congelada (por defecto, junto a la carpeta de scripts)")
     p.add_argument("--congelar", action="store_true",
                    help="reescribe la línea base con lo que hay HOY. Solo la primera vez, o "
                         "cuando una persona decide adoptar un encogimiento.")
@@ -385,7 +390,7 @@ def main():
     cubos, errores = inventario(carpeta, raiz)
     todos = [r for cubo in cubos.values() for r in cubo]
 
-    ruta_base = Path(args.base)
+    ruta_base = Path(args.base) if args.base else carpeta.parent / "salidas-baseline.json"
     if args.congelar:
         entradas = congelar(cubos, ruta_base)
         print(f"OK   línea base congelada con {len(entradas)} rechazos en {ruta_base}")

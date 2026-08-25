@@ -251,7 +251,13 @@ def main():
         print(f"   {nombre:<44} {'FAIL · ' + str(len(problemas)) if problemas else 'OK'}")
         for que, salida in problemas:
             print(f"     FAIL {que}")
-            print(f"          {SALIDA} {salida}")
+            # La remediación concreta viaja en `salida` (una variable), así que el texto
+            # ESTÁTICO de este rechazo no nombraba ningún comando: para el guardián de
+            # salidas (049) era un rechazo mudo. El comando que cierra el corro —volver a
+            # pasar esta misma puerta— se escribe aquí literalmente, y quien conduce lo ve
+            # sin adivinar.
+            print(f"          {SALIDA} {salida}"
+                  f"  ·  y vuelve a pasarlo:  python3 docs/00-metodo/scripts/lint_cierre.py")
     print()
     if total:
         print(f"{total} problema(s): el parte de cierre no cuadra con su evidencia.")
