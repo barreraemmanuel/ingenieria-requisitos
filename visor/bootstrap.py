@@ -82,17 +82,22 @@ IGNORAR = {"__pycache__", ".DS_Store"}
 
 # El método se publica mediante una lista cerrada. Así un apunte local o un residuo
 # histórico no puede colarse en todos los workspaces por estar dentro de la carpeta.
-RUNBOOKS = ("adopcion", "auditoria", "bug", "cierre", "control-plane", "deploy", "directo", "documentacion",
+RUNBOOKS = ("adopcion", "auditoria", "bug", "cierre", "control-plane", "deploy",
+            "deploy-vps-docker", "directo", "documentacion",
             "expres", "feature", "hotfix", "investigacion", "migracion", "planificacion",
             "peticiones", "primer-despliegue", "refactor", "sanidad")
 PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "despliegue", "directo",
               "especificacion", "hallazgos", "informe", "investigacion", "plano-operativo",
               "peticion-investigacion-informe", "peticion-investigacion-plan",
               "peticion-investigacion-sintesis", "roadmap", "sanidad", "sintesis")
+# Las seis piezas de la receta de despliegue de serie (ADR-032). Van aparte de PLANTILLAS
+# porque no son documentos .md: son los ficheros que se copian tal cual al servidor.
+PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
+                  "servidor-preparar.sh", "backup.sh", "restaurar-prueba.sh")
 SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py", "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
            "lint_salidas.py", "lease.py",
-           "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "workspace_paths.py")
+           "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
     "001-docs-fuera-del-repo.md",
@@ -126,6 +131,7 @@ DECISIONES = (
     "029-una-regla-tiene-ejecutor-o-se-retira.md",
     "030-el-test-portante-tiene-que-morder.md",
     "031-sanidad-repara-papeles-nunca-codigo.md",
+    "032-receta-de-despliegue-de-serie.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
@@ -142,6 +148,7 @@ ARCHIVOS_METODO = tuple(
     + [f"decisiones/{nombre}" for nombre in DECISIONES]
     + [f"runbooks/{nombre}.md" for nombre in RUNBOOKS]
     + [f"plantillas/{nombre}.md" for nombre in PLANTILLAS]
+    + [f"plantillas/vps/{nombre}" for nombre in PLANTILLAS_VPS]
     + [f"scripts/{nombre}" for nombre in SCRIPTS]
 )
 ARCHIVOS_REQUISITOS = (

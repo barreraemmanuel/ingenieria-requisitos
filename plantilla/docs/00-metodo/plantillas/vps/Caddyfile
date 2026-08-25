@@ -1,0 +1,28 @@
+# Caddy con el certificado Origin CA de Cloudflare (paso 4 del runbook). Cloudflare habla
+# TLS con Caddy en modo Full (strict); Caddy no pide certificados a Let's Encrypt porque el
+# origen no es accesible desde fuera de los rangos de Cloudflare.
+# Los dos ficheros los copia `vps.py desplegar` desde `.private/` a /srv/app/certificados/.
+
+{
+	# Sin ACME: el certificado lo pone Cloudflare, no Let's Encrypt.
+	auto_https off
+}
+
+# Tu aplicación.
+{$DOMINIO}:443 {
+	tls /etc/caddy/certificados/origin.pem /etc/caddy/certificados/origin.key
+	encode gzip
+	reverse_proxy app:8000
+}
+
+# Tu Bugsink: los errores de la aplicación, en tu propio servidor.
+errores.{$DOMINIO}:443 {
+	tls /etc/caddy/certificados/origin.pem /etc/caddy/certificados/origin.key
+	encode gzip
+	reverse_proxy bugsink:8000
+}
+
+# Cualquiera que llegue por el puerto 80 (o por IP, sin pasar por Cloudflare) se va con un 308.
+:80 {
+	redir https://{$DOMINIO}{uri} permanent
+}

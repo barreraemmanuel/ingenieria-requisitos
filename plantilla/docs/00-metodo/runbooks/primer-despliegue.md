@@ -32,9 +32,16 @@ añade cosas que hay que mantener. Subir de etapa después es una unidad tipo `m
 | Copias de seguridad | las suyas | copia a otro disco | copia FUERA de esa máquina |
 | Auditoría de seguridad | no | recomendable | obligatoria antes de salir |
 
-## 3 · Si eligió `internet`: se investiga HOY, no se recita de memoria
+## 3 · Si eligió `internet`: la receta de serie, o se investiga HOY
 
-El método **no trae proveedor ni precio**: envejecen. Se abre una unidad tipo
+**Primero, la opción de serie** (ADR-032): `runbooks/deploy-vps-docker.md` — un VPS de unos
+4 €/mes con Docker, Cloudflare delante, errores en un Bugsink propio, salud vigilada desde
+fuera y copia diaria de la base de datos, guiada paso a paso y con sus precios fechados. Se
+le ofrece antes que nada: tener un camino por defecto es lo que evita que cada proyecto
+improvise el suyo. No es obligatoria.
+
+**Si no le encaja, se investiga.** El método **no trae más proveedor ni precio que los
+fechados de esa receta**: envejecen. Se abre una unidad tipo
 `investigacion` (o se investiga en la sesión, si es corto) y se aplica la regla 11 de
 `AGENTS.md`: doc oficial, con fuente y fecha. Se le traen **tres** opciones y elige él:
 

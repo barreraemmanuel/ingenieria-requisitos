@@ -19,7 +19,9 @@ anotado qué commit corre dónde, desde cuándo y quién lo puso.
    comprueba el gate del paso 3. Máquinas, comandos y quién da el OK salen de ahí, nunca de la
    memoria. Sin plano, lo primero de la sesión es la entrevista de arranque del rol
    (`roles.md`); y si el usuario **no ha desplegado nunca nada**, esa entrevista no tiene
-   respuestas: se empieza por `runbooks/primer-despliegue.md`.
+   respuestas: se empieza por `runbooks/primer-despliegue.md`. Si el `camino` escrito es
+   la receta de serie del método (VPS con Docker y Cloudflare), los pasos 6 a 12 de abajo se
+   ejecutan con `runbooks/deploy-vps-docker.md` §16.
 2. **Backup verificado = restaurado de prueba**, hecho AHORA (no vale el de anoche
    si hay migración de datos). El detalle no se repite aquí: `migracion.md` §Subir de etapa, paso
    1. Las dos evidencias —volcado y restauración— van pegadas en la ficha.
