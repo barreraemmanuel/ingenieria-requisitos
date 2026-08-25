@@ -170,6 +170,12 @@ record = {
     'tmp_accesible': os.access(tmp, os.R_OK | os.W_OK),
     'home': os.environ.get('HOME'),
     'codex_home': os.environ.get('CODEX_HOME'),
+    # Bug 037: las cinco variables que Windows necesita para resolver nombres y
+    # cargar sus propias DLL. En Windows `os.environ` normaliza las claves a
+    # MAYÚSCULAS (os.py, encodekey=str.upper), así que este mismo literal vale
+    # en la máquina real y en la simulación de este taller (macOS).
+    'windows': {k: os.environ.get(k) for k in
+                ('SYSTEMROOT', 'WINDIR', 'USERPROFILE', 'APPDATA', 'LOCALAPPDATA')},
     'poison': {k: os.environ.get(k) for k in
                ('SCRATCH','BASH_ENV','ENV','ZDOTDIR','CDPATH','PYTHONPATH','NODE_OPTIONS')},
 }
@@ -759,6 +765,83 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         modulo = self.modulo_original()
         for variable in ("USER", "LOGNAME"):
             self.assertIn(variable, modulo.HEREDAR_ENV)
+
+    # --- Bug 037: en Windows el agente delegado arranca sin las variables del sistema
+    #
+    # ESTE TALLER ES macOS: no hay máquina Windows donde ejecutar el fallo real
+    # (socket 11003 al resolver chatgpt.com). Lo que sí es independiente de la
+    # plataforma es el MECANISMO: `entorno_base()` construye el entorno del hijo con
+    # una allowlist, y lo que no está en la allowlist NO llega, corra donde corra.
+    # Por eso el test de abajo se comprueba de dos maneras honestas:
+    #   1. end-to-end de verdad (el launcher real lanza el harness doble) con las
+    #      cinco variables presentes en el entorno padre, y se mira qué recibió el
+    #      hijo. Aquí lo simulado es solo el ORIGEN de las variables, no el filtro.
+    #   2. simulando la plataforma (os.name='nt', sys.platform='win32') y un
+    #      os.environ con la pinta que tiene en Windows.
+    # Lo que NO se puede comprobar aquí y queda pendiente de una máquina Windows
+    # real: que con estas cinco variables winsock resuelva DNS y el harness deje de
+    # reconectar. Eso lo acredita el equipo del alumno, no esta suite.
+
+    VARIABLES_DE_WINDOWS = ("SYSTEMROOT", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA")
+
+    def test_el_agente_delegado_recibe_las_variables_de_sistema_de_windows(self):
+        entorno_windows = {
+            "SYSTEMROOT": r"C:\Windows",
+            "WINDIR": r"C:\Windows",
+            "USERPROFILE": r"C:\Users\alumno",
+            "APPDATA": r"C:\Users\alumno\AppData\Roaming",
+            "LOCALAPPDATA": r"C:\Users\alumno\AppData\Local",
+        }
+        env = dict(self.env, **entorno_windows)
+        resultado = self.ejecutar(env=env)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        recibido = self.registros()["windows"]
+        for variable, valor in entorno_windows.items():
+            self.assertEqual(
+                recibido.get(variable), valor,
+                f"bug 037: {variable} no llega al agente delegado; en Windows sin ella "
+                "el resolvedor de nombres muere con el socket 11003 y el harness se "
+                "queda reconectando (caja negra a19ef4d7, Nicolas Varela)",
+            )
+
+    def test_entorno_base_simulando_windows_conserva_las_variables_del_sistema(self):
+        modulo = self.modulo_original()
+        # os.environ en Windows expone las claves en MAYÚSCULAS aunque el sistema las
+        # escriba `SystemRoot`/`windir`: lo hace el propio os.py (encodekey=str.upper).
+        # Se simula así, que es lo que vería el launcher en la máquina del alumno.
+        entorno_windows = {
+            "PATH": r"C:\Windows\system32;C:\Program Files\Git\cmd",
+            "SYSTEMROOT": r"C:\Windows",
+            "WINDIR": r"C:\Windows",
+            "USERPROFILE": r"C:\Users\alumno",
+            "APPDATA": r"C:\Users\alumno\AppData\Roaming",
+            "LOCALAPPDATA": r"C:\Users\alumno\AppData\Local",
+        }
+        with mock.patch.object(modulo.os, "environ", entorno_windows), \
+                mock.patch.object(modulo.os, "name", "nt"), \
+                mock.patch.object(modulo.sys, "platform", "win32"):
+            limpio = modulo.entorno_base(self.worktree, self.base / "tmp", self.home)
+        for variable in self.VARIABLES_DE_WINDOWS:
+            self.assertEqual(
+                limpio.get(variable), entorno_windows[variable],
+                f"bug 037: entorno_base() descarta {variable} — la allowlist se "
+                "escribió para macOS/Linux y nunca se revisó contra Windows",
+            )
+
+    def test_heredar_env_incluye_las_variables_de_windows(self):
+        modulo = self.modulo_original()
+        for variable in self.VARIABLES_DE_WINDOWS:
+            self.assertIn(
+                variable, modulo.HEREDAR_ENV,
+                f"bug 037: {variable} falta en la allowlist del launcher",
+            )
+
+    def test_la_allowlist_sigue_siendo_allowlist_tras_el_arreglo(self):
+        # Guarda, no reproducción: pasa con y sin el arreglo. Está para que ampliar la
+        # lista por Windows no acabe convirtiéndose en "heredarlo todo".
+        modulo = self.modulo_original()
+        for variable in ("PSMODULEPATH", "PROMPT", "NODE_OPTIONS", "PYTHONPATH"):
+            self.assertNotIn(variable, modulo.HEREDAR_ENV)
 
     # --- Defecto 9 (unidad 012: adaptado a HOME real, ya no aislado)
 

@@ -79,6 +79,17 @@ HEREDAR_ENV = {
     # `claude auth status` da loggedIn=false pese a heredar HOME real (verificado en
     # sesión, unidad 012 — no es HOME lo que faltaba, es esto).
     "USER", "LOGNAME",
+    # Bug 037: Windows. Sin SYSTEMROOT/WINDIR el propio cargador del sistema no
+    # encuentra sus DLL y winsock no llega a resolver un nombre: el agente delegado se
+    # queda reconectando con el socket 11003 aunque el equipo resuelva DNS de sobra
+    # (caja negra a19ef4d7, verificado por el alumno inyectando estas variables a
+    # mano). USERPROFILE/APPDATA/LOCALAPPDATA son el equivalente de HOME allí, y sin
+    # ellas ni el harness ni git encuentran su configuración. La lista se escribió
+    # para macOS y Linux y nunca se revisó contra Windows.
+    # `os.environ` normaliza estas claves a mayúsculas en Windows (os.py,
+    # encodekey=str.upper), así que el nombre en mayúsculas es el que hay que buscar
+    # aunque el sistema las escriba `SystemRoot` o `windir`.
+    "SYSTEMROOT", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
 }
 
 
