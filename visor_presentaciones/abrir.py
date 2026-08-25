@@ -3,6 +3,7 @@
 
 import argparse
 import json
+import os
 import socket
 import subprocess
 import sys
@@ -26,6 +27,36 @@ BASE = Path(__file__).resolve().parent
 class Resultado:
     url: str
     proceso: object = None
+    navegador: bool = False
+
+
+# Bug 057: pedir un OK dejó de depender de que el agente se acordara de abrir la web. El
+# "¿hay dónde abrirla?" se decide AQUÍ, en un solo sitio, y no en cada llamador.
+def hay_pantalla():
+    """¿Tiene esta sesión un navegador que abrir?
+
+    `IR_SIN_NAVEGADOR` es la declaración explícita de quien lanza —un agente en batch, la
+    CI, una sesión por SSH— y manda sobre todo lo demás. `BROWSER` es la contraria: si
+    alguien ha dicho CON QUÉ abrir, hay con qué. Sin ninguna de las dos se mira el
+    escritorio: en Linux/BSD sin `DISPLAY` ni `WAYLAND_DISPLAY` no hay ventana donde
+    pintar; macOS y Windows siempre la tienen.
+    """
+    if os.environ.get("IR_SIN_NAVEGADOR", "").strip():
+        return False
+    if os.environ.get("BROWSER", "").strip():
+        return True
+    if sys.platform in ("darwin", "win32"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def abrir_navegador(url, args):
+    """Abre `url` salvo que lo prohíba `--sin-navegador` o que no haya pantalla.
+    Devuelve si de verdad se abrió: quien llama tiene que poder DECIRLO."""
+    if getattr(args, "sin_navegador", False) or not hay_pantalla():
+        return False
+    webbrowser.open(url)
+    return True
 
 
 def argumentos_prueba(puerto=0, presentacion=None, workspace=None):
@@ -79,9 +110,7 @@ def abrir(datos, args):
     }
     if meta == identidad:
         url = _url(puerto, getattr(args, "presentacion", None))
-        if not getattr(args, "sin_navegador", False):
-            webbrowser.open(url)
-        return Resultado(url)
+        return Resultado(url, navegador=abrir_navegador(url, args))
     if meta is not None:
         raise ValueError("el puerto %d ya lo usa otra sesión" % puerto)
 
@@ -104,9 +133,7 @@ def abrir(datos, args):
         meta = _meta(puerto)
         if meta == identidad:
             url = _url(puerto, getattr(args, "presentacion", None))
-            if not getattr(args, "sin_navegador", False):
-                webbrowser.open(url)
-            return Resultado(url, proceso)
+            return Resultado(url, proceso, abrir_navegador(url, args))
         if proceso.poll() is not None:
             break
         time.sleep(0.1)
@@ -136,6 +163,9 @@ def main():
     try:
         resultado = abrir(args.datos, args)
         print(resultado.url)
+        if not resultado.navegador:
+            print("(no abro el navegador: %s)" % (
+                "--sin-navegador" if args.sin_navegador else "sesión sin pantalla"))
         return 0
     except (OSError, RuntimeError, ValueError) as exc:
         print("ERROR: %s" % exc)

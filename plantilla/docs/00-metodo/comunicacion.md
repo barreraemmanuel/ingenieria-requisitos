@@ -43,11 +43,23 @@ Y un aviso que conviene tener presente: **enseñar el trabajo hace la espera má
 el efecto se invierte si el resultado es malo.** Contar bien lo que se hace sube la apuesta, no
 sustituye a acertar.
 
-## Pedir un OK sobre un contrato
+## Pedir un OK: se ejecuta un comando, no se recuerda una costumbre
 
-Nunca se pide a ciegas. Antes de pedirle al usuario que apruebe un contrato (una unidad o un
-bug), se levanta el visor de contratos EN EL MISMO TURNO —`python3 main/visor_contratos/servir.py
---workspace . --minutos 0`— y se le enseña ahí, no pegando el markdown en el chat.
+Nunca se pide a ciegas, y nunca depende de que el agente se acuerde de enseñar una web: los
+dos OK del método tienen COMANDO, y el comando abre el navegador solo.
+
+- **OK sobre un contrato** (aprobar una unidad o un bug): `unidad.py nueva <tipo> <slug>
+  --desde P-ID` y `unidad.py estado` levantan el visor de contratos y lo abren en el contrato
+  sin aprobar. A mano: `python3 main/visor_contratos/servir.py --workspace . --minutos 0`.
+- **OK sobre una entrega** (probar lo entregado, paso 5 de `runbooks/cierre.md`):
+  `python3 docs/00-metodo/scripts/unidad.py validar NNN-slug` — genera la validación guiada
+  desde la ficha, levanta el visor de presentaciones y la abre. El usuario decide ahí
+  (`confirmado` / `problema`) y su decisión queda en un recibo que el cierre lee.
+
+Pegar el markdown o la tabla en el chat es un RESUMEN de lo que ya tiene delante, no el
+camino por el que se da el OK. Si no hay pantalla (`--sin-navegador`, una sesión sin
+escritorio), los comandos lo dicen e imprimen la dirección: nadie se queda esperando a
+ciegas a que el agente se acuerde.
 
 ## Cómo se cuenta un problema
 

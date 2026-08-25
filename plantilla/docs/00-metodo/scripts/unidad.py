@@ -15,6 +15,9 @@ Uso (desde cualquier directorio del workspace; la raíz se deriva de la ruta del
   python3 docs/00-metodo/scripts/unidad.py despachar 004-mi-slug    crea rama + worktree
   python3 docs/00-metodo/scripts/unidad.py despachar 005-auditoria --documental
                                                                   trabaja solo en su ficha
+  python3 docs/00-metodo/scripts/unidad.py validar 004-mi-slug     abre la validación guiada
+                                                                  (la web que el usuario mira
+                                                                   para dar su OK)
   python3 docs/00-metodo/scripts/unidad.py cerrar 004-mi-slug --ok-usuario 2026-08-01
                                                                   cierra la unidad ya fusionada
   python3 docs/00-metodo/scripts/unidad.py estado                   resumen de un vistazo
@@ -26,6 +29,7 @@ import argparse
 import contextlib
 import datetime
 import hashlib
+import importlib.util
 import json
 import os
 import posixpath
@@ -35,6 +39,9 @@ import signal
 import stat
 import subprocess
 import sys
+import time
+import urllib.request
+import webbrowser
 from pathlib import Path
 
 import peticion as gestion_peticiones
@@ -244,6 +251,425 @@ def rastro_visor_contrato(nombre):
         m.group(1) for linea in texto.splitlines()
         if (m := RE_RASTRO_CONTRATO.match(linea)) and m.group(2) == nombre
     ]
+
+
+# ------------------------------------------- bug 057: las webs del OK se abren solas
+# La 054 hizo COMPROBABLE que un contrato se mostró, pero abrirlo seguía siendo un acto
+# manual del agente; y la validación guiada (051/056) ni comando tenía: el manifiesto se
+# escribía a mano. Pedir un OK pasa a ser EJECUTAR algo, no acordarse de algo.
+
+# Puerto del visor de contratos. Se puede fijar por entorno para no chocar con otra sesión
+# (mismo patrón que IR_TOPE_HOOK_SEGUNDOS).
+PUERTO_VISOR_CONTRATOS = int(os.environ.get("IR_PUERTO_VISOR_CONTRATOS", "8766"))
+# Los datos de cada validación guiada: una carpeta por unidad, con su manifiesto y sus
+# recibos. Es la ruta que la 051 ya usa; aquí solo deja de escribirse a mano.
+RUTA_PRESENTACIONES = ".runtime/presentaciones"
+# Dónde puede vivir cada visor: en el workspace de alumno lo reparte `bootstrap.py`; en el
+# meta-repo del método viene con el repo de código, bajo `main/`.
+CARPETAS_PRESENTACIONES = ("docs/00-metodo/requisitos/visor_presentaciones",
+                           "main/visor_presentaciones")
+CARPETAS_CONTRATOS = ("main/visor_contratos",
+                      "docs/00-metodo/requisitos/visor_contratos")
+
+
+def comando_validar(nombre):
+    return f"python3 {rel(__file__)} validar {nombre}"
+
+
+def hay_pantalla():
+    """¿Tiene esta sesión un navegador que abrir?
+
+    MISMA regla que `visor_presentaciones/abrir.py:hay_pantalla` y a propósito duplicada:
+    los scripts del método viajan con la plantilla y el visor vive en el repo de código,
+    así que esto tiene que funcionar en un workspace donde el visor todavía no está.
+    `IR_SIN_NAVEGADOR` es la declaración explícita de quien lanza (un agente en batch, la
+    CI, una sesión por SSH) y manda; `BROWSER` es la contraria. Sin ninguna se mira el
+    escritorio: en Linux/BSD sin `DISPLAY` ni `WAYLAND_DISPLAY` no hay dónde pintar.
+    """
+    if os.environ.get("IR_SIN_NAVEGADOR", "").strip():
+        return False
+    if os.environ.get("BROWSER", "").strip():
+        return True
+    if sys.platform in ("darwin", "win32"):
+        return True
+    return bool(os.environ.get("DISPLAY") or os.environ.get("WAYLAND_DISPLAY"))
+
+
+def carpeta_visor(candidatas, *ficheros):
+    for sub in candidatas:
+        carpeta = RAIZ / sub
+        if all((carpeta / fichero).is_file() for fichero in ficheros):
+            return carpeta
+    return None
+
+
+def visor_presentaciones():
+    return carpeta_visor(CARPETAS_PRESENTACIONES, "abrir.py", "manifestar.py", "servir.py")
+
+
+def modulos_de_presentaciones(carpeta):
+    """Carga `manifestar` y `abrir` DEL WORKSPACE, no una copia.
+
+    El contrato JSON del manifiesto y la mecánica de levantar el visor viven en el visor de
+    presentaciones. Reimplementarlos aquí sería tener dos verdades del mismo formato, que es
+    exactamente como nacen los manifiestos escritos a mano que este bug arregla.
+    """
+    sys.path.insert(0, str(carpeta))
+    try:
+        modulos = []
+        for nombre in ("manifestar", "abrir"):
+            spec = importlib.util.spec_from_file_location(
+                f"visor_presentaciones_{nombre}", carpeta / f"{nombre}.py")
+            modulo = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(modulo)
+            modulos.append(modulo)
+        return modulos
+    finally:
+        with contextlib.suppress(ValueError):
+            sys.path.remove(str(carpeta))
+
+
+# --------------------------------------------------- leer la ficha: pasos, evidencia, adjuntos
+
+RE_COMO_PRUEBAS = re.compile(r"Cómo lo pruebas tú", re.I)
+
+
+def bloque_como_lo_pruebas(texto):
+    """Las líneas de «Cómo lo pruebas tú», sea encabezado (unidad) o viñeta de la §6 de un
+    bug. Fuera de esa sección no se mira: es LO que el usuario va a tener delante."""
+    lineas = texto.splitlines()
+    inicio = next((i for i, l in enumerate(lineas) if RE_COMO_PRUEBAS.search(l)), None)
+    if inicio is None:
+        return []
+    ancla = lineas[inicio]
+    es_vineta = ancla.lstrip().startswith(("-", "*"))
+    bloque = [ancla.split(":", 1)[1]] if (es_vineta and ":" in ancla) else []
+    for linea in lineas[inicio + 1:]:
+        if linea.startswith("#"):
+            break                                  # empieza otra sección
+        if (es_vineta and not linea.startswith((" ", "\t"))
+                and linea.strip().startswith(("-", "*"))):
+            break                                  # empieza otra viñeta de la §6
+        bloque.append(linea)
+    return bloque
+
+
+def pasos_de_prueba(texto):
+    """Los pasos que el usuario va a seguir: las filas de la tabla si la hay, y si no los
+    puntos numerados de esa sección. Lo que sigue siendo plantilla (`<...>`) no cuenta."""
+    bloque = [l for l in bloque_como_lo_pruebas(texto)
+              if l.strip() and not l.strip().startswith("<")]
+    filas = []
+    for linea in bloque:
+        s = linea.strip()
+        if not s.startswith("|"):
+            continue
+        celdas = [c.strip() for c in s.strip("|").split("|")]
+        if not celdas or all(set(c) <= set("-: ") for c in celdas):
+            continue                               # separador `|---|---|`
+        filas.append(celdas)
+    if filas:
+        if filas[0] and filas[0][0] in {"#", "N", "Nº"}:
+            filas = filas[1:]                      # la cabecera es rótulo, no paso
+        pasos = [" · ".join(c for c in fila if c) for fila in filas]
+    else:
+        plano = " ".join(l.strip() for l in bloque)
+        numerados = re.findall(r"\d+\.\s*(.+?)(?=\s+\d+\.\s|$)", plano)
+        pasos = numerados or [VINETA.sub("", l.strip()).strip() for l in bloque]
+    return [p.strip() for p in pasos if MARCADOR.sub("", p).strip(" ·-—")]
+
+
+def evidencia_de_la_ficha(texto):
+    """La evidencia que se le enseña al usuario: el bloque `parte-de-cierre` de
+    `hallazgos.md` (unidades) o la sección de Resolución de la ficha (bugs, ADR-006).
+    Los marcadores sin rellenar (`—`) no son evidencia: no viajan."""
+    lineas = []
+    bloque = re.search(r"```parte-de-cierre\n(.*?)```", texto, re.S)
+    if bloque:
+        for linea in bloque.group(1).splitlines():
+            pareja = linea.split("#")[0].strip()
+            if ":" in pareja and pareja.split(":", 1)[1].strip() not in PLACEHOLDERS:
+                lineas.append(pareja)
+    if lineas:
+        return lineas
+    seccion = re.search(r"^#{1,6}[^\n]*Resoluci[óo]n[^\n]*$", texto, re.M)
+    if seccion:
+        for linea in texto[seccion.end():].splitlines():
+            if linea.startswith("#"):
+                break
+            s = MARCADOR.sub("", VINETA.sub("", linea.strip()).strip()).strip()
+            if ":" in s and s.split(":", 1)[1].strip() not in PLACEHOLDERS:
+                lineas.append(s)
+    return lineas
+
+
+def adjuntos_de(fm, ruta, permitida):
+    """Los ficheros que la unidad CITA, como rutas del workspace (adjuntos de la 056): su
+    propia ficha primero y luego cada `ficheros:` allí donde de verdad esté — el repo de
+    código cuelga de `main/`, así que la ruta declarada se prueba con y sin ese prefijo."""
+    rutas = [rel(ruta).replace("\\", "/")]
+    for crudo in (fm.get("ficheros") or "").strip("[]").split(","):
+        declarado = crudo.strip().strip("'\"").replace("\\", "/")
+        if not declarado:
+            continue
+        for candidata in (declarado, posixpath.join("main", declarado)):
+            if (RAIZ / candidata).is_file():
+                rutas.append(candidata)
+                break
+    return [r for r in dict.fromkeys(rutas) if permitida.match(r)]
+
+
+# --------------------------------------------------------------- R2: el contrato se abre solo
+
+def _meta_visor_contratos(puerto):
+    try:
+        with urllib.request.urlopen(
+            "http://127.0.0.1:%d/meta.json" % puerto, timeout=0.5
+        ) as respuesta:
+            return json.loads(respuesta.read())
+    except (OSError, ValueError):
+        return None
+
+
+def abrir_visor_de_contratos(pendientes, sin_navegador):
+    """Levanta el visor de contratos y abre el navegador en el primero de `pendientes`.
+
+    Devuelve las líneas (nivel, mensaje) que hay que imprimir. Cuando NO puede abrir nada
+    lo dice y nombra el comando: un visor que no se levanta en silencio sería exactamente
+    el fallo que esta unidad arregla.
+    """
+    if sin_navegador:
+        return [("warn", "--sin-navegador: no levanto el visor de contratos. Enséñaselo tú: "
+                         + COMANDO_VISOR_CONTRATOS)]
+    if not hay_pantalla():
+        return [("warn", "sesión sin pantalla: no abro el visor de contratos. El comando, "
+                         "para cuando la haya: " + COMANDO_VISOR_CONTRATOS)]
+    carpeta = carpeta_visor(CARPETAS_CONTRATOS, "servir.py")
+    if carpeta is None:
+        return [("warn", "no encuentro el visor de contratos en este workspace "
+                         f"({' ni '.join(CARPETAS_CONTRATOS)}). Enséñaselo tú: "
+                         + COMANDO_VISOR_CONTRATOS)]
+    puerto = PUERTO_VISOR_CONTRATOS
+    lineas = []
+    meta = _meta_visor_contratos(puerto)
+    if meta is None:
+        registro = RAIZ / ".runtime" / f"visor-contratos-{puerto}.log"
+        registro.parent.mkdir(parents=True, exist_ok=True)
+        orden = [sys.executable, str(carpeta / "servir.py"), "--workspace", str(RAIZ),
+                 "--minutos", "0", "--puerto", str(puerto), "--sin-navegador"]
+        try:
+            with registro.open("ab") as salida:
+                # Desasido a propósito: el visor tiene que seguir en pie cuando este
+                # comando termine — es lo que el usuario va a mirar.
+                subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=salida,
+                                 stderr=subprocess.STDOUT, start_new_session=True)
+        except OSError as exc:
+            return [("warn", f"no pude levantar el visor de contratos ({exc}). Ábrelo tú: "
+                             + COMANDO_VISOR_CONTRATOS)]
+        for _ in range(50):
+            meta = _meta_visor_contratos(puerto)
+            if meta is not None:
+                break
+            time.sleep(0.1)
+        if meta is None:
+            return [("warn", f"el visor de contratos no llegó a arrancar (log en "
+                             f"{rel(registro)}). Ábrelo tú: " + COMANDO_VISOR_CONTRATOS)]
+        lineas.append(("ok", f"visor de contratos levantado en http://127.0.0.1:{puerto}/"))
+    else:
+        suyo = str(meta.get("workspace", ""))
+        if not suyo or Path(suyo).resolve() != RAIZ:
+            return [("warn", f"el puerto {puerto} lo ocupa otro visor ({suyo or 'desconocido'}). "
+                             "Ábrelo tú en otro puerto: " + COMANDO_VISOR_CONTRATOS)]
+        lineas.append(("ok", f"visor de contratos ya en pie en http://127.0.0.1:{puerto}/"))
+    url = f"http://127.0.0.1:{puerto}/#{pendientes[0]}"
+    webbrowser.open(url)
+    lineas.append(("ok", f"navegador abierto en {url} — el usuario ya lo tiene delante"))
+    if len(pendientes) > 1:
+        lineas.append(("warn", f"quedan {len(pendientes) - 1} contrato(s) más sin aprobar, en "
+                               f"la misma página: {', '.join(pendientes[1:])}"))
+    return lineas
+
+
+def imprimir_lineas(lineas):
+    for nivel, mensaje in lineas:
+        (ok if nivel == "ok" else warn)(mensaje)
+
+
+def contratos_pendientes(primero=None):
+    """Contratos sin `aprobado:`, con `primero` al frente si sigue estándolo."""
+    pendientes = sorted(
+        n for n, u in censo().items()
+        if u["fm"].get("estado") == "planificada" and aprobacion(u["fm"]) is None
+    )
+    if primero in pendientes:
+        pendientes.remove(primero)
+        pendientes.insert(0, primero)
+    return pendientes
+
+
+# ------------------------------------------------------- R3: el OK se lee, no se teclea
+
+def recibos_de_validacion(nombre):
+    """Recibos que el visor de presentaciones selló para ESTA unidad, del más viejo al más
+    nuevo. Formato de la 051: aquí solo se lee, jamás se escribe."""
+    carpeta = RAIZ / RUTA_PRESENTACIONES / nombre / "recibos"
+    if not carpeta.is_dir():
+        return []
+    recibos = []
+    for fichero in sorted(carpeta.glob("*.json")):
+        try:
+            recibo = json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue                               # un recibo ilegible no acredita nada
+        if not isinstance(recibo, dict) or recibo.get("presentacion") != nombre:
+            continue
+        marca = str(recibo.get("fecha", ""))
+        if not RE_FECHA.match(marca[:10]):
+            continue
+        recibos.append({"eleccion": recibo.get("eleccion"), "dia": marca[:10],
+                        "marca": marca,
+                        "comentario": (recibo.get("comentario") or "").strip()})
+    return sorted(recibos, key=lambda r: r["marca"])
+
+
+def mismo_dia_o_vispera(dia, fecha_ok_usuario):
+    """El recibo lo fecha el servidor en UTC y el OK lo fecha el usuario en su huso: un día
+    de margen evita que una validación de las once de la noche parezca de otro día."""
+    try:
+        distancia = datetime.date.fromisoformat(dia) - datetime.date.fromisoformat(fecha_ok_usuario)
+    except ValueError:
+        return False
+    return abs(distancia.days) <= 1
+
+
+def puerta_recibo_validacion(nombre, ok_usuario):
+    """(problema, nota, aviso) — R3: `--ok-usuario` sin recibo es una fecha tecleada.
+
+    `--force` no entra aquí: `cerrar` no lo tiene, y la válvula de hotfix es de `despachar`.
+    """
+    if visor_presentaciones() is None:
+        return None, None, (
+            "validación guiada: no hay visor de presentaciones en este workspace "
+            f"({' ni '.join(CARPETAS_PRESENTACIONES)}), así que no puedo leer el OK del "
+            "usuario y la puerta queda en AVISO — una regla sin ejecutor se dice, no se "
+            "finge (ADR-029)")
+    recibos = recibos_de_validacion(nombre)
+    ultimo = recibos[-1] if recibos else None
+    if ultimo and ultimo["eleccion"] == "problema":
+        # Un `problema` al que nadie ha vuelto es el usuario diciendo que esto no está bien.
+        # Un `confirmado` posterior sí desbloquea: es él revalidando después del arreglo.
+        return (f"el usuario marcó «problema» en la validación guiada de {nombre} el "
+                f"{ultimo['dia']}: «{ultimo['comentario'] or 'sin comentario'}». Eso no se "
+                f"cierra: se abre un bug con su ejemplo. {SALIDA} python3 {rel(__file__)} "
+                f"nueva bug <slug> --desde <P-ID> (runbooks/bug.md) y, ya arreglado, "
+                f"{comando_validar(nombre)} otra vez", None, None)
+    if not ok_usuario:
+        return None, None, None
+    confirmados = [r for r in recibos if r["eleccion"] == "confirmado"]
+    if not confirmados:
+        return (f"--ok-usuario {ok_usuario} sin recibo `confirmado` de la validación guiada "
+                f"de {nombre}: una fecha tecleada por el agente no es un OK leído al usuario. "
+                f"{SALIDA} {comando_validar(nombre)} y que decida él en la web", None, None)
+    if not any(mismo_dia_o_vispera(r["dia"], ok_usuario) for r in confirmados):
+        dias = ", ".join(sorted({r["dia"] for r in confirmados}))
+        return (f"--ok-usuario {ok_usuario}, pero los `confirmado` de {nombre} son de otro día "
+                f"({dias}): el OK que se firma es el que se dio. {SALIDA} "
+                f"{comando_validar(nombre)} y pide el OK de hoy", None, None)
+    return None, f"OK leído del visor de presentaciones: {nombre} confirmado por el usuario", None
+
+
+# ----------------------------------------------------------- subcomando: validar (R1)
+
+def cmd_validar(args):
+    nombre = args.unidad.strip("/")
+    if not RE_UNIDAD.match(nombre):
+        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug)")
+        return 1
+    unidad = buscar_unidad(nombre)
+    if unidad is None:
+        fail(f"no existe la unidad {nombre} (¿ya está cerrada y archivada?)")
+        return 1
+    carpeta = visor_presentaciones()
+    if carpeta is None:
+        fail(f"no encuentro el visor de presentaciones en este workspace "
+             f"({' ni '.join(CARPETAS_PRESENTACIONES)}): sin él no hay validación guiada "
+             f"que abrir. {SALIDA} vuelve a repartirlo con el actualizador del workspace "
+             f"(`python3 main/visor/actualizar.py`) o clona el repo de código en main/")
+        return 1
+
+    ruta, fm, clase = unidad["ruta"], unidad["fm"], unidad["clase"]
+    texto = leer_fichero_unidad(ruta)
+    fuente_evidencia = ruta if clase == "bug" else ruta.parent / "hallazgos.md"
+    pasos = pasos_de_prueba(texto)
+    if not pasos:
+        fail(f"{rel(ruta)} no tiene escrito «Cómo lo pruebas tú»: sin eso el usuario devuelve "
+             f"un «me parece bien» que firma una entrega sin haber comprobado nada "
+             f"(runbooks/cierre.md, paso 5). {SALIDA} escríbelo en {rel(ruta)} y repite: "
+             f"python3 {rel(__file__)} validar {nombre}")
+        return 1
+    texto_evidencia = (leer_fichero_unidad(fuente_evidencia)
+                       if fuente_evidencia.exists() else "")
+    evidencia = evidencia_de_la_ficha(texto_evidencia) or [
+        f"sin evidencia escrita todavía en {rel(fuente_evidencia)}"]
+
+    mod_manifestar, mod_abrir = modulos_de_presentaciones(carpeta)
+    presentacion = mod_manifestar.presentacion_validacion(
+        nombre,
+        f"{nombre} · cómo lo pruebas tú",
+        fm.get("actualizado") or HOY,
+        pasos,
+        evidencia,
+        adjuntos_de(fm, ruta, mod_manifestar.RUTA_ADJUNTO),
+    )
+    try:
+        contenido = mod_manifestar.manifiesto([presentacion])
+    except ValueError as exc:
+        fail(f"el manifiesto que sale de {rel(ruta)} no pasa su propio contrato ({exc}). "
+             f"{SALIDA} arregla eso en la ficha y repite "
+             f"python3 {rel(__file__)} validar {nombre}")
+        return 1
+
+    datos = RAIZ / RUTA_PRESENTACIONES / nombre
+    datos.mkdir(parents=True, exist_ok=True)
+    (datos / "manifiesto.json").write_text(
+        json.dumps(contenido, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    print(f"== Validación guiada de {nombre} ==\n")
+    ok(f"manifiesto en {rel(datos / 'manifiesto.json')}: {len(pasos)} paso(s), "
+       f"{len(presentacion.get('adjuntos', []))} adjunto(s)")
+    # Idempotente (R1): el manifiesto se reescribe, los recibos NUNCA se tocan — son la
+    # decisión del usuario y son inmutables desde la 051.
+    anteriores = recibos_de_validacion(nombre)
+    if anteriores:
+        ok(f"{len(anteriores)} recibo(s) anterior(es) intactos en {rel(datos / 'recibos')}")
+
+    orden_manual = (f"python3 {rel(carpeta / 'abrir.py')} --datos {rel(datos)} "
+                    f"--workspace . --presentacion {nombre}")
+    if args.sin_navegador:
+        warn("--sin-navegador: manifiesto listo, pero no levanto nada ni abro el navegador")
+        print(f"\n  Cuando quieras enseñárselo:\n      {orden_manual}")
+        return 0
+    if not hay_pantalla():
+        warn("sesión sin pantalla: manifiesto listo, pero no hay navegador que abrir")
+        print(f"\n  Desde una sesión con pantalla:\n      {orden_manual}")
+        return 0
+    argumentos = argparse.Namespace(
+        puerto=args.puerto, presentacion=nombre, sin_navegador=False, workspace=str(RAIZ))
+    try:
+        resultado = mod_abrir.abrir(datos, argumentos)
+    except (OSError, RuntimeError, ValueError) as exc:
+        fail(f"no pude levantar el visor de presentaciones ({exc}). {SALIDA} lánzalo a mano: "
+             f"python3 {rel(carpeta / 'abrir.py')} --datos {rel(datos)} --workspace . "
+             f"--presentacion {nombre}")
+        return 1
+    ok(f"visor de presentaciones: {resultado.url}")
+    if resultado.navegador:
+        ok("navegador abierto ahí — el usuario ya lo tiene delante")
+    else:
+        warn(f"no he podido abrir el navegador; pásale esta dirección: {resultado.url}")
+    print(f"\n  Cuando el usuario decida en la web, el recibo queda en {rel(datos / 'recibos')}\n"
+          f"  y el cierre lo lee solo:\n"
+          f"      python3 {rel(__file__)} cerrar {nombre} --ok-usuario {HOY}")
+    return 0
 
 
 def severidad_declarada(texto):
@@ -729,14 +1155,22 @@ def _cmd_nueva(args, autoridad):
         print(f"\n  Siguientes pasos (en este orden — el worktree NO se crea todavía):")
     print(f"    1. Rellena el contrato en {rel(fichero_contrato)}\n"
           f"       ({contrato}).\n"
-          f"    2. Levanta el visor de contratos para que el usuario lo lea, anote y\n"
-          f"       APRUEBE ahí: `{COMANDO_VISOR_CONTRATOS}`. Su OK se escribe después\n"
-          f"       como 'aprobado: YYYY-MM-DD' en el frontmatter. Sin esa fecha ni el rastro\n"
-          f"       del visor no hay despacho.\n"
+          f"    2. El visor de contratos se levanta SOLO al terminar este comando (abajo).\n"
+          f"       El usuario lo lee, anota y aprueba ahí; su OK se escribe después como\n"
+          f"       'aprobado: YYYY-MM-DD' en el frontmatter. A mano, si hiciera falta:\n"
+          f"       `{COMANDO_VISOR_CONTRATOS}`. Sin esa fecha ni el rastro del visor no\n"
+          f"       hay despacho.\n"
           f"    3. Rellena Contexto para el constructor y Plan de trabajo.\n"
           f"    4. python3 {rel(__file__)} despachar {nombre}\n"
           f"    5. Registra la unidad en ESTADO.md"
           f"{' e INDICE.md de bugs' if tipo == 'bug' else ''} (lo escribe el padre).")
+    # R2 del bug 057: el contrato que acaba de nacer se ABRE, no se anuncia. Imprimir el
+    # comando ya se hacía y no bastó: el 25-08 el padre pidió dos OK sin abrir nada.
+    pendientes = contratos_pendientes(nombre)
+    if pendientes:
+        print()
+        imprimir_lineas(abrir_visor_de_contratos(
+            pendientes, getattr(args, "sin_navegador", False)))
     return 0
 
 
@@ -2518,6 +2952,21 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
         elif nota_lote:
             ok(nota_lote)
 
+    # --- Puerta 1 bis (bug 057, R3): ese OK, ¿lo dijo el usuario o lo tecleó el agente? ---
+    # La fecha sola es un dato que escribe quien cierra. El recibo del visor de
+    # presentaciones (051) lo sella el navegador del usuario sobre la validación guiada, y
+    # es lo único que distingue "probó y dijo que sí" de "escribí la fecha de hoy".
+    if politica.require_user_ok:
+        problema_validacion, nota_validacion, aviso_validacion = puerta_recibo_validacion(
+            nombre, ok_usuario
+        )
+        if problema_validacion:
+            problemas.append(problema_validacion)
+        elif nota_validacion:
+            ok(nota_validacion)
+        elif aviso_validacion:
+            warn(aviso_validacion)
+
     # --- Puerta 2: la revisión fresca existe y dice algo -------------------------------------
     hallazgos = ruta.parent / "hallazgos.md" if clase == "unidad" else ruta
     texto_hallazgos = leer_fichero_unidad(hallazgos) if hallazgos.exists() else ""
@@ -2701,7 +3150,9 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
               f"    otra sin tocar el tope ni inventarte un ADR.\n"
               f"  · No está cerrada: no se archiva, no se borra el worktree ni la rama, y el\n"
               f"    linter la enseñará en cada arranque hasta que se termine.\n"
-              f"  · Cuando el usuario dé el OK, con la fecha del día en que lo dio:\n"
+              f"  · Para pedírselo, la web se abre sola (bug 057):\n"
+              f"        {comando_validar(nombre)}\n"
+              f"  · Cuando el usuario dé el OK ahí, con la fecha del día en que lo dio:\n"
               f"        python3 {rel(__file__)} cerrar {nombre} --ok-usuario {HOY}")
         return 0
 
@@ -2828,7 +3279,7 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
 
 # --------------------------------------------------------------------------- subcomando: estado
 
-def cmd_estado(_args):
+def cmd_estado(args):
     unidades = censo()
     print("== Estado del trabajo ==\n")
 
@@ -2901,6 +3352,9 @@ def cmd_estado(_args):
     if pendientes:
         warn(f"{len(pendientes)} contrato(s) sin aprobar: {', '.join(pendientes)} — "
              f"levanta el visor y pide el OK: {COMANDO_VISOR_CONTRATOS}")
+        # R2 del bug 057: y se levanta aquí mismo, que para eso lo sabemos.
+        imprimir_lineas(abrir_visor_de_contratos(
+            pendientes, getattr(args, "sin_navegador", False)))
 
     nnn, _ = siguiente_nnn()
     print(f"\nSiguiente NNN libre: {nnn}")
@@ -2915,8 +3369,9 @@ def main():
         prog="unidad.py",
         description="Despacho de unidades del método: numeración, creación desde plantilla y "
                     "creación de rama/worktree con precondiciones que bloquean.")
-    sub = ap.add_subparsers(dest="comando",
-                            metavar="{nnn,nueva,despachar,prefusion,cerrar,estado}")
+    sub = ap.add_subparsers(
+        dest="comando",
+        metavar="{nnn,nueva,despachar,validar,prefusion,cerrar,estado}")
 
     p_nnn = sub.add_parser("nnn", help="imprime el siguiente NNN libre")
     p_nnn.add_argument("--detalle", action="store_true",
@@ -2943,6 +3398,9 @@ def main():
         metavar="P-ID",
         help="petición evaluada que origina la unidad; repetible",
     )
+    p_nueva.add_argument("--sin-navegador", action="store_true",
+                         help="no levantes el visor de contratos ni abras el navegador: "
+                              "solo imprime el comando (bug 057, R2)")
     p_nueva.set_defaults(func=cmd_nueva)
 
     p_desp = sub.add_parser("despachar",
@@ -2996,6 +3454,20 @@ def main():
     )
     p_cer.set_defaults(func=cmd_cerrar)
 
+    p_val = sub.add_parser(
+        "validar",
+        help="paso 5 de runbooks/cierre.md: genera la validación guiada de la unidad desde "
+             "su ficha, levanta el visor de presentaciones y la abre en el navegador. Pedir "
+             "un OK es esto, no acordarse de enseñar una web")
+    p_val.add_argument("unidad", help="nombre completo NNN-slug")
+    p_val.add_argument("--sin-navegador", action="store_true",
+                       help="genera el manifiesto y para ahí: ni levanta el visor ni abre "
+                            "nada. Imprime el comando exacto para abrirlo tú")
+    p_val.add_argument("--puerto", type=int,
+                       help="puerto local del visor de presentaciones; por defecto uno "
+                            "derivado de la carpeta de datos, estable entre llamadas")
+    p_val.set_defaults(func=cmd_validar)
+
     p_pre = sub.add_parser(
         "prefusion",
         help="paso 3 de runbooks/cierre.md: comprueba ANTES del ff que la rama está rebasada "
@@ -3005,6 +3477,9 @@ def main():
     p_pre.set_defaults(func=cmd_prefusion)
 
     p_est = sub.add_parser("estado", help="resumen: unidades, bugs, worktrees y su coherencia")
+    p_est.add_argument("--sin-navegador", action="store_true",
+                       help="no levantes el visor de contratos ni abras el navegador: "
+                            "solo imprime el comando (bug 057, R2)")
     p_est.set_defaults(func=cmd_estado)
 
     args = ap.parse_args()

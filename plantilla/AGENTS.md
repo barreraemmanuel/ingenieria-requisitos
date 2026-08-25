@@ -76,15 +76,14 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 4. **Entrada, numeración y despacho: con scripts, no a mano.** La primera escritura de toda
    petición accionable es `peticion.py capturar`; después se evalúa por `runbooks/peticiones.md`.
    Una unidad nace con `unidad.py nueva <tipo> <slug> --desde P-ID [--directo]`: asigna el NNN
-   y bloquea trabajo sin origen. `--force` solo sirve para el hotfix y deja deuda escrita. **Pedir un OK sobre un contrato (unidad o bug) = levantar el visor de contratos en el mismo turno:** `python3 main/visor_contratos/servir.py --workspace . --minutos 0`; sin su rastro, `despachar` bloquea aunque `aprobado:` tenga fecha (regla 16).
+   y bloquea trabajo sin origen. `--force` solo sirve para el hotfix y deja deuda escrita. **Pedir un OK sobre un contrato (unidad o bug) no se recuerda, se ejecuta:** `unidad.py nueva` y `unidad.py estado` levantan solos el visor de contratos y lo abren en el que falta por aprobar (`--sin-navegador` para que solo lo impriman); el comando a mano sigue siendo `python3 main/visor_contratos/servir.py --workspace . --minutos 0`. Sin el rastro del visor, `despachar` bloquea aunque `aprobado:` tenga fecha (regla 16).
 5. **Trabajo en vuelo: UNA unidad de código por defecto**, sin tope numérico, solo si no
    comparten ficheros (`ficheros:`, que el script cruza). Las `en_validacion` no cuentan. Las unidades
    `--documental` (leen, no escriben código) tampoco: pueden ir en paralelo.
 6. **Búsquedas de código: dentro de `main/` o de tu worktree.** Desde la raíz no verás código
    (el gitignore lo oculta a las herramientas de búsqueda); eso es intencional.
 7. **Merge y cierre son indivisibles.** Verificar + `lint_ci.py` → revisar (quien no construyó,
-   diff contra el contrato) → merge → tests + seguridad → **lanzar la app y que el usuario la pruebe** (sin
-   su OK no hay cierre; `cerrar` sin `--ok-usuario` deja `en_validacion` y libera cupo) →
+   diff contra el contrato) → merge → tests + seguridad → **lanzar la app y que el usuario la pruebe con `unidad.py validar NNN-slug`**, que monta la validación guiada desde la ficha y abre la web sola: su recibo es lo que `cerrar --ok-usuario` lee (una fecha tecleada no vale y un `problema` bloquea y manda abrir un bug). Sin ese OK no hay cierre; `cerrar` sin `--ok-usuario` deja `en_validacion` y libera cupo →
    deltas al mapa → promover hallazgos → `ESTADO.md` → archivar → borrar worktree y rama. No
    existe "mergeado pero sin cerrar". El ritual entero, sus dos caminos (con `gh` y sin él) y
    la frontera del revisor: `runbooks/cierre.md`. Los bugs no se archivan (ADR-006).
@@ -130,6 +129,7 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 
 ## Nadie espera a ciegas (regla 16 · detalle y traducciones: `00-metodo/comunicacion.md`)
 
+- **Pedir un OK es ejecutar un comando, no acordarse de enseñar una web.** Contrato: `unidad.py nueva`/`estado` abren el visor de contratos en el que falte aprobar. Entrega: `unidad.py validar NNN-slug` monta la validación guiada y la abre. Pegar la tabla en el chat es un RESUMEN de lo que ya tiene delante, jamás el sustituto.
 - **Sin jerga del método.** Si una palabra solo existe dentro de `docs/00-metodo/`, no sale por
   el chat. Nombres de fichero y de script sí, con lo que hacen al lado.
 - **Parte de avance: una línea por casilla del plan, en cuanto se marca.** La señal ya existe —

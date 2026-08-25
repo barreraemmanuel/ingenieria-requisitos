@@ -207,24 +207,37 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    `full-suite` ya contiene los E2E mínimos seleccionados y no se repite en navegador la
    matriz exhaustiva que vive en tests rápidos (ADR-019).
 5. **Cuando la política exige app, lanzarla y hacer que el usuario la pruebe** (mismo
-   `AGENTS.md`), con los
-   ejemplos reales de sus criterios. **Sin su OK no hay cierre**; "no es lo que
-   pedí" no se discute: se abre una unidad tipo `bug` — y su contrato pide el mismo OK que
-   cualquier otro, con el visor de contratos levantado en el turno en que se le pregunte
-   (`python3 main/visor_contratos/servir.py --workspace . --minutos 0`). La fecha de ese OK es
-   lo que se le pasa al comando del paso 6.
+   `AGENTS.md`), con los ejemplos reales de sus criterios. **Pedir ese OK ES un comando**, no
+   una costumbre:
 
-   **Lo que se le pega en la conversación** (esto, y nada más):
+   `python3 docs/00-metodo/scripts/unidad.py validar NNN-slug`
+
+   Genera la validación guiada desde la ficha —la tabla "Cómo lo pruebas tú" pasa a ser los
+   pasos, la evidencia del `hallazgos.md` (o la §5, si es un bug) pasa a ser la evidencia y
+   los `ficheros:` van de adjuntos—, levanta el visor de presentaciones y **abre el navegador
+   en ella**. Es idempotente: si ya existe, la reabre. Si la ficha no tiene escrito "Cómo lo
+   pruebas tú", el comando BLOQUEA y lo dice: sin eso el usuario devuelve un "me parece bien"
+   que firma una entrega sin haber comprobado nada.
+
+   El usuario decide ahí, en la web: `confirmado` o `problema`. Su decisión queda en un recibo
+   inmutable que el paso 6 LEE — una fecha tecleada por el agente ya no vale por un OK
+   (bug 057). **Sin su OK no hay cierre**; un `problema` no se discute: se abre una unidad
+   tipo `bug` con su ejemplo — y su contrato pide el mismo OK que cualquier otro, con el visor
+   de contratos, que los comandos de creación y `unidad.py estado` también levantan solos
+   (`python3 main/visor_contratos/servir.py --workspace . --minutos 0` es el mismo comando, a
+   mano). La fecha de ese OK es lo que se le pasa al comando del paso 6.
+
+   **El resumen que se le pega en la conversación** —además de la web, nunca en su lugar—:
 
    | unidad | qué se hizo | estado |
    |---|---|---|
    | 007-albaranes | editar un albarán facturado recalcula el total | listo, esperando tu OK |
 
-   App corriendo en: `<enlace>` · Ficha: `docs/05-trabajo/007-albaranes/especificacion.md`
+   App corriendo en: `<enlace>` · Validación guiada: `<la URL que imprime `validar`>` ·
+   Ficha: `docs/05-trabajo/007-albaranes/especificacion.md`
 
-   …y debajo, la tabla **"Cómo lo pruebas tú"** de esa especificación (o la §6 de la ficha,
-   si es un bug), tal cual. Si está en blanco, se escribe ANTES de llamarlo: sin ella el
-   usuario devuelve un "me parece bien" que firma una entrega sin haber comprobado nada.
+   La tabla "Cómo lo pruebas tú" ya la tiene delante EN la web: pegarla debajo es un resumen
+   para quien lee el chat, no el camino por el que se da el OK.
 
    Documental y exprés no inventan una app ni un OK. El prototipo no se cierra: deja la ficha
    `descartada` y cancela sus procesos con `peticion.py marcar-proceso`. Si la

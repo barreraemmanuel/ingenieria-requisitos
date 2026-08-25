@@ -101,6 +101,54 @@ def validar(datos):
     return datos
 
 
+# --------------------------------------------------------------- generar, no escribir a mano
+# Bug 057: el manifiesto de una validación guiada se escribía A MANO cada vez que había que
+# pedir un OK, así que pedir un OK dependía de que el agente se acordara. `unidad.py validar`
+# lo genera desde la ficha y usa esto: el contrato JSON se conoce AQUÍ, en un solo sitio, y
+# no se duplica en los scripts del método.
+
+RECORTE = "… [recortado]"
+VACIO = "—"
+
+
+def sanear(valor, tope=2000):
+    """Un texto que `validar` va a aceptar: sin dato sensible y dentro del tope.
+
+    Lo que entra viene de una ficha escrita por personas: puede traer saltos de línea, un
+    correo de contacto o un párrafo de más. Recortar y tachar AQUÍ evita el peor final
+    posible —un manifiesto generado que su propio validador rechaza— sin relajar la
+    frontera: `SENSIBLE` y el tope siguen siendo los mismos de la 051.
+    """
+    texto = " ".join(str(valor).split()) or VACIO
+    texto = SENSIBLE.sub("[dato sensible]", texto)
+    if len(texto) > tope:
+        texto = texto[:tope - len(RECORTE)] + RECORTE
+    return texto
+
+
+def presentacion_validacion(identificador, titulo, version, pasos, evidencia, adjuntos=()):
+    """La vista de validación guiada de UNA unidad, ya saneada y lista para `validar`."""
+    presentacion = {
+        "id": identificador,
+        "tipo": "validacion",
+        "titulo": sanear(titulo),
+        "version": sanear(version),
+        "pasos": [sanear(paso) for paso in pasos] or [VACIO],
+        "evidencia": [sanear(linea) for linea in evidencia] or [VACIO],
+        "opciones": ["confirmado", "problema"],
+        "comentario_obligatorio": ["problema"],
+    }
+    adjuntos = [ruta for ruta in adjuntos if RUTA_ADJUNTO.match(ruta or "")]
+    if adjuntos:
+        presentacion["adjuntos"] = adjuntos
+    return presentacion
+
+
+def manifiesto(presentaciones):
+    """Envuelve las presentaciones en el contrato v1 y lo valida antes de devolverlo."""
+    return validar({"version": 1, "presentaciones": list(presentaciones)})
+
+
 def crear_ejemplo():
     return copy.deepcopy({"version": 1, "presentaciones": [
         {"id": "bandeja", "tipo": "bandeja", "titulo": "Peticiones", "version": "1", "estado": "pendiente", "peticiones": [{"id": "P-001", "titulo": "Propuesta", "detalle": "Revisar la propuesta.", "estado": "pendiente", "destino": "propuesta"}]},
