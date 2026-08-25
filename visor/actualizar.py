@@ -1120,7 +1120,7 @@ def sembrar_ganchos_locales(workspace):
     seguiría invisible justo donde ya se trabaja.
     """
     try:
-        bootstrap.sembrar_hook_canario(workspace)
+        bootstrap.sembrar_hooks_locales(workspace)
     except OSError:
         pass
 

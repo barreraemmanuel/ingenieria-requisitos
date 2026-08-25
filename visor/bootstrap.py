@@ -94,7 +94,8 @@ PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "desplieg
 # porque no son documentos .md: son los ficheros que se copian tal cual al servidor.
 PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
                   "servidor-preparar.sh", "backup.sh", "restaurar-prueba.sh")
-SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py", "ejecucion.py",
+SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py",
+           "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
            "lint_salidas.py", "lease.py",
            "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
@@ -236,8 +237,8 @@ ORDEN_CANARIO = "python3 docs/00-metodo/scripts/canario.py hook"
 ORDEN_CANARIO_STOP = "python3 docs/00-metodo/scripts/canario.py hook-stop"
 
 
-def _ya_hay_canario(ganchos, sufijo):
-    """¿Alguno de estos ganchos ya llama al canario con ese subcomando?"""
+def _ya_hay_orden(ganchos, sufijo):
+    """¿Alguno de estos ganchos ya ejecuta una orden que contenga ese texto?"""
     return any(sufijo in str(orden.get("command", ""))
                for entrada in ganchos if isinstance(entrada, dict)
                for orden in entrada.get("hooks", []) if isinstance(orden, dict))
@@ -280,7 +281,7 @@ def sembrar_hook_canario(destino):
         precompact = []
     # El PreCompact ya sembrado lleva `hook` a secas: se busca por el sufijo del subcomando
     # para no confundirlo con el Stop, que llama al mismo script.
-    if not _ya_hay_canario(precompact, "canario.py hook"):
+    if not _ya_hay_orden(precompact, "canario.py hook"):
         precompact.append({"matcher": "auto",
                            "hooks": [{"type": "command", "command": ORDEN_CANARIO}]})
         hooks["PreCompact"] = precompact
@@ -289,7 +290,7 @@ def sembrar_hook_canario(destino):
     parada = hooks.get("Stop")
     if not isinstance(parada, list):
         parada = []
-    if not _ya_hay_canario(parada, "canario.py hook-stop"):
+    if not _ya_hay_orden(parada, "canario.py hook-stop"):
         # Stop no usa `matcher`: se dispara al terminar cualquier turno.
         parada.append({"hooks": [{"type": "command", "command": ORDEN_CANARIO_STOP}]})
         hooks["Stop"] = parada
@@ -300,6 +301,88 @@ def sembrar_hook_canario(destino):
     fichero.write_text(json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                        encoding="utf-8")
     return True
+
+
+ORDEN_AVISO = "python3 docs/00-metodo/scripts/aviso.py"
+# Un segundo de margen sobraría —el reproductor se suelta y no se espera—, pero el hook
+# corre en el camino crítico del turno: cinco segundos es el tope por si la máquina está
+# atascada, no el tiempo que se espera.
+TIMEOUT_AVISO = 5
+# Los dos momentos en que el agente NECESITA a la persona, y los únicos: pedir permiso o
+# quedarse esperando (`Notification`) y terminar el turno (`Stop`). Cualquier otro evento
+# sonaría mientras trabaja, que es justo cuando nadie quiere que suene nada.
+GANCHOS_AVISO = (("Notification", "notificacion"), ("Stop", "fin-de-turno"))
+
+
+def sembrar_hook_aviso(destino):
+    """Siembra los hooks del aviso sonoro (unidad 063) en `.claude/settings.json`.
+
+    Hasta ahora el sonido solo lo tenía la máquina de Nate, puesto a mano en su
+    `~/.claude/settings.json`. Aquí se convierte en algo que trae de serie CUALQUIER
+    workspace del método, en las tres plataformas: quien no lo quiera escribe
+    `sonido: no` en `.claude/personalidad.md` y se acabó.
+
+    Va aparte de `sembrar_hook_canario` a propósito, no por simetría: son dos guardianes
+    distintos con dueños distintos, y quien apaga el sonido no está apagando el canario.
+
+    Idempotente y respetuosa, como su hermana: `.claude/` guarda preferencias del dueño,
+    así que se conserva todo lo que hubiera —incluidos hooks propios y su orden— y cada
+    gancho se añade solo si no está. Devuelve True si escribió.
+    """
+    return _sembrar_ganchos(destino, [
+        (gancho, {"hooks": [{"type": "command",
+                             "command": f"{ORDEN_AVISO} {evento}",
+                             "timeout": TIMEOUT_AVISO}]}, "aviso.py")
+        for gancho, evento in GANCHOS_AVISO])
+
+
+def _sembrar_ganchos(destino, entradas):
+    """Añade cada `(gancho, entrada, sufijo)` a `.claude/settings.json` si no estaba ya.
+
+    Un `settings.json` ilegible no se pisa a ciegas: se recompone, igual que en
+    `sembrar_hook_canario`.
+    """
+    carpeta = destino / ".claude"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    fichero = carpeta / "settings.json"
+    datos = {}
+    if fichero.is_file():
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except ValueError:
+            datos = {}
+    if not isinstance(datos, dict):
+        datos = {}
+    hooks = datos.setdefault("hooks", {}) if isinstance(datos.get("hooks", {}), dict) else {}
+    datos["hooks"] = hooks
+
+    escrito = False
+    for gancho, entrada, sufijo in entradas:
+        actuales = hooks.get(gancho)
+        if not isinstance(actuales, list):
+            actuales = []
+        if _ya_hay_orden(actuales, sufijo):
+            continue
+        actuales.append(entrada)          # al final: lo del usuario conserva su orden
+        hooks[gancho] = actuales
+        escrito = True
+
+    if not escrito:
+        return False
+    fichero.write_text(json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                       encoding="utf-8")
+    return True
+
+
+def sembrar_hooks_locales(destino):
+    """Todos los ganchos que el método pone en `.claude/`: canario y aviso sonoro.
+
+    Es el único punto que hay que llamar —el bootstrap de un workspace nuevo y el Modo D
+    sobre uno viejo—: así, cuando entre el guardián siguiente, nadie tiene que acordarse
+    de añadir otra llamada en dos sitios. Devuelve True si escribió algo.
+    """
+    escrito = sembrar_hook_canario(destino)
+    return sembrar_hook_aviso(destino) or escrito
 
 
 def sembrar_config_canario(destino):
@@ -323,6 +406,24 @@ PLACEHOLDER_PERSONALIDAD = """\
 > Está vacío a propósito: sin directrices, el agente usa su tono normal y no avisa de nada.
 > Escribe aquí lo que quieras cambiar (p. ej. "háblame de tú, directo, sin emojis") y
 > aplicará desde el siguiente arranque. Vive fuera de git: es tuyo, nadie lo pisa.
+
+## El aviso sonoro
+
+Cuando el agente te pide un permiso, se queda esperando o termina el turno, suena. Para
+cambiarlo, escribe la clave `sonido:` en una línea de este fichero (fuera de un bloque de
+código como este, que solo son ejemplos):
+
+```
+sonido: no          calla
+sonido: sistema     el sonido de notificación del sistema  (lo de serie)
+sonido: toasty      tu clip: .claude/sonidos/toasty.wav (o .aiff, .mp3…)
+sonido: /Users/tu/lo-que-sea.wav
+```
+
+Los clips NO vienen en el método (tienen dueño): deja los tuyos en `.claude/sonidos/`. Si
+el que pides no está, suena el del sistema y se te dice una vez. En Codex CLI no hay
+hooks, así que allí no suena nada. Para ver qué sonaría en esta máquina:
+`python3 docs/00-metodo/scripts/aviso.py --diagnostico`.
 """
 
 
@@ -1087,9 +1188,11 @@ def main():
     # línea que importa el router. Cualquier agente nuevo se añade aquí, no en AGENTS.md.
     for puente in ("CLAUDE.md", "GEMINI.md"):
         (destino / puente).write_text("@AGENTS.md\n@.claude/personalidad.md\n", encoding="utf-8")
-    # Canario de contexto: los hooks (PreCompact(auto) y Stop) y la tabla de umbrales. Van en
-    # `.claude/` (gitignorada) porque son preferencia local del dueño, no método repartido.
-    sembrar_hook_canario(destino)
+    # Los ganchos que el método pone de serie —canario de contexto (PreCompact(auto) y
+    # Stop) y aviso sonoro (Notification y Stop, unidad 063)— y la tabla de umbrales. Van
+    # en `.claude/` (gitignorada) porque son preferencia local del dueño, no método
+    # repartido: quien no quiera el sonido escribe `sonido: no` en personalidad.md.
+    sembrar_hooks_locales(destino)
     sembrar_config_canario(destino)
     if sembrar_personalidad(destino):
         print("  · .claude/personalidad.md creado: edítalo si quieres cambiar el tono del "
