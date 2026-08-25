@@ -96,12 +96,23 @@ class BarraComunTest(unittest.TestCase):
         self.assertTrue('var GUARDADO = "visor-tema";' in texto,
                         "falta el interruptor compartido")
 
-    def test_la_barra_se_estila_en_el_bloque_comun(self):
+    def test_la_barra_se_estila_en_la_hoja_comun(self):
+        """Desde la 076 el estilo de la barra vive en `visor/base.css`.
+
+        Antes se comprobaba que estuviera COPIADO en cada plantilla; ahora, lo
+        contrario: que no lo esté en ninguna y sí en la hoja que las tres
+        enlazan.
+        """
+        hoja = (RAIZ / "visor" / "base.css").read_text(encoding="utf-8")
+        self.assertIn(".barra-webs a.actual", hoja)
         for _, plantilla in OTRAS:
             with self.subTest(plantilla=plantilla.parent.name):
-                self.assertTrue(
-                    ".barra-webs a.actual" in plantilla.read_text(encoding="utf-8"),
-                    "%s no estila la barra común" % plantilla.parent.name)
+                texto = plantilla.read_text(encoding="utf-8")
+                self.assertIn('<link rel="stylesheet" href="/base.css">', texto,
+                              "%s no enlaza la hoja común" % plantilla.parent.name)
+                self.assertNotIn(
+                    ".barra-webs", texto,
+                    "%s estila la barra por su cuenta" % plantilla.parent.name)
 
 
 if __name__ == "__main__":

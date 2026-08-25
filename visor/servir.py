@@ -55,6 +55,9 @@ RUTA_ACTIVIDAD = re.compile(r"^/actividades/([a-z0-9][a-z0-9-]*)/(datos\.json|sp
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 PLANTILLA = os.path.join(BASE, "plantilla.html")
+# La hoja común de las cuatro webs (unidad 076): un solo fichero, sin copia.
+# Vive AQUÍ y las otras tres la leen de este mismo sitio.
+BASE_CSS = os.path.join(BASE, "base.css")
 
 
 def hacer_handler(ruta_datos, estado):
@@ -64,6 +67,9 @@ def hacer_handler(ruta_datos, estado):
             pedida = urlsplit(self.path).path
             if pedida in ("/", "/index.html"):
                 self._fichero(PLANTILLA, "text/html; charset=utf-8")
+            elif pedida == "/base.css":
+                # Hoja común de las cuatro webs (unidad 076).
+                self._fichero(BASE_CSS, "text/css; charset=utf-8")
             elif pedida == "/meta.json":
                 self._json(200, {
                     "datos": ruta_datos,

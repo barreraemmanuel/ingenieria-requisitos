@@ -13,6 +13,7 @@ Rutas, todas de lectura:
     GET /estado.json      la foto entera del workspace (la página la sondea)
     GET /doc/<ruta>.md    un markdown de dentro del meta-repo (con guarda)
     GET /render.js        el motor de bloques del visor de contratos
+    GET /base.css         la hoja de estilos común de las cuatro webs
     GET /meta.json        identidad del servicio, para `abrir.py`
 
 Cualquier POST responde 405: el tablero no escribe (R8).
@@ -48,6 +49,8 @@ for _salida in (sys.stdout, sys.stderr):
 BASE = Path(__file__).resolve().parent
 PLANTILLA = BASE / "plantilla.html"
 RENDER_JS = BASE.parent / "visor_contratos" / "render.js"
+# La hoja común de las cuatro webs (unidad 076), leída de su único sitio.
+BASE_CSS = BASE.parent / "visor" / "base.css"
 RASTRO = "tablero.log"
 SERVICIO = "visor-tablero"
 
@@ -87,6 +90,9 @@ def hacer_handler(workspace, estado):
             if pedida == "/render.js":
                 # El motor de la 056, leído de su sitio: una sola copia viva.
                 return self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
+            if pedida == "/base.css":
+                # Hoja común de las cuatro webs (unidad 076).
+                return self._fichero(BASE_CSS, "text/css; charset=utf-8")
             if pedida == "/meta.json":
                 return self._json(200, {
                     "servicio": SERVICIO,

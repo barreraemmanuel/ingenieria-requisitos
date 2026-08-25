@@ -155,6 +155,12 @@ ARCHIVOS_METODO = tuple(
 ARCHIVOS_REQUISITOS = (
     "RUNBOOK.md", "servir.py", "validar.py", "validar_web.py", "generar_spec.py",
     "compilar.py", "finalizar.py", "requisitos.py", "revision.py", "plantilla.html",
+    # La hoja de estilos común de las cuatro webs (unidad 076). Viaja al lado de
+    # `plantilla.html` porque las plantillas la piden como `/base.css` y los dos
+    # servidores del workspace (el de flujos, aquí; el de presentaciones, en su
+    # subcarpeta) la leen de esta misma ruta. Si no se reparte, la web del
+    # workspace nace sin estilos — la misma lección que `render.js` en el 064.
+    "base.css",
     "esquema.json", "requirements-dev.txt",
     "RUNBOOK/arranque.md", "RUNBOOK/fases.md", "RUNBOOK/comun.md",
     "RUNBOOK/modo-c.md", "RUNBOOK/modo-d.md",
@@ -1125,7 +1131,7 @@ def main():
     for nombre in (
         "servir.py", "validar.py", "validar_web.py", "generar_spec.py",
         "compilar.py", "finalizar.py", "requisitos.py", "revision.py",
-        "plantilla.html", "esquema.json",
+        "plantilla.html", "base.css", "esquema.json",
     ):
         shutil.copyfile(BASE / nombre, requisitos / nombre)
     shutil.copyfile(BASE.parent / "requirements-dev.txt",

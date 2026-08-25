@@ -34,6 +34,8 @@ BASE = Path(__file__).resolve().parent.parent
 PLANTILLA = BASE / "plantilla.html"
 PLANTILLA_CONTRATOS = BASE.parent / "visor_contratos" / "plantilla.html"
 RENDER_JS = BASE.parent / "visor_contratos" / "render.js"
+BASE_CSS = BASE.parent / "visor" / "base.css"
+ENLACE_BASE_CSS = '<link rel="stylesheet" href="/base.css">'
 NODE = shutil.which("node")
 
 
@@ -325,52 +327,54 @@ def bloque_interruptor(texto):
 
 class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
     """R1 — misma cabecera, paleta, tipografía e interruptor de tema que el
-    visor de contratos (mismo método que el R2 de la 009: bloques comparados
-    línea a línea, no el fichero entero: presentaciones añade CSS propia
-    para pestañas/adjuntos que contratos no necesita)."""
+    visor de contratos. Hasta la 076 eso se comprobaba comparando bloques
+    COPIADOS línea a línea; desde la 076 no hay copia que comparar: el
+    esqueleto vive una sola vez en `visor/base.css` y las dos webs lo enlazan.
+    Lo que se vigila aquí es que ninguna se descuelgue ni se lo vuelva a traer
+    a su `<style>`, donde sólo queda lo propio (pestañas, adjuntos)."""
 
     def setUp(self):
         self.presentaciones = PLANTILLA.read_text(encoding="utf-8")
         self.contratos = PLANTILLA_CONTRATOS.read_text(encoding="utf-8")
 
-    def test_la_paleta_es_la_misma_linea_a_linea(self):
-        esperado = bloque_paleta(self.contratos)
-        self.assertGreater(len(esperado), 20, "la paleta de contratos no se pudo leer")
-        self.assertEqual(esperado, bloque_paleta(self.presentaciones))
+    def test_la_paleta_ya_no_se_copia_sino_que_se_enlaza(self):
+        paleta = bloque_paleta(BASE_CSS.read_text(encoding="utf-8"))
+        self.assertGreater(len(paleta), 20, "la paleta de base.css no se leyó")
+        for nombre, texto in (("presentaciones", self.presentaciones),
+                              ("contratos", self.contratos)):
+            with self.subTest(web=nombre):
+                self.assertIn(ENLACE_BASE_CSS, texto)
+                self.assertNotIn(":root", texto)
 
     def test_el_interruptor_de_tema_se_comporta_igual(self):
         esperado = bloque_interruptor(self.contratos)
         self.assertGreater(len(esperado), 15, "el interruptor de contratos no se pudo leer")
         self.assertEqual(esperado, bloque_interruptor(self.presentaciones))
 
-    def test_la_cabecera_es_la_misma(self):
+    def test_la_cabecera_y_el_menu_lateral_viven_en_la_hoja_comun(self):
+        hoja = BASE_CSS.read_text(encoding="utf-8")
         for declaracion in (
-            'header { position: relative; padding-right: 44px; }',
-            '.boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }',
-            "h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }",
-            ".sub { color: var(--muted); font-size: 13.5px; }",
-        ):
-            with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.contratos)
-                self.assertIn(declaracion, self.presentaciones)
-
-    def test_la_tipografia_es_la_misma(self):
-        for declaracion in (
-            "--sans: -apple-system, BlinkMacSystemFont",
-            "font: 16px/1.5 var(--sans)",
-        ):
-            with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.presentaciones)
-
-    def test_el_menu_lateral_usa_las_mismas_clases_que_contratos(self):
-        for declaracion in (
+            "header { position: relative; padding-right: 44px; }",
+            ".boton-tema { position: absolute; top: -2px; right: 0;",
+            "h1 { font-size: var(--t-h1);",
+            ".sub { color: var(--muted);",
             ".menu-unidades { flex: 0 0 268px;",
             ".chip-pendiente { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }",
             ".chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }",
         ):
             with self.subTest(declaracion=declaracion):
-                self.assertIn(declaracion, self.contratos)
-                self.assertIn(declaracion, self.presentaciones)
+                self.assertIn(declaracion, hoja)
+                self.assertNotIn(declaracion, self.presentaciones)
+                self.assertNotIn(declaracion, self.contratos)
+
+    def test_la_tipografia_es_la_misma(self):
+        hoja = BASE_CSS.read_text(encoding="utf-8")
+        for declaracion in (
+            "--sans: -apple-system, BlinkMacSystemFont",
+            "font: 16px/1.5 var(--sans)",
+        ):
+            with self.subTest(declaracion=declaracion):
+                self.assertIn(declaracion, hoja)
 
 
 class AdjuntosFiltradosTest(unittest.TestCase):

@@ -5,140 +5,20 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
 <title>Contratos de trabajo · ingeniería de requisitos</title>
-<style>
-  /* PLANTILLA FIJA del visor de CONTRATOS. Sólo lee: las unidades vivas del
-     workspace (docs/05-trabajo/) y su especificacion.md. No comparte fichero
-     con el visor de flujos, pero sí su paleta y su interruptor de tema: los dos
-     bloques de abajo se copian LITERALES de visor/plantilla.html y un test los
-     compara línea a línea. Si cambias uno, cambia el otro. */
-  /* ---------- paleta (misma que manual-ingenieria-requisitos.html) ----------
-     Claro por defecto, oscuro automático según el sistema, y data-theme para forzarlo.
-     Los papeles semánticos se conservan para daltonismo: persona = cálido (warn),
-     automático·código = azul (accent), automático·IA = verde (ok). */
-  :root {
-    --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
-    --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
-    --line: #CDD5CE; --line-soft: #E1E7E0;
-    --accent: #1F5673; --accent-bg: #E4EDF2;
-    --ok: #3D6B4C; --ok-bg: #E3EDE4;
-    --warn: #8E6410; --warn-bg: #F2EBDA;
-    --fail: #A03127; --fail-bg: #F4E4E1;
-    --alt: #5B4A78; --alt-bg: #ECE8F3;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root {
-      --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
-      --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
-      --line: #2B363E; --line-soft: #202A31;
-      --accent: #7FB4D4; --accent-bg: #16242E;
-      --ok: #77B189; --ok-bg: #17251C;
-      --warn: #CE9F45; --warn-bg: #251F12;
-      --fail: #E08578; --fail-bg: #2A1815;
-      --alt: #A99AC8; --alt-bg: #1E1A26;
-    }
-  }
-  :root[data-theme="dark"] {
-    --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
-    --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
-    --line: #2B363E; --line-soft: #202A31;
-    --accent: #7FB4D4; --accent-bg: #16242E;
-    --ok: #77B189; --ok-bg: #17251C;
-    --warn: #CE9F45; --warn-bg: #251F12;
-    --fail: #E08578; --fail-bg: #2A1815;
-    --alt: #A99AC8; --alt-bg: #1E1A26;
-  }
-  :root[data-theme="light"] {
-    --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
-    --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
-    --line: #CDD5CE; --line-soft: #E1E7E0;
-    --accent: #1F5673; --accent-bg: #E4EDF2;
-    --ok: #3D6B4C; --ok-bg: #E3EDE4;
-    --warn: #8E6410; --warn-bg: #F2EBDA;
-    --fail: #A03127; --fail-bg: #F4E4E1;
-    --alt: #5B4A78; --alt-bg: #ECE8F3;
-  }
-
-  * { margin: 0; padding: 0; box-sizing: border-box; }
-  [hidden] { display: none !important; }
-  html { -webkit-text-size-adjust: 100%; }
-  body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
-  .pagina { max-width: 1180px; margin: 0 auto; padding: 32px 20px 90px; }
-
-  header { position: relative; padding-right: 44px; }
-  header .marca { font-size: 11px; font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--warn); }
-  .boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
-  .boton-tema:hover { border-color: var(--accent); color: var(--ink); }
-  .boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  h1 { font-size: 25px; line-height: 1.2; margin: 6px 0 2px; }
-  .sub { color: var(--muted); font-size: 13.5px; }
-
-  /* ---------- barra común de las cuatro webs (bug 067) ----------
-     El mismo bloque en el tablero, el visor de contratos y presentaciones: una
-     web, una función, y desde cualquiera se llega a las otras tres. La actual
-     va marcada con `.actual` + aria-current. */
-  .barra-webs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-  .barra-webs a { font: bold 11px var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; background: var(--sheet); }
-  .barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
-  .barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
-  .barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-
-  .aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 2px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: 13.5px; box-shadow: 0 4px 16px rgba(11, 11, 11, .18); }
-  .aviso-flotante.visible { display: block; }
-
-  .cuerpo { display: flex; gap: 26px; align-items: flex-start; margin-top: 22px; }
-
-  .menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px; }
-  .titulo-menu { font-size: 11px; font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-  .menu-unidades input[type="search"] { width: 100%; font: 13px var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; margin-bottom: 10px; }
-  .menu-unidades button { display: block; width: 100%; text-align: left; font: 13.5px var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 2px 0; cursor: pointer; }
-  .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
-  .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-  .menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
-  .menu-unidades button .nombre { display: block; font-weight: bold; }
-  .menu-unidades .vacio { font-size: 13px; color: var(--faint); padding: 6px 2px; }
-
-  .chip { display: inline-block; font-size: 10.5px; font-weight: bold; letter-spacing: .06em; text-transform: uppercase; border-radius: 999px; padding: 2px 8px; margin: 4px 4px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
-  .chip-pendiente { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
-  .chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
-
-  .panel { flex: 1 1 auto; min-width: 0; }
-  .panel .vacio { border: 1px dashed var(--line); border-radius: 10px; padding: 24px; color: var(--muted); font-size: 14px; background: var(--sheet); }
-  .cabecera-contrato { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; background: var(--sheet); padding: 14px 18px; }
-  .cabecera-contrato h2 { font-size: 20px; line-height: 1.25; }
-  .cabecera-contrato .ruta { font-size: 12px; color: var(--faint); margin-top: 4px; word-break: break-all; }
-
-  .bluf { margin-top: 18px; border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; background: var(--sheet); padding: 14px 18px; }
-  .bluf > h3 { font-size: 17px; margin-bottom: 6px; }
-  .bluf + .bluf { margin-top: 14px; }
-  .plegable { margin-top: 14px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 10px 18px; }
-  .plegable > summary { cursor: pointer; font-weight: bold; font-size: 14.5px; color: var(--muted); }
-  .plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
-  .plegable[open] > summary { margin-bottom: 8px; }
-
-  .md { font-size: 15px; max-width: 78ch; }
-  .md h4 { font-size: 15px; margin: 14px 0 4px; }
-  .md h5 { font-size: 13.5px; color: var(--muted); margin: 12px 0 4px; }
-  .md p { margin: 8px 0; }
-  .md ul, .md ol { margin: 8px 0 8px 22px; }
-  .md li { margin: 3px 0; }
-  .md li.tarea { list-style: none; margin-left: -18px; }
-  .md li.tarea .caja { color: var(--muted); margin-right: 6px; }
-  .md li.tarea.hecha { color: var(--muted); }
-  .md code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 13px; background: var(--line-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-  .md pre { margin: 10px 0; padding: 10px 12px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
-  .md pre code { border: 0; background: none; padding: 0; }
-  .md blockquote { margin: 10px 0; padding: 6px 14px; border-left: 3px solid var(--line); color: var(--muted); font-size: 14px; }
-  .md table { border-collapse: collapse; margin: 10px 0; font-size: 13.5px; width: 100%; }
-  .md th, .md td { border: 1px solid var(--line); padding: 6px 9px; text-align: left; vertical-align: top; }
-  .md th { background: var(--line-soft); }
-  .md a { color: var(--accent); }
-
-  @media (max-width: 860px) {
-    .cuerpo { display: block; }
-    .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: 20px; }
-  }
+<style id="minimo-sin-base-css">
+  /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
+     familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
+     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue. */
+  body { background: #F3F5F1; color: #16202A; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
 </style>
+<link rel="stylesheet" href="/base.css">
+<!-- PLANTILLA FIJA del visor de CONTRATOS. Sólo lee: las unidades vivas del
+     workspace (docs/05-trabajo/) y su especificacion.md. Desde la 076 no tiene
+     estilos propios: TODO lo suyo (paleta, cabecera, barra de las cuatro webs,
+     menú lateral, panel, plegables y tipografía) vive en `visor/base.css`, la
+     hoja común que sirve `servir.py` en `/base.css`. Si algo hay que retocar,
+     se retoca allí y las cuatro webs cambian a la vez. -->
 </head>
 <body>
 <script>

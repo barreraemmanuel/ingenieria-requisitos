@@ -205,22 +205,35 @@ class PruebasServidor(unittest.TestCase):
             'id="menu"', 'id="listado"', 'id="panel"',
             'name="eleccion"', 'id="comentario"',
             ':focus-visible',
-            '@media (max-width: 700px)', '@media (max-width: 860px)',
+            '@media (max-width: 700px)',
             'aria-live="polite"',
         ):
             self.assertIn(esperado, texto)
+        # El corte de 860px (el menú lateral que se apila) lo trae la hoja
+        # común desde la 076: se comprueba donde ahora vive.
+        _, cabeceras, hoja = self.pedir("GET", "/base.css")
+        self.assertIn("text/css", cabeceras["Content-Type"])
+        self.assertIn("@media (max-width: 860px)", hoja.decode("utf-8"))
 
     def test_plantilla_usa_el_lenguaje_visual_del_visor_de_contratos(self):
         # Unidad 056: la plantilla se rehizo sobre el esqueleto del visor de
         # contratos (antes copiaba la paleta del visor de flujos a 920px).
+        # Unidad 076: ese esqueleto ya no viaja DENTRO del HTML — el servidor
+        # sirve `/base.css`, la misma hoja que las otras tres webs. Así que se
+        # comprueba lo mismo, pero donde ahora está.
         _, _, html = self.pedir("GET", "/")
-        texto = html.decode("utf-8")
+        self.assertIn('<link rel="stylesheet" href="/base.css">',
+                      html.decode("utf-8"))
+        estado, cabeceras, cuerpo = self.pedir("GET", "/base.css")
+        self.assertEqual(200, estado)
+        self.assertIn("text/css", cabeceras["Content-Type"])
+        hoja = cuerpo.decode("utf-8")
         for esperado in (
             "--paper: #F3F5F1", "--sans: -apple-system",
             ":root[data-theme=\"dark\"]", ".boton-tema",
-            "outline: 2px solid var(--warn)", "max-width: 1180px",
+            "outline: 2px solid var(--warn)", "--ancho-pagina: 1180px",
         ):
-            self.assertIn(esperado, texto)
+            self.assertIn(esperado, hoja)
 
     def test_decision_valida_crea_recibos_nuevos_inmutables(self):
         decision = {
