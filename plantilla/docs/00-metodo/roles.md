@@ -39,11 +39,45 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
   ficheros y el usuario lo pide).
 - **Ejecución delegada:** normal/completo y todo revisor fresco se lanzan exclusivamente con
   `docs/00-metodo/scripts/ejecucion.py`; un subagente abierto a mano no tiene rol válido.
+  El **modelo y el esfuerzo no se teclean**: los deriva el lanzador de la tabla de abajo.
 - **Aprobación de un contrato:** pedirle el OK a un contrato (unidad o bug) exige levantar
   antes el visor de contratos en el mismo turno — `python3 main/visor_contratos/servir.py
   --workspace . --minutos 0` — igual que ANALISTA DE FLUJOS levanta el suyo para los planos.
 - **Cadencia:** una sesión por unidad (o por fase de proyecto). Al arrancar: `ESTADO.md`.
   Al terminar algo relevante: actualizar `ESTADO.md` antes de cerrar sesión.
+
+### Modelo y esfuerzo del subagente (regla 10, con ejecutor)
+
+La regla 10 de `AGENTS.md` fijaba el modelo por carril y no tenía quien la ejecutara: el
+lanzador traía `--modelo` opcional y ningún `--esfuerzo`, así que sin flag **todo** subagente
+salía con el modelo por defecto del harness, el más caro, y el acierto dependía de que quien
+despachara se acordara. La tabla vive ahora en `scripts/repo_config.py`
+(`plan_de_modelo(carril, rol)`) y `ejecucion.py lanzar` la aplica sola, leyendo el carril de
+la ficha:
+
+| carril | constructor | revisor | esfuerzo |
+|---|---|---|---|
+| directo, exprés | `claude-opus-5` | `claude-fable-5` | bajo |
+| normal | `claude-opus-5` | `claude-fable-5` | medio |
+| completo, hotfix | `claude-opus-5` | `claude-fable-5` | alto |
+| unidad documental o lint (cualquier carril) | `claude-haiku-4-5` | `claude-haiku-4-5` | bajo |
+
+- **El constructor va en Opus en todos los carriles** por decisión del usuario (25-08), aunque
+  la regla 10 admitiría bajar en directo y exprés: en esos dos carriles construye el padre, así
+  que la casilla casi nunca se usa.
+- **El revisor JAMÁS repite el modelo del constructor** (`claude-fable-5`; alternativa
+  `claude-sonnet-5`): dos instancias del mismo comparten puntos ciegos y la revisión fresca
+  existe justo para eso. `unidad.py cerrar` avisa si los recibos dicen lo contrario.
+- **El esfuerzo viaja al recibo aunque ningún CLI lo admita todavía** como flag: es lo que
+  permite comprobar la regla 10 a posteriori en vez de creérsela.
+- **Salirse de la tabla se declara:** `--modelo`/`--esfuerzo` exigen `--motivo-modelo` y quedan
+  en el recibo como `modelo_origen: excepcion` con su motivo. `unidad.py cerrar` los enseña.
+- **Codex queda INEJECUTABLE bajo la regla 10.** La tabla son identificadores de Anthropic y
+  `ejecucion.py` no le pasa `--model` a `codex exec`, así que no hay forma de acreditar con qué
+  modelo ni con qué razonamiento corrió: su recibo sale con `modelo: null` y
+  `modelo_origen: harness-sin-tabla`. Mientras no tenga tabla propia, **el despacho delegado
+  —constructor y revisor— se hace con `--harness claude`**; `codex` se reserva para pruebas del
+  propio lanzador, no para entregar unidades.
 
 ## OBSERVABILIDAD (solo lectura + informe)
 

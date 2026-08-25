@@ -14,6 +14,7 @@ import json
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -23,6 +24,7 @@ from pathlib import Path
 
 import control_plane
 import lease as gestion_leases
+import repo_config
 import workspace_paths
 
 control_plane.redactar_salidas()
@@ -38,7 +40,13 @@ ESTADOS_EJECUTABLES = {"en_obra", "en_revision"}
 # producirlo: la puerta pedía una evidencia que solo se generaba en un estado anterior al
 # que la unidad ya tiene. Ocho unidades de este workspace quedaron así. Para el constructor
 # sigue cerrado: lo entregado no se sigue construyendo por la puerta de atrás.
-ESTADOS_REVISABLES = ESTADOS_EJECUTABLES | {"en_validacion"}
+ESTADOS_REVISABLES = ESTADOS_EJECUTABLES | {"en_validacion", "mergeada"}
+
+# R3 (065): estados en los que la unidad YA está entregada. Su worktree puede no existir —el
+# cierre lo borra— y aun así hay que poder revisarla: es el caso de las 041-044, cuyo padre
+# tuvo que recrear rama y worktree a mano para conseguir un revisor. Sobre estos estados, y
+# SOLO para el revisor, el launcher se crea un worktree efímero detached sobre `fusion:`.
+ESTADOS_ENTREGADOS = {"en_validacion", "mergeada"}
 
 # Toda puerta escribe su vía de salida (ADR-029), y esa vía tiene que ARRANCAR: es lo que
 # comprueba el test de R1 contra el argparse real de cada script.
@@ -163,6 +171,10 @@ def ficha_unidad(nombre, rol=None):
     candidatas = [
         RAIZ / "docs/05-trabajo" / nombre / "especificacion.md",
         RAIZ / "docs/bugs" / f"{nombre}.md",
+        # R3 (065): una unidad `mergeada` vive en archivo/. Si su ficha no se encuentra ahí,
+        # el revisor de una entrega ya cerrada no tiene contrato que leer y la puerta del
+        # cierre le pide un recibo que nadie puede producir.
+        RAIZ / "docs/05-trabajo/archivo" / nombre / "especificacion.md",
     ]
     for ruta in candidatas:
         if ruta.exists() or ruta.is_symlink():
@@ -270,6 +282,129 @@ def resolver_worktree(nombre):
     if _real(common) != _real(MAIN / ".git"):
         raise ErrorEjecucion("commondir no pertenece a main/.git")
     return destino, gitdir, common
+
+
+@contextlib.contextmanager
+def _worktree_efimero(nombre, sha, destino):
+    """Worktree de usar y tirar para revisar una entrega cuyo worktree ya no existe (R3).
+
+    Nace **detached** sobre el commit de `fusion:` y muere al salir del bloque: es lo más
+    parecido a «solo lectura» que un árbol de trabajo puede ser sin pelearse con los
+    permisos de medio repositorio. Sin rama no hay dónde commitear y sin árbol al terminar
+    no queda residuo — cualquier cosa que el revisor escribiera ahí se va con él. Su
+    veredicto vive donde siempre: en `hallazgos.md` (o en la ficha del bug), que está en el
+    meta-repo y no en el worktree.
+    """
+    codigo, salida = git(MAIN, "worktree", "add", "--detach", str(destino), sha)
+    if codigo:
+        raise ErrorEjecucion(
+            f"no puedo crear el worktree de revisión de {nombre} sobre {sha}: {salida}. "
+            f"{SALIDA} comprueba que ese commit existe de verdad con "
+            f"`git -C main cat-file -t {sha}` y corrige `fusion:` en la ficha si no"
+        )
+    checkpoint_suelto("worktree-efimero", "ok", f"{destino} detached sobre {sha[:8]}")
+    try:
+        yield destino
+    finally:
+        codigo, salida = git(MAIN, "worktree", "remove", "--force", str(destino))
+        if codigo:
+            # El árbol se va igual: dejarlo puesto convertiría la revisión de hoy en el
+            # «worktree fantasma» que bloquea la de mañana.
+            shutil.rmtree(destino, ignore_errors=True)
+            git(MAIN, "worktree", "prune")
+        checkpoint_suelto("worktree-efimero", "ok", f"{destino} borrado")
+
+
+def checkpoint_suelto(nombre, estado, detalle):
+    """Un checkpoint que ocurre ANTES de que exista el recibo (el worktree se crea antes)."""
+    print(f"CHECKPOINT {nombre} {estado}: {detalle}", flush=True)
+
+
+@contextlib.contextmanager
+def worktree_de_la_ejecucion(args, datos):
+    """(worktree, efímero) donde correrá el harness, creado y borrado por el launcher si
+    hace falta.
+
+    Camino de siempre: el worktree registrado de la rama de la unidad, con todas sus
+    comprobaciones (`resolver_worktree`). R3 añade UN camino más, y solo para el revisor:
+    si la unidad ya está entregada y su worktree ya no existe, en vez del FAIL «no figura en
+    git worktree list» se crea uno efímero sobre el commit de `fusion:`. El padre venía
+    recreando rama y worktree A MANO para poder revisar las 041-044.
+    """
+    destino = (WORKTREES / args.unidad).resolve()
+    if _real(destino.parent) != _real(WORKTREES):
+        raise ErrorEjecucion("el worktree escaparía de worktrees/")
+    if _real(destino) in inventario_worktrees():
+        yield resolver_worktree(args.unidad)[0], False
+        return
+    estado = (datos.get("estado") or "").strip()
+    if args.rol != "revisor" or estado not in ESTADOS_ENTREGADOS:
+        raise ErrorEjecucion(
+            f"{destino} no figura en git worktree list. {SALIDA} "
+            + (
+                f"el worktree de {args.unidad} lo crea el despacho: "
+                f"`python3 docs/00-metodo/scripts/unidad.py despachar {args.unidad}`"
+                if args.rol != "revisor" else
+                f"una unidad en {estado or 'este estado'} todavía tiene su worktree: "
+                f"recupéralo con `git -C main worktree add worktrees/{args.unidad} "
+                f"{args.unidad}`. El worktree efímero de revisión solo lo crea el launcher "
+                f"sobre unidades ya entregadas ({'/'.join(sorted(ESTADOS_ENTREGADOS))})"
+            )
+        )
+    if destino.exists():
+        raise ErrorEjecucion(
+            f"{destino} existe en disco pero Git no lo conoce: no lo piso. {SALIDA} "
+            f"limpia el resto con `git -C main worktree prune` y, si sigue ahí, bórralo a "
+            f"mano antes de volver a lanzar la revisión"
+        )
+    sha = (datos.get("fusion") or "").strip()
+    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", sha):
+        raise ErrorEjecucion(
+            f"la ficha de {args.unidad} está en {estado} y no tiene `fusion:` con un commit "
+            f"utilizable ({sha or 'vacío'}), así que no hay nada sobre lo que montar la "
+            f"revisión. {SALIDA} anota la fusión cerrando la unidad "
+            f"(`python3 docs/00-metodo/scripts/unidad.py cerrar {args.unidad}`), que escribe "
+            f"`fusion:` en el frontmatter antes de borrar la rama"
+        )
+    with _worktree_efimero(args.unidad, sha, destino) as ruta:
+        yield ruta, True
+
+
+def plan_de_ejecucion(args, datos):
+    """(modelo, esfuerzo, origen, motivo) efectivos de esta ejecución — regla 10, R1.
+
+    Tres orígenes posibles, y el recibo guarda cuál fue:
+
+      `tabla`              lo normal: sale del carril de la ficha y del rol. Sin flags.
+      `excepcion`          alguien pasó `--modelo`/`--esfuerzo` a mano y declaró por qué.
+      `harness-sin-tabla`  codex (R5): la tabla son identificadores de Anthropic y este
+                           launcher no le pasa `--model`, así que no se le inventa ninguno.
+    """
+    modelo = (getattr(args, "modelo", None) or "").strip() or None
+    esfuerzo = (getattr(args, "esfuerzo", None) or "").strip() or None
+    motivo = (getattr(args, "motivo_modelo", "") or "").strip()
+    if modelo or esfuerzo:
+        if not motivo:
+            flag = "--modelo" if modelo else "--esfuerzo"
+            raise ErrorEjecucion(
+                f"{flag} es una EXCEPCIÓN a la tabla de la regla 10 y no se acepta muda: "
+                f"sin motivo, el recibo no distingue una decisión de un descuido. "
+                f"{SALIDA} repite el comando añadiendo "
+                f"`--motivo-modelo \"por qué este modelo y no el de la tabla\"`"
+            )
+        return modelo, esfuerzo, "excepcion", motivo
+    if args.harness != "claude":
+        return None, None, "harness-sin-tabla", ""
+    documental = (datos.get("ejecucion") or "").strip().lower() == "documental"
+    carril = datos.get("carril") or "normal"
+    try:
+        plan = repo_config.plan_de_modelo(carril, args.rol, documental=documental)
+    except repo_config.RepoConfigError as exc:
+        raise ErrorEjecucion(
+            f"{exc}. {SALIDA} corrige `carril:` en la ficha de {args.unidad}, o pasa el "
+            f"modelo a mano con `--modelo <id> --motivo-modelo \"...\"`"
+        ) from exc
+    return plan.modelo, plan.esfuerzo, "tabla", ""
 
 
 def _fichero_skill_canonico(raiz, candidata, nombre_solicitado):
@@ -572,20 +707,33 @@ def evidencia_git(worktree):
     }
 
 
-def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial):
+def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
+                   plan=None, worktree_efimero=False):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
     corría y luego se perdía, así que al cerrar no había forma de distinguir "otro agente"
     de "otro modelo" — y la regla 10 del método pide exactamente esa distinción.
+
+    R2 (065) añade el resto de esa misma pregunta: el ESFUERZO efectivo y de dónde salió la
+    decisión (`modelo_origen`), porque una excepción declarada y un descuido se veían igual.
+    `plan` es la tupla (modelo, esfuerzo, origen, motivo); sin ella se cae al comportamiento
+    de 033 —`args.modelo` a secas— para no romper a quien construya el recibo a mano.
     """
+    modelo, esfuerzo, origen, motivo = plan or (
+        getattr(args, "modelo", None), None, "argumento", ""
+    )
     return {
         "schema": "ejecucion/v1",
         "id": id_ejecucion,
         "unidad": args.unidad,
         "harness": args.harness,
         "rol": args.rol,
-        "modelo": getattr(args, "modelo", None),
+        "modelo": modelo,
+        "esfuerzo": esfuerzo,
+        "modelo_origen": origen,
+        "motivo_modelo": motivo,
+        "worktree_efimero": worktree_efimero,
         "cwd": str(worktree),
         "rama": args.unidad,
         "lease": {"session_id": session_id, "fencing": dict(fencing)},
@@ -629,23 +777,77 @@ def perfil_constructor(hallazgos):
 def perfil_revisor(hallazgos):
     """R4: el revisor conserva exactamente su escritura de hoy — solo `hallazgos.md`,
     donde van su veredicto y su firma. La ficha nunca formó parte de su set escribible;
-    esta unidad no le recorta ni le añade nada."""
+    esta unidad no le recorta ni le añade nada.
+
+    R4 del bug 065: el perfil del revisor **no toca ningún permiso**, ni de la ficha ni de
+    la carpeta de la unidad, y no hay nada que restaurar en un `finally`. Su frontera ya la
+    dan el recibo y el cerrojo; abrir aquí una segunda ventana de `chmod` solo añadiría otro
+    sitio donde dejarse la ficha en 0444. Está fijado con un test.
+    """
     return [hallazgos]
+
+
+SENALES_DE_MUERTE = tuple(
+    senal for senal in (
+        getattr(signal, "SIGTERM", None),
+        getattr(signal, "SIGINT", None),
+        getattr(signal, "SIGHUP", None),
+    ) if senal is not None
+)
 
 
 @contextlib.contextmanager
 def _ficha_solo_lectura(ruta):
-    """Fuerza `ruta` a modo lectura mientras dura el bloque y restaura su modo previo al
-    salir (incluso si el harness revienta). Es la única frontera de escritura real posible
-    para R3: sin sandbox de SO (unidad 012) y con `--add-dir` concediendo el directorio
-    entero, un permiso de fichero real es lo único que produce una denegación auténtica
-    del sistema operativo cuando el harness intenta escribir la ficha."""
+    """Fuerza `ruta` a modo lectura mientras dura el bloque y le devuelve la escritura al
+    salir. Es la única frontera de escritura real posible para R3 (unidad 028): sin sandbox
+    de SO (unidad 012) y con `--add-dir` concediendo el directorio entero, un permiso de
+    fichero real es lo único que produce una denegación auténtica del sistema operativo
+    cuando el harness intenta escribir la ficha.
+
+    Bug 065, defecto C — esta ventana dejaba la ficha muerta en 0444, y por dos vías que se
+    alimentaban entre sí:
+
+      1. **`finally` no es un seguro contra la muerte del proceso.** Un SIGTERM (el `kill`
+         del padre que aborta un lanzamiento, un apagado, el cierre de la terminal) mata al
+         intérprete sin desenrollar la pila: la ventana se quedaba abierta para siempre. Por
+         eso ahora las señales de muerte se atienden, se restaura y se muere IGUAL que se
+         iba a morir —mismo código de salida, misma señal—, sin tragarse nada.
+      2. **El modo restaurado se leía del disco**, así que una ficha que llegaba ya en 0444
+         (por lo anterior) se re-congelaba en cada lanzamiento siguiente: un trinquete del
+         que no se salía sin `chmod` a mano, que es exactamente lo que le pasó al padre con
+         la 046. Se restaura el modo previo **con la escritura del dueño puesta**: la
+         ventana devuelve la ficha viva aunque llegara muerta.
+    """
     modo_previo = stat.S_IMODE(ruta.stat().st_mode)
+    modo_restaurado = modo_previo | stat.S_IWUSR
+    previos = {}
+
+    def restaurar():
+        try:
+            ruta.chmod(modo_restaurado)
+        except OSError:
+            pass                       # la ficha ya no está: no hay permiso que devolver
+
+    def morir(numero, _marco):
+        restaurar()
+        signal.signal(numero, previos.get(numero, signal.SIG_DFL))
+        os.kill(os.getpid(), numero)
+
     ruta.chmod(0o444)
     try:
+        for numero in SENALES_DE_MUERTE:
+            try:
+                previos[numero] = signal.signal(numero, morir)
+            except (OSError, ValueError):
+                pass       # sin hilo principal o sin esa señal en esta plataforma: se sigue
         yield
     finally:
-        ruta.chmod(modo_previo)
+        for numero, previo in previos.items():
+            try:
+                signal.signal(numero, previo)
+            except (OSError, ValueError):
+                pass
+        restaurar()
 
 
 def _huella_documentos(rutas):
@@ -660,157 +862,171 @@ def _huella_documentos(rutas):
     return huella
 
 
-def _lanzar_bajo_lease(args, ficha, manager, autoridades):
-    worktree, gitdir, common = resolver_worktree(args.unidad)
-    home_original = Path(os.environ.get("HOME", str(Path.home()))).resolve()
-    texto = encargo(
-        args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original
-    )
-    ficha_bloqueada = None
-    if ficha.parent == RAIZ / "docs/bugs":
-        # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
-        # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
-        documentos = [ficha]
-    else:
-        hallazgos = ficha.parent / "hallazgos.md"
-        if args.rol == "constructor":
-            documentos = perfil_constructor(hallazgos)
-            ficha_bloqueada = ficha
+def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
+    # El `with` envuelve TODO el cuerpo a propósito, en vez de delegar en una función
+    # aparte: `cwd=str(worktree)` tiene que seguir viéndose DENTRO de esta función. Es
+    # lo que lee el guardián de ADR-022 (`test_ejecucion_gate_real`) sobre el código
+    # fuente de `_lanzar_bajo_lease`, y partirla en dos habría vaciado esa comprobación
+    # sin que nadie lo decidiera.
+    with worktree_de_la_ejecucion(args, datos) as (worktree, efimero):
+        home_original = Path(os.environ.get("HOME", str(Path.home()))).resolve()
+        texto = encargo(
+            args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original
+        )
+        ficha_bloqueada = None
+        if ficha.parent == RAIZ / "docs/bugs":
+            # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
+            # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
+            documentos = [ficha]
         else:
-            documentos = perfil_revisor(hallazgos)
-    seguros = []
-    for documento in documentos:
+            hallazgos = ficha.parent / "hallazgos.md"
+            if args.rol == "constructor":
+                documentos = perfil_constructor(hallazgos)
+                ficha_bloqueada = ficha
+            else:
+                documentos = perfil_revisor(hallazgos)
+        seguros = []
+        for documento in documentos:
+            try:
+                seguros.append(workspace_paths.regular_file(
+                    RAIZ, documento, label="documento escribible de la unidad"
+                ))
+            except workspace_paths.WorkspacePathError as exc:
+                raise ErrorEjecucion(str(exc)) from exc
+        documentos = seguros
+        huella_previa = _huella_documentos(documentos)
+        ejecutable = shutil.which(args.harness)
+        if not ejecutable:
+            raise ErrorEjecucion(f"no encuentro el ejecutable {args.harness}")
+        runtime = RAIZ / ".runtime"
+        runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
+        resultados = runtime / "ejecuciones"
+        resultados.mkdir(mode=0o700, exist_ok=True)
+        id_ejecucion = uuid.uuid4().hex
+        ruta_recibo = resultados / f"{args.unidad}-{id_ejecucion}.json"
+        plan = plan_de_ejecucion(args, datos)
+        recibo = recibo_inicial(
+            args,
+            id_ejecucion,
+            worktree,
+            manager.session_id,
+            {
+                scope: token
+                for autoridad in autoridades
+                for scope, token in autoridad.tokens.items()
+            },
+            evidencia_git(worktree),
+            plan=plan,
+            worktree_efimero=efimero,
+        )
+        checkpoint(
+            recibo,
+            "lease",
+            "ok",
+            ", ".join(f"{scope}#{token}" for scope, token in recibo["lease"]["fencing"].items()),
+        )
+        checkpoint(recibo, "identidad", "ok", f"{worktree} · rama {args.unidad}")
+        checkpoint(
+            recibo, "modelo", "ok",
+            f"{recibo['modelo'] or 'el del harness'} · esfuerzo "
+            f"{recibo['esfuerzo'] or 'sin declarar'} · origen {recibo['modelo_origen']}"
+            + (f" ({recibo['motivo_modelo']})" if recibo["motivo_modelo"] else ""),
+        )
+        guardar_recibo(ruta_recibo, recibo)
+        tmp = Path(tempfile.mkdtemp(prefix=f"ejecucion-{args.unidad}-", dir=str(runtime))).resolve()
+        tmp.chmod(0o700)
         try:
-            seguros.append(workspace_paths.regular_file(
-                RAIZ, documento, label="documento escribible de la unidad"
-            ))
-        except workspace_paths.WorkspacePathError as exc:
-            raise ErrorEjecucion(str(exc)) from exc
-    documentos = seguros
-    huella_previa = _huella_documentos(documentos)
-    ejecutable = shutil.which(args.harness)
-    if not ejecutable:
-        raise ErrorEjecucion(f"no encuentro el ejecutable {args.harness}")
-    runtime = RAIZ / ".runtime"
-    runtime.mkdir(mode=0o700, parents=True, exist_ok=True)
-    resultados = runtime / "ejecuciones"
-    resultados.mkdir(mode=0o700, exist_ok=True)
-    id_ejecucion = uuid.uuid4().hex
-    ruta_recibo = resultados / f"{args.unidad}-{id_ejecucion}.json"
-    recibo = recibo_inicial(
-        args,
-        id_ejecucion,
-        worktree,
-        manager.session_id,
-        {
-            scope: token
-            for autoridad in autoridades
-            for scope, token in autoridad.tokens.items()
-        },
-        evidencia_git(worktree),
-    )
-    checkpoint(
-        recibo,
-        "lease",
-        "ok",
-        ", ".join(f"{scope}#{token}" for scope, token in recibo["lease"]["fencing"].items()),
-    )
-    checkpoint(recibo, "identidad", "ok", f"{worktree} · rama {args.unidad}")
-    guardar_recibo(ruta_recibo, recibo)
-    tmp = Path(tempfile.mkdtemp(prefix=f"ejecucion-{args.unidad}-", dir=str(runtime))).resolve()
-    tmp.chmod(0o700)
-    try:
-        env = entorno_base(worktree, tmp, home_original)
-        if args.harness == "codex":
-            preparar_codex_home(env, tmp, home_original)
-        else:
-            preparar_claude_home(env, home_original)
-        argv = argv_harness(
-            args.harness, ejecutable, args.rol, worktree, texto, documentos=documentos,
-            # El contrato de la unidad manda leer bias, flujos y la síntesis de su
-            # petición: docs/ del meta-repo viaja como lectura de herramientas del
-            # harness claude (sin sandbox de SO, --add-dir sigue siendo la única vía
-            # explícita de lectura adicional; codex la ignora porque su --add-dir
-            # significa escribible).
-            lecturas=(RAIZ / "docs",),
-            modelo=getattr(args, "modelo", None),
-        )
-        contexto_ficha = (
-            _ficha_solo_lectura(ficha_bloqueada)
-            if ficha_bloqueada is not None
-            else contextlib.nullcontext()
-        )
+            env = entorno_base(worktree, tmp, home_original)
+            if args.harness == "codex":
+                preparar_codex_home(env, tmp, home_original)
+            else:
+                preparar_claude_home(env, home_original)
+            argv = argv_harness(
+                args.harness, ejecutable, args.rol, worktree, texto, documentos=documentos,
+                # El contrato de la unidad manda leer bias, flujos y la síntesis de su
+                # petición: docs/ del meta-repo viaja como lectura de herramientas del
+                # harness claude (sin sandbox de SO, --add-dir sigue siendo la única vía
+                # explícita de lectura adicional; codex la ignora porque su --add-dir
+                # significa escribible).
+                lecturas=(RAIZ / "docs",),
+                modelo=recibo["modelo"],
+            )
+            contexto_ficha = (
+                _ficha_solo_lectura(ficha_bloqueada)
+                if ficha_bloqueada is not None
+                else contextlib.nullcontext()
+            )
 
-        def _correr_harness():
+            def _correr_harness():
+                for autoridad in autoridades:
+                    autoridad.assert_owner()
+                gestion_leases.failpoint("ejecucion_antes_harness")
+                # stdin CERRADO: el harness delegado corre sin nadie al otro lado — cualquier
+                # cosa que pregunte por stdin (git, ssh, un instalador) se quedaba esperando
+                # una respuesta que no puede llegar, y el padre lo veía como un cuelgue mudo
+                # de minutos (feedback de campo 06-08, ADR-026).
+                tope = getattr(args, "tope_minutos", 0) or 0
+                # argv como lista, cwd fijado por código, sin sandbox de SO ni shell
+                # intermedia (unidad 012: la garantía real, Aurora/ADR-022, era esto, no el
+                # aislamiento de SO). La ficha va en modo lectura durante todo este bloque
+                # cuando el rol es constructor (R3): es la única denegación real posible sin
+                # sandbox de SO, porque --add-dir concede el directorio entero.
+                with contexto_ficha:
+                    return tope, subprocess.run(
+                        comando_subproceso(ejecutable, argv, env), cwd=str(worktree), env=env,
+                        stdin=subprocess.DEVNULL, timeout=tope * 60 if tope else None,
+                    )
+
+            try:
+                tope, resultado = _correr_harness()
+            except subprocess.TimeoutExpired as exc:
+                checkpoint(recibo, "harness", "fail", f"tope de {args.tope_minutos} min superado")
+                recibo["error"] = f"el harness superó el tope de {args.tope_minutos} min y fue detenido"
+                recibo["git"]["final"] = evidencia_git(worktree)
+                guardar_recibo(ruta_recibo, recibo)
+                raise ErrorEjecucion(
+                    f"{args.harness} superó el tope de {args.tope_minutos} min; el trabajo "
+                    f"parcial queda en el worktree y el recibo en {ruta_recibo}") from exc
+            except OSError as exc:
+                checkpoint(recibo, "harness", "fail", str(exc))
+                recibo["error"] = str(exc)
+                recibo["git"]["final"] = evidencia_git(worktree)
+                guardar_recibo(ruta_recibo, recibo)
+                raise ErrorEjecucion(f"no pude lanzar {args.harness}: {exc}") from exc
             for autoridad in autoridades:
                 autoridad.assert_owner()
-            gestion_leases.failpoint("ejecucion_antes_harness")
-            # stdin CERRADO: el harness delegado corre sin nadie al otro lado — cualquier
-            # cosa que pregunte por stdin (git, ssh, un instalador) se quedaba esperando
-            # una respuesta que no puede llegar, y el padre lo veía como un cuelgue mudo
-            # de minutos (feedback de campo 06-08, ADR-026).
-            tope = getattr(args, "tope_minutos", 0) or 0
-            # argv como lista, cwd fijado por código, sin sandbox de SO ni shell
-            # intermedia (unidad 012: la garantía real, Aurora/ADR-022, era esto, no el
-            # aislamiento de SO). La ficha va en modo lectura durante todo este bloque
-            # cuando el rol es constructor (R3): es la única denegación real posible sin
-            # sandbox de SO, porque --add-dir concede el directorio entero.
-            with contexto_ficha:
-                return tope, subprocess.run(
-                    comando_subproceso(ejecutable, argv, env), cwd=str(worktree), env=env,
-                    stdin=subprocess.DEVNULL, timeout=tope * 60 if tope else None,
+            recibo["exit_code"] = resultado.returncode
+            recibo["git"]["final"] = evidencia_git(worktree)
+            estado = "ok" if resultado.returncode == 0 else "fail"
+            checkpoint(recibo, "harness", estado, f"exit {resultado.returncode}")
+            if resultado.returncode == 0:
+                # R5/R6: el recibo distingue "el proceso terminó sin error" de "hubo trabajo
+                # acreditado" — una casilla nueva marcada o hallazgos.md (o la ficha del bug)
+                # cambiado desde el arranque. Sin eso, `ok` mentía (hallazgo del análisis de
+                # cajas negras del 18-08: "el recibo mide el proceso, no el trabajo").
+                huella_posterior = _huella_documentos(documentos)
+                trabajo_acreditado = huella_posterior != huella_previa
+                recibo["trabajo"] = {
+                    "acreditado": trabajo_acreditado,
+                    "detalle": (
+                        "hallazgos.md (o la ficha del bug) cambió durante el harness"
+                        if trabajo_acreditado else
+                        "proceso terminó sin error, pero no acreditó trabajo (sin casillas "
+                        "nuevas ni hallazgos.md actualizado)"
+                    ),
+                }
+                recibo["resultado"] = "ok" if trabajo_acreditado else "ok_sin_trabajo"
+            else:
+                recibo["resultado"] = "fail"
+            guardar_recibo(ruta_recibo, recibo)
+            print(f"RESULTADO {ruta_recibo}", flush=True)
+            if recibo["resultado"] == "ok_sin_trabajo":
+                print(
+                    "AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"], flush=True
                 )
-
-        try:
-            tope, resultado = _correr_harness()
-        except subprocess.TimeoutExpired as exc:
-            checkpoint(recibo, "harness", "fail", f"tope de {args.tope_minutos} min superado")
-            recibo["error"] = f"el harness superó el tope de {args.tope_minutos} min y fue detenido"
-            recibo["git"]["final"] = evidencia_git(worktree)
-            guardar_recibo(ruta_recibo, recibo)
-            raise ErrorEjecucion(
-                f"{args.harness} superó el tope de {args.tope_minutos} min; el trabajo "
-                f"parcial queda en el worktree y el recibo en {ruta_recibo}") from exc
-        except OSError as exc:
-            checkpoint(recibo, "harness", "fail", str(exc))
-            recibo["error"] = str(exc)
-            recibo["git"]["final"] = evidencia_git(worktree)
-            guardar_recibo(ruta_recibo, recibo)
-            raise ErrorEjecucion(f"no pude lanzar {args.harness}: {exc}") from exc
-        for autoridad in autoridades:
-            autoridad.assert_owner()
-        recibo["exit_code"] = resultado.returncode
-        recibo["git"]["final"] = evidencia_git(worktree)
-        estado = "ok" if resultado.returncode == 0 else "fail"
-        checkpoint(recibo, "harness", estado, f"exit {resultado.returncode}")
-        if resultado.returncode == 0:
-            # R5/R6: el recibo distingue "el proceso terminó sin error" de "hubo trabajo
-            # acreditado" — una casilla nueva marcada o hallazgos.md (o la ficha del bug)
-            # cambiado desde el arranque. Sin eso, `ok` mentía (hallazgo del análisis de
-            # cajas negras del 18-08: "el recibo mide el proceso, no el trabajo").
-            huella_posterior = _huella_documentos(documentos)
-            trabajo_acreditado = huella_posterior != huella_previa
-            recibo["trabajo"] = {
-                "acreditado": trabajo_acreditado,
-                "detalle": (
-                    "hallazgos.md (o la ficha del bug) cambió durante el harness"
-                    if trabajo_acreditado else
-                    "proceso terminó sin error, pero no acreditó trabajo (sin casillas "
-                    "nuevas ni hallazgos.md actualizado)"
-                ),
-            }
-            recibo["resultado"] = "ok" if trabajo_acreditado else "ok_sin_trabajo"
-        else:
-            recibo["resultado"] = "fail"
-        guardar_recibo(ruta_recibo, recibo)
-        print(f"RESULTADO {ruta_recibo}", flush=True)
-        if recibo["resultado"] == "ok_sin_trabajo":
-            print(
-                "AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"], flush=True
-            )
-        return resultado.returncode
-    finally:
-        shutil.rmtree(tmp, ignore_errors=True)
+            return resultado.returncode
+        finally:
+            shutil.rmtree(tmp, ignore_errors=True)
 
 
 def lanzar(args):
@@ -837,7 +1053,7 @@ def lanzar(args):
                 if autoridad_recursos is not None:
                     autoridades.append(autoridad_recursos)
                 return _lanzar_bajo_lease(
-                    args, ficha_actual, manager, autoridades
+                    args, ficha_actual, datos_actuales, manager, autoridades
                 )
     except gestion_leases.LeaseError as exc:
         raise ErrorEjecucion(f"autoridad de ejecución ocupada o perdida: {exc}") from exc
@@ -853,8 +1069,16 @@ def main():
     p.add_argument("--skill-tecnica", action="append", default=[])
     p.add_argument("--prompt", required=True)
     p.add_argument("--modelo", default=None,
-                   help="modelo explícito para el harness claude (regla 10: el revisor "
-                        "usa un modelo DISTINTO del que construyó)")
+                   help="EXCEPCIÓN a la tabla de la regla 10 (repo_config.plan_de_modelo): "
+                        "sin este flag el modelo se deriva del carril de la ficha y del rol. "
+                        "Exige --motivo-modelo y queda anotado en el recibo")
+    p.add_argument("--esfuerzo", default=None,
+                   help="EXCEPCIÓN al esfuerzo de la tabla (bajo | medio | alto). Viaja al "
+                        "recibo; ningún harness admite hoy un flag para él. Exige "
+                        "--motivo-modelo")
+    p.add_argument("--motivo-modelo", default="",
+                   help="por qué esta ejecución se sale de la tabla de la regla 10; "
+                        "obligatorio con --modelo o --esfuerzo")
     p.add_argument("--tope-minutos", type=int, default=0,
                    help="mata el harness si supera este tope (0 = sin tope); el recibo "
                         "queda con el motivo en vez de un cuelgue mudo")

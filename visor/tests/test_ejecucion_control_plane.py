@@ -35,6 +35,9 @@ class ControlPlaneE2ETest(unittest.TestCase):
         shutil.copy2(LAUNCHER, scripts / "ejecucion.py")
         shutil.copy2(LAUNCHER.with_name("control_plane.py"), scripts / "control_plane.py")
         shutil.copy2(LAUNCHER.with_name("lease.py"), scripts / "lease.py")
+        # Bug 065: el launcher deriva el modelo de la tabla de la regla 10, que vive en
+        # repo_config; sin él a su lado, ejecucion.py no importa.
+        shutil.copy2(LAUNCHER.with_name("repo_config.py"), scripts / "repo_config.py")
         shutil.copy2(WORKSPACE_PATHS, scripts / "workspace_paths.py")
         self.launcher = scripts / "ejecucion.py"
 
@@ -526,10 +529,15 @@ pathlib.Path('.harness-record.json').write_text(
         # checkpoint "sandbox" — el recibo pasa directo de "identidad" a "harness".
         self.assertNotIn("sandbox", recibo)
         self.assertNotIn("sandbox_ejecutable", recibo)
+        # Bug 065, R2: entre "identidad" y "harness" entra "modelo" — qué modelo y qué
+        # esfuerzo salieron de la tabla de la regla 10, y si fueron tabla o excepción.
+        # Antes esa decisión no dejaba rastro ninguno en el recibo.
         self.assertEqual(
             [item["nombre"] for item in recibo["checkpoints"]],
-            ["lease", "identidad", "harness"],
+            ["lease", "identidad", "modelo", "harness"],
         )
+        modelo = next(i for i in recibo["checkpoints"] if i["nombre"] == "modelo")
+        self.assertIn(recibo["modelo_origen"], modelo["detalle"])
         self.assertTrue(all(item["estado"] == "ok" for item in recibo["checkpoints"]))
         self.assertIn("RESULTADO", resultado.stdout)
 
@@ -733,10 +741,18 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         )
 
     # --- Defecto 11: el revisor exige modelo DISTINTO (regla 10); falta --modelo
+    #
+    # Bug 065: `--modelo` dejó de ser la vía normal —el modelo lo deriva la tabla del carril
+    # (repo_config.plan_de_modelo)— y pasó a ser una EXCEPCIÓN declarada. El flag sigue
+    # mandando sobre la tabla, que es lo que este test fija; lo que cambia es que ahora
+    # exige decir por qué, y eso se comprueba aquí mismo en vez de dejarlo implícito.
 
     def test_lanzar_acepta_modelo_explicito(self):
         argv = self.argumentos()
-        argv[argv.index("--rol"):argv.index("--rol")] = ["--modelo", "claude-opus-5"]
+        argv[argv.index("--rol"):argv.index("--rol")] = [
+            "--modelo", "claude-opus-5",
+            "--motivo-modelo", "excepción declarada por el padre",
+        ]
         resultado = subprocess.run(
             argv, cwd=self.main, env=self.env, text=True,
             encoding="utf-8", errors="replace", capture_output=True
@@ -746,6 +762,17 @@ class LanzadorHarnessClaudeDeFabricaTest(ControlPlaneE2ETest):
         registrado = harness["argv"]
         self.assertIn("--model", registrado)
         self.assertEqual(registrado[registrado.index("--model") + 1], "claude-opus-5")
+
+    def test_el_modelo_explicito_sin_motivo_no_arranca_el_harness(self):
+        argv = self.argumentos()
+        argv[argv.index("--rol"):argv.index("--rol")] = ["--modelo", "claude-opus-5"]
+        resultado = subprocess.run(
+            argv, cwd=self.main, env=self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True
+        )
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("--motivo-modelo", resultado.stdout + resultado.stderr)
+        self.assertFalse((self.worktree / ".harness-record.json").exists())
 
     # --- Defectos 3 y 8: credenciales de suscripción y de GitHub deben heredarse
 
