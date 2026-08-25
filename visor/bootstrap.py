@@ -91,7 +91,7 @@ PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "desplieg
               "peticion-investigacion-sintesis", "roadmap", "sintesis")
 SCRIPTS = ("caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py", "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
-           "lease.py",
+           "lint_salidas.py", "lease.py",
            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
@@ -130,6 +130,10 @@ METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
     "auditoria-metodo.md", "auditoria-seguridad.md", "seguridad-por-stack.md", "sandbox.md",
     "proceso-nativo.md", "detectores.md",
+    # La línea base del guardián de salidas (unidad 049) viaja PEGADA a los scripts que
+    # vigila: se indexa por nombre de fichero, así que sin ella el trinquete llega al
+    # workspace sin memoria y `lint_salidas.py` no sabría qué está congelado.
+    "salidas-baseline.json",
 )
 ARCHIVOS_METODO = tuple(
     [*METODO_RAIZ]

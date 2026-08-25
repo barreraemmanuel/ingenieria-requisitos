@@ -1240,6 +1240,38 @@ if hay_repo and not sin_remoto(repo_cod):
         else:
             ok(f"push: usuario — {rama_principal} no tiene nada pendiente de publicar")
 
+# --- 8c. Un bloqueo que no dice cómo salir es un defecto (unidad 049) ---
+# Quien conduce el método es un agente: cuando un script rechaza sin nombrar la continuación,
+# gasta un turno adivinando y a veces se inventa un rodeo que salta la puerta recién cerrada.
+# `lint_salidas.py` inventaría con AST los puntos de rechazo de los scripts y aplica un
+# TRINQUETE: la lista de los que hoy no nombran salida está congelada y solo puede encoger.
+# Aquí, al arrancar y al cerrar (regla 13), para que un rechazo mudo NUEVO se vea el mismo día
+# que se escribe y no tres meses después.
+lint_salidas = RAIZ / "docs/00-metodo/scripts/lint_salidas.py"
+carpeta_scripts = RAIZ / "docs/00-metodo/scripts"
+baseline_salidas = RAIZ / "docs/00-metodo/salidas-baseline.json"
+if not lint_salidas.is_file() or not baseline_salidas.is_file():
+    # Falta una pieza del MÉTODO, no del proyecto: por ADR-026 avisa y no bloquea; el arreglo
+    # llega por Modo D.
+    warn("no se pudo comprobar que los rechazos nombren su salida: falta "
+         "docs/00-metodo/scripts/lint_salidas.py o docs/00-metodo/salidas-baseline.json; "
+         "actualiza el método con `python3 visor/actualizar.py revisar --todos` desde la "
+         "herramienta de ingeniería de requisitos")
+else:
+    resultado_salidas = subprocess.run(
+        [sys.executable, str(lint_salidas), "--scripts", str(carpeta_scripts),
+         "--base", str(baseline_salidas)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    if resultado_salidas.returncode:
+        # El trinquete SÍ muerde: o hay un rechazo mudo nuevo o una entrada dejó de casar.
+        # Las dos cosas las decide quien acaba de editar el script, y las dos tienen comando.
+        fail("hay rechazos que no nombran su salida y no estaban congelados; el detalle y las "
+             "dos formas de arreglarlo salen en "
+             "`python3 docs/00-metodo/scripts/lint_salidas.py`")
+    else:
+        ok("todo rechazo nuevo de los scripts nombra su salida (línea base sin crecer)")
+
 # --- 9. Higiene ---
 if (RAIZ / "codebase").exists():
     fail("codebase/ existe (estructura vieja: debe ser main/ + worktrees/)")

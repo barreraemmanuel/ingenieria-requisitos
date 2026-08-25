@@ -1,0 +1,573 @@
+{
+ "_porque": "Rechazos que hoy no nombran su salida. Esta lista SOLO PUEDE ENCOGER: lint_salidas.py falla si crece, y también si una entrada deja de casar.",
+ "entradas": {
+  "caja_negra.py::43bc94582500773e": {
+   "fichero": "caja_negra.py",
+   "mensaje": "FAIL …"
+  },
+  "control_plane.py::43bc94582500773e": {
+   "fichero": "control_plane.py",
+   "mensaje": "FAIL …"
+  },
+  "coste.py::075f295e098f1c10": {
+   "fichero": "coste.py",
+   "mensaje": "FAIL no hay ni una sesión con uso registrado"
+  },
+  "coste.py::200d39e1a60fa1d4": {
+   "fichero": "coste.py",
+   "mensaje": "FAIL no encuentro los rollouts del harness en …"
+  },
+  "coste.py::6634d9a739638948": {
+   "fichero": "coste.py",
+   "mensaje": "FAIL la línea base … no tiene el detalle que hace falta"
+  },
+  "coste.py::953278f3aca69b98": {
+   "fichero": "coste.py",
+   "mensaje": "no puedo leer la línea base …"
+  },
+  "coste.py::9e06895925680cba": {
+   "fichero": "coste.py",
+   "mensaje": "FAIL no hay sesiones registradas para …"
+  },
+  "ejecucion.py::b763cb18948e0085": {
+   "fichero": "ejecucion.py",
+   "mensaje": "ejecucion: FAIL …"
+  },
+  "lint_ci.py::43bc94582500773e": {
+   "fichero": "lint_ci.py",
+   "mensaje": "FAIL …"
+  },
+  "lint_ci.py::b2bed3b46402ae42": {
+   "fichero": "lint_ci.py",
+   "mensaje": "… FAIL"
+  },
+  "lint_deploy.py::0cb8477603fd0869": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL no pude ejecutar …: …"
+  },
+  "lint_deploy.py::2b5841ba9b91b571": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL falta …: no se puede ejecutar …"
+  },
+  "lint_deploy.py::39ae4c439e654aa4": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL … — es innegociable antes de salir a internet"
+  },
+  "lint_deploy.py::3f1aaf0c56dae0b5": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL main/ no existe: este gate se corre en el workspace completo (meta-repo con main/ dentro), no en el repo de código suelto"
+  },
+  "lint_deploy.py::465d48125cc70ce4": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL main/ tiene … fichero(s) sin commitear: se desplegaría algo que no está en ninguna rama y que nadie ha revisado"
+  },
+  "lint_deploy.py::5e6806872a88e80b": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL contrato CI incompleto: …"
+  },
+  "lint_deploy.py::873b27f4a345274a": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL docs/conocimiento/plano-deploy.md no existe: nadie ha decidido todavía cómo se despliega esto. Si el usuario ya despliega a mano, entrevístalo (roles.md, rol DEPLOY); si no ha desplegado nunca, s"
+  },
+  "lint_deploy.py::8ca970d375caec64": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL falta main/scripts/ci/full-suite: no hay suite completa ejecutable antes de deploy"
+  },
+  "lint_deploy.py::93104ae349ce8faf": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL repo de código SUCIO de artefactos de agentes (viven en el meta-repo, jamás en main/): …"
+  },
+  "lint_deploy.py::9643732ec98dfaeb": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL … terminó con código …; output: …"
+  },
+  "lint_deploy.py::ab754f5a23ca27a5": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL falta main/scripts/ci/security: no hay control de seguridad ejecutable antes de deploy"
+  },
+  "lint_deploy.py::c260d4961e263a11": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL main/ está en la rama '…' y no en '…': no se despliega una rama sin fusionar (runbooks/deploy.md, paso 2)"
+  },
+  "lint_deploy.py::e00824beb70827a8": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "… FAIL · … WARN"
+  },
+  "lint_deploy.py::e876ab354392b741": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "falta docs/00-metodo/scripts/lint_ci.py: no puedo validar el contrato CI"
+  },
+  "lint_deploy.py::f6b70ac19ed5378c": {
+   "fichero": "lint_deploy.py",
+   "mensaje": "FAIL plano-deploy.md sin decidir: … — esas casillas las llena la entrevista de arranque del rol DEPLOY (roles.md), preguntándole al usuario una por una; si no ha desplegado nunca nada, runbooks/primer"
+  },
+  "lint_metodo.py::008d46158f9f7f18": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL falta docs/…/ (árbol congelado, ver ADR/estructura)"
+  },
+  "lint_metodo.py::091bbcf5d50c9a1f": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: en obra sin 'Plan de trabajo' en su especificacion (ADR-005)"
+  },
+  "lint_metodo.py::0d97fc8ad44b266c": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL NNN duplicado: … y …"
+  },
+  "lint_metodo.py::12be3703c8125206": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: entregada sin ningún proceso que la satisfaga"
+  },
+  "lint_metodo.py::13afcd0a1a3317ca": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL peticiones/LEGACY.json ilegible: …"
+  },
+  "lint_metodo.py::18648629f3b3143e": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL el meta-repo no tiene NI UN commit: el bootstrap no pudo cerrar el inicial y todo lo escrito desde entonces —planos, decisiones, unidades— vive sin respaldo de git. Configura la identidad y haz e"
+  },
+  "lint_metodo.py::1a10c508c0c22fe7": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: DEUDA DE SPEC del hotfix sin pagar … días después de 'actualizado: …' (plazo: 24 h, hotfix.md). No se abre trabajo nuevo que no sea otro hotfix hasta pagarla"
+  },
+  "lint_metodo.py::2018f9c8287db987": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: investigación terminal sin al menos 10 informes y síntesis completa"
+  },
+  "lint_metodo.py::2530ebd70e1284c0": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: flujos terminal sin recibo aprobado"
+  },
+  "lint_metodo.py::253221201bccfce2": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: mergeada pero sin archivar (el cierre quedó a medias — re-ejecutar)"
+  },
+  "lint_metodo.py::2c033edf188a9f37": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: fecha de revisión aparcada ilegible: …"
+  },
+  "lint_metodo.py::2c866291a35f4d87": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: mergeada con la DEUDA DE SPEC del hotfix sin pagar (hotfix.md: se paga ANTES de cerrar; borra la marca al completar la ficha)"
+  },
+  "lint_metodo.py::2fd36641af2b30d9": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL directorios NO permitidos en docs/ (cambiar la estructura exige ADR): …"
+  },
+  "lint_metodo.py::351c1eb783261881": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL unidad con nombre fuera de convención NNN-slug: …"
+  },
+  "lint_metodo.py::392b127825cf847c": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL docs/05-trabajo/ESTADO.md no existe"
+  },
+  "lint_metodo.py::3d5b69cfd4b80057": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: peticion.json declara id …"
+  },
+  "lint_metodo.py::45b8a2c9043d8a21": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL codebase/ existe (estructura vieja: debe ser main/ + worktrees/)"
+  },
+  "lint_metodo.py::4a8097ad6c4a7fca": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: especificacion.md sin frontmatter válido"
+  },
+  "lint_metodo.py::55a7369850316f6a": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL peticiones/LEGACY.json: … debe ser una lista exacta"
+  },
+  "lint_metodo.py::55ca7d2134332630": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL archivo/…: archivada con estado '…' (solo mergeada/descartada)"
+  },
+  "lint_metodo.py::5925c3084816f4fe": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL pkill -f / killall en …: eso mata procesos de otros agentes o proyectos que compartan la máquina. Guarda el PID al lanzar y mata ese PID exacto"
+  },
+  "lint_metodo.py::62ba859b8c963bab": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: entregada con procesos no terminales"
+  },
+  "lint_metodo.py::68c06ab7459e54ca": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: … con 'aprobado: …' — se despachó SIN aprobación del usuario (o, si fue producción caída, sin la marca de deuda del hotfix)"
+  },
+  "lint_metodo.py::68f0e0ef9ea45083": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: proceso … … sin contrato terminal canónico"
+  },
+  "lint_metodo.py::6c2cbedd2eb4fcb4": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: proceso terminal … …, pero su artefacto está …"
+  },
+  "lint_metodo.py::6f3d95e28f4321e1": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: exprés terminal sin cambio fusionado en …"
+  },
+  "lint_metodo.py::6f571971de7393d4": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: deuda de hotfix con 'actualizado: …' ilegible — sin fecha no hay plazo que valga"
+  },
+  "lint_metodo.py::71650afeea240a60": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …. Una unidad que se declara terminada y no ha commiteado nada no ha terminado: recupera el trabajo antes de cerrar"
+  },
+  "lint_metodo.py::74e3af2e2e54b521": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: tipo '…' fuera del vocabulario"
+  },
+  "lint_metodo.py::7ee3d484ad8d9c7d": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: deploy … terminal sin ficha desplegada y completa"
+  },
+  "lint_metodo.py::827297050c57d538": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …/ tiene Dockerfile y NO tiene .dockerignore: el primer build hornea el .env (y .git, y la base de datos local) dentro de la imagen. Créalo antes de construir nada, con .env, la carpeta del entor"
+  },
+  "lint_metodo.py::84cbee04a9ca04d0": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: en_revision y su rama no tiene NI UN commit por encima de … — no hay nada que revisar ni que mergear (¿el constructor murió a mitad?). Si en realidad ya se fusionó, la ficha debe acreditarlo c"
+  },
+  "lint_metodo.py::85dc0c7368f833d2": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL … debe redirigir a AGENTS.md (y opcionalmente a .claude/personalidad.md)"
+  },
+  "lint_metodo.py::8797d15c89d8ce72": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: … sin el output … pegado en la ficha — el par ROJO→VERDE del MISMO test es la única prueba de que se arregló ESTE bug (bug.md paso 9: evidencia, no afirmación)"
+  },
+  "lint_metodo.py::9e45f266e60bcaec": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: estado '…' fuera del vocabulario …"
+  },
+  "lint_metodo.py::a4db72b57a0b537b": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: proceso … inexistente: …"
+  },
+  "lint_metodo.py::a90813ef1a1ef6e2": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL peticiones/LEGACY.json exige formato 1 y modo observacion|estricto"
+  },
+  "lint_metodo.py::c45799d361bac9bc": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: estado '…' fuera del vocabulario …"
+  },
+  "lint_metodo.py::c80be172f2213948": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: carril '…' fuera del vocabulario"
+  },
+  "lint_metodo.py::c8e44f3810285979": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL … unidades en vuelo (tope absoluto 3, default 1): …"
+  },
+  "lint_metodo.py::d2e330e7f7edd454": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL … y … comparten ficheros declarados: … (paralelas jamás comparten)"
+  },
+  "lint_metodo.py::d9db106bd073b2a3": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL AGENTS.md no existe"
+  },
+  "lint_metodo.py::df4c0ded0ca61660": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: … con 'aprobado: …' — se despachó SIN aprobación del usuario (el contrato lo aprueba él, no el agente)"
+  },
+  "lint_metodo.py::e00824beb70827a8": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "… FAIL · … WARN"
+  },
+  "lint_metodo.py::e11f9ae7f1b31e97": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: sin frontmatter válido"
+  },
+  "lint_metodo.py::e371b9d4c0dcd9d0": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL worktree huérfano sin unidad: worktrees/… (¿cierre a medias?)"
+  },
+  "lint_metodo.py::e448238a740d984d": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL NNN duplicado: bugs/… y …"
+  },
+  "lint_metodo.py::e54be4834ef4012b": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: mergeada sin 'Validación del usuario: OK' en la sección de cierre — un bug no está cerrado hasta que el USUARIO lo valida sobre una instancia corriendo; sin ese OK el bug sigue ABIERTO (b"
+  },
+  "lint_metodo.py::e55cd8fee5f642c5": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: peticion.json ilegible: …"
+  },
+  "lint_metodo.py::ea73557063f9a3bb": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL docs/05-trabajo/peticiones/ no existe"
+  },
+  "lint_metodo.py::ed474bb3b8bd47e1": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL METODO.json ilegible (…): sin él no se puede verificar el arsenal del método"
+  },
+  "lint_metodo.py::f05590ef37529323": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bugs/…: tipo '…' (en docs/bugs/ solo tipo bug)"
+  },
+  "lint_metodo.py::f2063cf952fbf257": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …/.dockerignore no menciona …: los secretos acabarían dentro de la imagen"
+  },
+  "lint_metodo.py::f2e15dbd3c4988e6": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: … con proceso abierto: …"
+  },
+  "lint_metodo.py::f5e6ae5326ba4ba5": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL bug con nombre fuera de convención NNN-slug.md: bugs/…"
+  },
+  "lint_metodo.py::f6c5a74215f3db65": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL AGENTS.md tiene … líneas (tope 160): el router está engordando"
+  },
+  "lint_metodo.py::fbf27e9c9bbc17bc": {
+   "fichero": "lint_metodo.py",
+   "mensaje": "FAIL …: frontmatter sin claves …"
+  },
+  "peticion.py::43bc94582500773e": {
+   "fichero": "peticion.py",
+   "mensaje": "FAIL …"
+  },
+  "unidad.py::074e8466189ee281": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL … ya existe — no piso worktrees (¿cierre a medias?)"
+  },
+  "unidad.py::110829df383c14cc": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: §Verificación sin '**Nivel de test:**' relleno"
+  },
+  "unidad.py::111230bbfa2fac33": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL la unidad quedó terminal, pero falta reconciliar su petición: …"
+  },
+  "unidad.py::13df2090ce979f7b": {
+   "fichero": "unidad.py",
+   "mensaje": "cierre bloqueado: otra sesión tiene la unidad o el índice (…)"
+  },
+  "unidad.py::141f8eea26d880c9": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL la rama '…' ya existe en … — el NNN no se reutiliza"
+  },
+  "unidad.py::1540ac2d583a0dbb": {
+   "fichero": "unidad.py",
+   "mensaje": "… ya existe: no puedo cerrar sin pisar historia"
+  },
+  "unidad.py::168f41c0c2b08d4e": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: no pude ejecutar … (…); recibo …"
+  },
+  "unidad.py::1ada79094ed2469a": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL --directo y --completo son carriles opuestos: elige uno"
+  },
+  "unidad.py::225483ee489e2462": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL --documental en un bug exige declarar `ficheros:` en la ficha (todas las rutas fuera de main/): es la prueba de que el bug es del meta-repo"
+  },
+  "unidad.py::259970facd67ee7d": {
+   "fichero": "unidad.py",
+   "mensaje": "despacho bloqueado y preparación fallida; revisa rama/worktree residual antes de reintentar"
+  },
+  "unidad.py::2a39150b0bd38149": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: la ficha cambió antes de registrar la deuda; no toco nada"
+  },
+  "unidad.py::3183f46542063b97": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: … no es ejecutable; recibo …"
+  },
+  "unidad.py::35d09ca2f4a0d88f": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no pude actualizar origin/…; no creo trabajo desde una referencia posiblemente antigua: …"
+  },
+  "unidad.py::39c3c0fd99255e70": {
+   "fichero": "unidad.py",
+   "mensaje": "despacho bloqueado por preparación fallida; rama y worktree deshechos"
+  },
+  "unidad.py::3f251d58a8e9d40a": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: el worktree no está confinado; recibo …"
+  },
+  "unidad.py::4121920e4063e881": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: el frontmatter dice unidad '…' y la carpeta/ficha dice '…' — arréglalo antes de despachar"
+  },
+  "unidad.py::4baaf52f10f7d47f": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: la ficha cambió mientras se adquirían sus recursos; no se despacha con una allowlist obsoleta"
+  },
+  "unidad.py::4eb80f0bd4b4e9ef": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: no consta que el visor de contratos mostrara … en o antes de 'aprobado: …'"
+  },
+  "unidad.py::4f394b8ac8091c46": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: la ficha cambió antes de marcarla en obra; no toco nada"
+  },
+  "unidad.py::56deba2945f0887e": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL … no tiene frontmatter válido (debe abrir con --- y cerrar con ---)"
+  },
+  "unidad.py::58e333a2e27790cd": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: … superó su tope de … s sin terminar (su stdin va cerrado a propósito: si esperaba input, ese es el bug del hook); su salida quedó en … · recibo …"
+  },
+  "unidad.py::5b8bf205b731b561": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL --documental solo vale para auditoria, investigacion, documentacion o un bug del META-repo que NO toca el repositorio de código"
+  },
+  "unidad.py::5f4b4ffc27151c76": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL un prototipo descartado no es una entrega: `unidad.py cerrar` nunca lo archiva ni reconcilia. Marca cada proceso como cancelado con `peticion.py marcar-proceso` y conserva la ficha en estado desc"
+  },
+  "unidad.py::658e441de2424fdd": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no pude registrar el despacho documental; no toco la ficha: …"
+  },
+  "unidad.py::69d81adca7e1ab13": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: … queda fuera de la raíz; recibo …"
+  },
+  "unidad.py::6a281099177d1803": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: … terminó con código …; recibo …"
+  },
+  "unidad.py::7e27ebe622373f4e": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL tipo '…' fuera del vocabulario cerrado: …"
+  },
+  "unidad.py::816aaf4323ba746a": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL '…' no tiene forma NNN-slug (tres dígitos, guion, slug)"
+  },
+  "unidad.py::821e5daed4d7c7d2": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL --documental no vale: la ficha declara rutas del repo de código (…). Un bug que toca main/ se despacha normal"
+  },
+  "unidad.py::8a1c7b801bfcd361": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL ya hay … unidad(es) en vuelo: …"
+  },
+  "unidad.py::8dd4dc646003db31": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no existe la rama principal '…' en …"
+  },
+  "unidad.py::a4c80d139f4270a9": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL … sigue siendo la plantilla: solo … caracteres de prosa propia (mínimo …)"
+  },
+  "unidad.py::a607152a264e26a1": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL … y … comparten ficheros declarados: …"
+  },
+  "unidad.py::a6aad726b3d2d93e": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL --documental no se combina con --force; un hotfix siempre toca código"
+  },
+  "unidad.py::a6e3e930c5396ae8": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: …"
+  },
+  "unidad.py::a7a63359098f557b": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: 'ficheros:' vacío y hay trabajo en vuelo (…)"
+  },
+  "unidad.py::abe52f6a189aa970": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: tipo '…' fuera del vocabulario cerrado"
+  },
+  "unidad.py::b75a8e0c9c84a19b": {
+   "fichero": "unidad.py",
+   "mensaje": "CIERRE BLOQUEADO (…):"
+  },
+  "unidad.py::b840f78bfcb4a003": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL … está '…': solo se cierra lo que está en_revision (o 'en_validacion'/'mergeada', para reanudar un cierre que quedó a medias)"
+  },
+  "unidad.py::bfc75c38140e4e15": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: estado '…' fuera del vocabulario cerrado"
+  },
+  "unidad.py::c290ab0fcc65391c": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL falta la plantilla …"
+  },
+  "unidad.py::c410ff6df6e22016": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL el linter bloqueó el cierre; contrato y revisión restaurados"
+  },
+  "unidad.py::c4437ab6ece67642": {
+   "fichero": "unidad.py",
+   "mensaje": "--force rechazado para …: no es un hotfix"
+  },
+  "unidad.py::c481a5b588c8fa02": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL faltan plantillas en …: …"
+  },
+  "unidad.py::cb4b0c41942db203": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL slug '…' inválido: debe casar con ^[a-z0-9][a-z0-9-]*$ (minúsculas, números y guiones; sin acentos ni espacios)"
+  },
+  "unidad.py::ce8cfebe8010826a": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: sin aprobación del usuario (aprobado: …)"
+  },
+  "unidad.py::d09a22ca32c670ca": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: existen worktree-listo y worktree-listo.py; deja un único contrato ejecutable · recibo …"
+  },
+  "unidad.py::d1188a77cae5f5fb": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: la ficha cambió después de validar sus recursos; no creo rama ni worktree"
+  },
+  "unidad.py::d5a8077a5fff3b9b": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no existe la unidad … (¿ya está cerrada y archivada?)"
+  },
+  "unidad.py::da37fa705d929191": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: … es un enlace simbólico o no es un fichero regular confinado; recibo …"
+  },
+  "unidad.py::db7e7ff81c5d88e5": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL worktree sin unidad: worktrees/… (¿cierre a medias?)"
+  },
+  "unidad.py::e02c0d65e82cc0cf": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL un bug va por carril directo o normal (runbooks/bug.md); si es transversal, escala a decisión con el usuario en vez de --completo"
+  },
+  "unidad.py::ee8adfee0e8ae7d7": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no pude registrar el origen de la rama; deshice el despacho: …"
+  },
+  "unidad.py::f033c5d8d6ea9eca": {
+   "fichero": "unidad.py",
+   "mensaje": "preparación bloqueada: no pude resolver el worktree; recibo …"
+  },
+  "unidad.py::f0b76c066f504b4a": {
+   "fichero": "unidad.py",
+   "mensaje": "no puedo numerar otra unidad ahora: …"
+  },
+  "unidad.py::f6630346e840f498": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL …: la ficha cambió durante la preparación del entorno; deshice rama y worktree"
+  },
+  "unidad.py::fb738f0f786c87da": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL cierre abortado antes de tocar nada: se perdió la autoridad del lease (…)"
+  },
+  "unidad.py::fd9e16e1c0fa3cd0": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL la unidad o uno de sus recursos ya tiene propietario: …"
+  },
+  "unidad.py::fece4394960b435b": {
+   "fichero": "unidad.py",
+   "mensaje": "FAIL no pude fijar el SHA base de …"
+  }
+ }
+}
