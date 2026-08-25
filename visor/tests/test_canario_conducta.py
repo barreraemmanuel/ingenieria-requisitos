@@ -144,6 +144,69 @@ class ConductaPorContenidoTest(BaseConducta):
         self.assertNotEqual(canario.normalizar_comando("pytest -q tests/a.py"),
                             canario.normalizar_comando("npm run build"))
 
+    def test_releer_el_mismo_fichero_no_es_un_fallo_aunque_hable_de_errores(self):
+        """H3: el texto de un `Read` es el del PROYECTO, no el de un fallo.
+
+        Reproducción del revisor: tres `Read` del mismo módulo —que dentro tiene
+        `except OSError as error:`— intercalados con ediciones normales daban «3 veces el
+        mismo comando con el mismo fallo: Read: /proyecto/src/guardar.py · corta AHORA».
+        Releer un fichero tres veces es rutina, y casi cualquier fuente lleva dentro las
+        palabras `error`, `failed` o `denied`.
+        """
+        fuente = ("def guardar(ruta, datos):\n"
+                  "    try:\n"
+                  "        ruta.write_text(datos)\n"
+                  "    except OSError as error:\n"
+                  "        raise RuntimeError('failed to save') from error\n")
+        eventos = []
+        for i in range(4):
+            eventos += self.turno_con_herramienta(
+                f"rd{i}", "Read", {"file_path": "/proyecto/src/guardar.py"}, fuente)
+            eventos += self.eventos_edicion(f"/proyecto/src/otro_{i}.py", 1)
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertIsNone(informe["sintoma"],
+                          "leer no es ejecutar: el contenido del proyecto no es un fallo")
+        self.assertEqual(informe["veredicto"], "sano")
+
+    def test_buscar_lo_mismo_varias_veces_tampoco_es_un_fallo(self):
+        """La misma guarda para lo que BUSCA: `Grep` devuelve líneas del proyecto."""
+        eventos = []
+        for i in range(5):
+            eventos += self.turno_con_herramienta(
+                f"gr{i}", "Grep", {"pattern": "OSError"},
+                "src/guardar.py:12:    except OSError as error:  # permission denied")
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        self.assertIsNone(self.diagnostico()["sintoma"])
+
+    def test_el_mismo_fallo_ejecutando_si_sigue_siendo_sintoma(self):
+        """El contraste que da sentido a la guarda: en `Bash` el texto SÍ delata."""
+        eventos = self.eventos_test("node scripts/build.js", 3,
+                                    salida="Error: Cannot find module './lib/x'")
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertEqual(informe["veredicto"], "sintomas")
+        self.assertEqual(informe["sintoma"]["veces"], 3)
+
+    def test_un_read_que_el_harness_marca_roto_si_cuenta(self):
+        """Acotar la heurística no ciega el hecho: `is_error` es del harness, no una pista."""
+        eventos = []
+        for i in range(3):
+            eventos += self.turno_con_herramienta(
+                f"rx{i}", "Read", {"file_path": "/proyecto/src/no_existe.py"},
+                "File does not exist.", is_error=True)
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertEqual(informe["veredicto"], "sintomas")
+        self.assertIn("no_existe.py", informe["sintoma"]["comando"])
+
     def test_salida_limpia_repetida_no_es_un_fallo(self):
         """Falso negativo antes que falso positivo: sin marcas de fallo, silencio."""
         eventos = self.eventos_test("git status --porcelain", 5,
@@ -306,8 +369,10 @@ class VentanaDeLosModelosActualesTest(BaseConducta):
     def test_el_aviso_del_modelo_nuevo_sale_una_sola_vez(self):
         self.instalar_fixture("sesion-claude-modelo-nuevo.jsonl")
 
-        uno, dos = self.diagnostico(), self.diagnostico()
-        primero, segundo = canario.texto_veredicto(uno), canario.texto_veredicto(dos)
+        uno = self.diagnostico()
+        primero = canario.texto_veredicto(uno)
+        dos = self.diagnostico()
+        segundo = canario.texto_veredicto(dos)
 
         self.assertTrue(uno["avisar_modelo"])
         self.assertFalse(dos["avisar_modelo"], "una vez es una vez")
@@ -316,6 +381,38 @@ class VentanaDeLosModelosActualesTest(BaseConducta):
         self.assertNotIn("asumo", segundo.lower())
         self.assertNotEqual(segundo, "", "callarse del todo, jamás: la línea de estado sigue")
         self.assertIn("75", segundo, "la vigilancia sigue viva después del aviso")
+
+    def test_diagnosticar_no_gasta_el_aviso_del_modelo_nuevo(self):
+        """H1: mirar no es decir. Si el aviso no se imprime, sigue pendiente.
+
+        Antes `diagnosticar` apuntaba el modelo en cuanto lo veía, así que un hook `Stop`
+        que callaba —o cualquier informe que nadie llegara a imprimir— se comía el «una
+        sola vez» y el usuario no veía el aviso JAMÁS: la ceguera de R1, en silencio.
+        """
+        self.instalar_fixture("sesion-claude-modelo-nuevo.jsonl")
+
+        for _ in range(3):
+            self.assertTrue(self.diagnostico()["avisar_modelo"],
+                            "sin imprimir nada, el aviso sigue debiéndose")
+
+        self.assertIn("asumo", canario.texto_veredicto(self.diagnostico()).lower())
+        self.assertFalse(self.diagnostico()["avisar_modelo"],
+                         "y una vez dicho, ya no se repite")
+
+    def test_la_memoria_solo_guarda_el_modelo_cuando_el_aviso_se_escribe(self):
+        """La misma regla, mirada desde el fichero de memoria."""
+        self.instalar_fixture("sesion-claude-modelo-nuevo.jsonl")
+        memoria = self.cwd / canario.MEMORIA
+
+        informe = self.diagnostico()
+        self.assertNotIn("claude-quixote-6-20270210",
+                         canario.leer_memoria(self.cwd).get("modelos", []))
+
+        canario.texto_veredicto(informe)
+
+        self.assertTrue(memoria.is_file())
+        self.assertIn("claude-quixote-6-20270210",
+                      canario.leer_memoria(self.cwd).get("modelos", []))
 
     def test_la_config_del_workspace_sigue_mandando_sobre_la_tabla(self):
         self.config({"ventanas": {"claude-opus-5": 300_000}})
@@ -344,7 +441,8 @@ class HookStopTest(BaseConducta):
                  "CANARIO_CLAUDE_PROJECTS": str(self.claude),
                  "CANARIO_CODEX_SESSIONS": str(self.codex)})
 
-    def sesion_de_n_turnos(self, turnos, *, eventos=()):
+    def sesion_de_n_turnos(self, turnos, *, eventos=(), modelo="claude-opus-5",
+                           tokens=900_000):
         cwd = str(self.cwd)
         carpeta = self.claude / canario.normalizar_proyecto(cwd)
         carpeta.mkdir(parents=True, exist_ok=True)
@@ -354,8 +452,8 @@ class HookStopTest(BaseConducta):
         for _ in range(turnos):
             lineas.append(json.dumps({
                 "type": "assistant", "cwd": cwd,
-                "message": {"model": "claude-opus-5",
-                            "usage": {"input_tokens": 900_000,
+                "message": {"model": modelo,
+                            "usage": {"input_tokens": tokens,
                                       "cache_read_input_tokens": 0,
                                       "cache_creation_input_tokens": 0,
                                       "output_tokens": 10}}}))
@@ -376,12 +474,55 @@ class HookStopTest(BaseConducta):
 
     def test_hook_stop_calla_entre_dos_rondas(self):
         cada = canario.DEFECTOS["turnos_hook"]
-        self.sesion_de_n_turnos(cada + 1)          # 900k de 1M: hay motivo de sobra
+        self.sesion_de_n_turnos(cada)              # 900k de 1M: hay motivo de sobra
+        primera = json.loads(self.correr("hook-stop").stdout)
 
+        self.sesion_de_n_turnos(cada + 1)          # la parada siguiente, un turno después
         salida = json.loads(self.correr("hook-stop").stdout)
 
+        self.assertIn("systemMessage", primera, "la primera ronda sí habla")
         self.assertNotIn("systemMessage", salida,
                          "barato quiere decir que no habla en todos los turnos")
+
+    def test_hook_stop_vuelve_a_hablar_pasada_otra_ronda(self):
+        cada = canario.DEFECTOS["turnos_hook"]
+        self.sesion_de_n_turnos(cada)
+        self.correr("hook-stop")
+
+        self.sesion_de_n_turnos(cada * 2)
+        salida = json.loads(self.correr("hook-stop").stdout)
+
+        self.assertIn("zona de riesgo", salida.get("systemMessage", ""))
+
+    def test_hook_stop_habla_aunque_la_cuenta_no_caiga_en_un_multiplo(self):
+        """H2: un `Stop` cubre una cadena entera de herramientas, y la cuenta SALTA.
+
+        Medido sobre tres sesiones reales de esta máquina: 989 turnos repartidos en 33
+        paradas (salto medio 25,9 turnos) no caían NI UNA VEZ en un múltiplo de 25, así que
+        la capacidad y la posición no habrían sonado en toda la sesión. Lo que manda es
+        cuánto ha pasado desde el último aviso, no el resto de una división.
+        """
+        cada = canario.DEFECTOS["turnos_hook"]
+        self.sesion_de_n_turnos(cada - 1)          # parada anterior: aún no toca
+        self.assertNotIn("systemMessage", json.loads(self.correr("hook-stop").stdout))
+
+        self.sesion_de_n_turnos(cada * 2 + 1)      # el salto se lleva el múltiplo por delante
+        salida = json.loads(self.correr("hook-stop").stdout)
+
+        self.assertIn("zona de riesgo", salida.get("systemMessage", ""),
+                      "51 turnos sin decir nada y el aviso tiene que salir")
+
+    def test_hook_stop_no_se_calla_el_modelo_nuevo_en_una_sesion_sana(self):
+        """H1 desde el hook: si esperase a un veredicto, el aviso no lo vería nadie."""
+        self.sesion_de_n_turnos(3, modelo="claude-quixote-6", tokens=1_000)
+
+        primera = json.loads(self.correr("hook-stop").stdout)
+        segunda = json.loads(self.correr("hook-stop").stdout)
+
+        self.assertIn("claude-quixote-6", primera.get("systemMessage", ""))
+        self.assertIn("asumo", primera["systemMessage"].lower())
+        self.assertTrue(primera.get("continue"))
+        self.assertNotIn("systemMessage", segunda, "una vez dicho, se calla")
 
     def test_hook_stop_avisa_al_llegar_a_la_ronda(self):
         cada = canario.DEFECTOS["turnos_hook"]

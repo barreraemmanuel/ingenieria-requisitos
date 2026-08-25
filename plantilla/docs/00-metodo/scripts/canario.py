@@ -223,31 +223,77 @@ def ventana_de(modelo, config):
     return resolver_ventana(modelo, config)[0]
 
 
-def modelo_ya_anunciado(raiz, modelo):
-    """¿Se anunció ya este modelo nuevo? Lo apunta al preguntar: solo dice `no` una vez.
+def leer_memoria(raiz):
+    """Lo apuntado en `.claude/canario-visto.json`, o un dict vacío si no hay nada legible."""
+    try:
+        datos = json.loads((Path(raiz) / MEMORIA).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return {}
+    return datos if isinstance(datos, dict) else {}
 
-    Si la memoria no se puede leer NI escribir, se responde `no`: repetir el aviso es un
-    incordio menor; callarlo sería justo la ceguera que este bug arregla.
+
+def guardar_memoria(raiz, datos):
+    """Apunta la memoria. Si no se puede escribir, se sigue: un canario no rompe nada."""
+    fichero = Path(raiz) / MEMORIA
+    try:
+        fichero.parent.mkdir(parents=True, exist_ok=True)
+        fichero.write_text(json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True)
+                           + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
+def modelo_ya_anunciado(raiz, modelo):
+    """¿Se anunció ya este modelo nuevo? PREGUNTA PURA: no apunta nada.
+
+    Bug 062, hueco H1 del revisor: antes esto apuntaba el modelo al preguntar, así que
+    `diagnosticar` gastaba el «una sola vez» aunque el aviso no llegara a imprimirse nunca
+    —y con el hook `Stop` sembrado, un veredicto `sano` no imprime—. La memoria se gasta
+    solo donde el aviso SE ESCRIBE (`apuntar_modelo`, desde `texto_veredicto`).
+
+    Si la memoria no se puede leer, se responde `no`: repetir el aviso es un incordio menor;
+    callarlo sería justo la ceguera que este bug arregla.
     """
     if not modelo:
         return True
-    fichero = Path(raiz) / MEMORIA
-    try:
-        datos = json.loads(fichero.read_text(encoding="utf-8"))
-    except (OSError, ValueError):
-        datos = {}
-    vistos = datos.get("modelos") if isinstance(datos, dict) else None
+    vistos = leer_memoria(raiz).get("modelos")
+    return modelo in [str(m) for m in vistos] if isinstance(vistos, list) else False
+
+
+def apuntar_modelo(raiz, modelo):
+    """Consume el «una sola vez» del modelo nuevo. Se llama al IMPRIMIR el aviso, jamás antes."""
+    if not modelo:
+        return
+    datos = leer_memoria(raiz)
+    vistos = datos.get("modelos")
     vistos = [str(m) for m in vistos] if isinstance(vistos, list) else []
     if modelo in vistos:
-        return True
+        return
     vistos.append(modelo)
-    try:
-        fichero.parent.mkdir(parents=True, exist_ok=True)
-        fichero.write_text(json.dumps({"modelos": vistos[-50:]}, ensure_ascii=False,
-                                      indent=2, sort_keys=True) + "\n", encoding="utf-8")
-    except OSError:
-        pass
-    return False
+    datos["modelos"] = vistos[-50:]
+    guardar_memoria(raiz, datos)
+
+
+def turno_del_ultimo_aviso(raiz, fichero):
+    """En qué turno de ESTA sesión habló el hook `Stop` por última vez (0 si nunca)."""
+    hablado = leer_memoria(raiz).get("hook_stop")
+    if not isinstance(hablado, dict) or not fichero:
+        return 0
+    valor = hablado.get(str(fichero))
+    return int(valor) if isinstance(valor, (int, float)) and valor > 0 else 0
+
+
+def apuntar_aviso(raiz, fichero, turnos):
+    """Apunta el turno en el que el hook `Stop` acaba de hablar, para esta sesión."""
+    if not fichero:
+        return
+    datos = leer_memoria(raiz)
+    hablado = datos.get("hook_stop")
+    hablado = dict(hablado) if isinstance(hablado, dict) else {}
+    hablado[str(fichero)] = int(turnos)
+    # Se guardan las 20 sesiones más recientes: la memoria es una nota, no un archivo.
+    datos["hook_stop"] = dict(list(hablado.items())[-20:])
+    guardar_memoria(raiz, datos)
 
 
 def umbral_de(modelo, config):
@@ -475,6 +521,16 @@ MARCAS_DE_TEST = re.compile(
 HERRAMIENTAS_DE_FICHERO = {"edit", "write", "multiedit", "notebookedit", "str_replace_editor",
                            "apply_patch", "create_file"}
 
+# Herramientas que EJECUTAN algo: son las únicas cuyo TEXTO de salida puede leerse como
+# fallo (bug 062, hueco H3 del revisor). Un `Read` o un `Grep` devuelven el contenido del
+# proyecto, y casi cualquier fuente lleva dentro las palabras `error`, `failed` o `denied`:
+# aplicarles la heurística convertía releer un fichero tres veces —rutina— en «la sesión YA
+# está degradando». Para lo que no ejecuta sigue valiendo el `is_error` del harness, que es
+# un hecho y no una heurística.
+HERRAMIENTAS_QUE_EJECUTAN = {"bash", "shell", "local_shell", "exec", "execute", "run",
+                             "run_command", "run_terminal_cmd", "terminal", "powershell",
+                             "container.exec", "bashoutput", "killshell"}
+
 
 def _sin_ruido(texto, *, numeros=False):
     """El texto sin colas de pipe ni rutas temporales; con `numeros`, también sin cifras."""
@@ -531,8 +587,10 @@ def leer_claude(fichero):
     Bug 062 — el harness de Claude Code marca `is_error` solo cuando el proceso sale con
     código != 0, y el agente encadena `| tail`, `2>&1` y `|| true`: el exit del pipeline es
     0 y el fallo viaja DENTRO del texto. En 223 turnos de campo hubo un solo `is_error`. Por
-    eso aquí el fallo se lee igual que en Codex: por el CONTENIDO. Y de paso se recogen las
-    tres señales de atasco que no dejan ni una línea de error (R3).
+    eso aquí el fallo se lee igual que en Codex: por el CONTENIDO —pero SOLO en las
+    herramientas que ejecutan algo (`HERRAMIENTAS_QUE_EJECUTAN`), nunca en las que leen o
+    buscan, cuyo texto es el del propio proyecto—. Y de paso se recogen las tres señales de
+    atasco que no dejan ni una línea de error (R3).
     """
     modelo, tokens, turnos = None, None, 0
     comandos, fallos = {}, []
@@ -572,13 +630,19 @@ def leer_claude(fichero):
                         ediciones.append(str(fichero_tocado))
                 orden = entrada.get("command") or fichero_tocado or entrada.get(
                     "pattern") or json.dumps(entrada, sort_keys=True, ensure_ascii=False)
-                comandos[bloque.get("id")] = f"{nombre}: {normalizar_comando(orden)}"[:200]
+                comandos[bloque.get("id")] = (
+                    nombre.lower(), f"{nombre}: {normalizar_comando(orden)}"[:200])
             elif bloque.get("type") == "tool_result":
-                orden = comandos.get(bloque.get("tool_use_id"))
-                if not orden:
+                par = comandos.get(bloque.get("tool_use_id"))
+                if not par:
                     continue
+                herramienta, orden = par
                 texto = _texto_de(bloque.get("content"))
-                roto = bool(bloque.get("is_error")) or bool(MARCAS_DE_FALLO.search(texto))
+                # H3: la heurística por CONTENIDO solo para lo que ejecuta. Lo que lee o
+                # busca únicamente falla si el harness lo dice con el booleano.
+                roto = bool(bloque.get("is_error")) or bool(
+                    herramienta in HERRAMIENTAS_QUE_EJECUTAN
+                    and MARCAS_DE_FALLO.search(texto))
                 if roto:
                     fallos.append((orden, _firma(texto)))
                 if MARCAS_DE_TEST.search(orden):
@@ -729,8 +793,8 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     `transcript` es el atajo barato del hook `Stop`: el harness ya dice qué fichero está
     escribiendo, así que no hace falta rastrear ninguna carpeta.
 
-    Ojo, efecto de lado declarado: cuando el modelo no está en la tabla, apunta en
-    `.claude/canario-visto.json` que ya se anunció, para que el aviso salga UNA vez (R1).
+    Sin efectos de lado: diagnosticar solo MIRA. El «una sola vez» del modelo nuevo se gasta
+    al imprimir el aviso, no al calcularlo (hueco H1 del revisor).
     """
     raiz = Path(raiz or RAIZ)
     cwd = Path(cwd or Path.cwd())
@@ -744,6 +808,7 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
                "turnos": None, "turnos_aviso": config["turnos_aviso"],
                "ventana_incoherente": None, "ventana_asumida": False,
                "avisar_modelo": False,
+               "raiz": str(raiz),
                "config": str(raiz / CONFIG)}
 
     if transcript and Path(transcript).is_file():
@@ -807,10 +872,20 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
 
 
 def texto_veredicto(informe):
-    """El texto que ve el usuario. Vacío = silencio: sin sesión no se dice nada."""
-    cuerpo = _cuerpo_veredicto(informe)
+    """El texto que ve el usuario. Vacío = silencio: sin sesión no se dice nada.
+
+    Aquí —y solo aquí— se gasta el «una sola vez» del modelo nuevo: la memoria se consume
+    cuando el aviso SE ESCRIBE. Si el texto sale vacío, no se ha dicho nada y el aviso sigue
+    pendiente para la próxima (hueco H1 del revisor).
+    """
+    return con_aviso_de_modelo(informe, _cuerpo_veredicto(informe))
+
+
+def con_aviso_de_modelo(informe, cuerpo):
+    """El cuerpo con la nota del modelo nuevo delante, y la memoria gastada al ponerla."""
     if not cuerpo or not informe.get("avisar_modelo"):
         return cuerpo
+    apuntar_modelo(informe.get("raiz") or RAIZ, informe["modelo"])
     # La nota del modelo nuevo acompaña al veredicto de siempre; nunca lo sustituye ni lo
     # duplica (por eso no lleva la cabecera «CANARIO DE CONTEXTO»).
     return AVISO_MODELO_NUEVO.format(modelo=informe["modelo"] or "desconocido",
@@ -1055,24 +1130,41 @@ def salida_hook_stop(informe, config, *, entrada=None):
     """R4: lo que imprime el hook `Stop`. Barato, callado y JAMÁS bloqueante.
 
     El hook se dispara al final de CADA turno. Hablar en todos sería ruido y el ruido es lo
-    que este script existe para no generar, así que la capacidad y la posición se cuentan
-    de N en N turnos. La conducta no espera turno: repetirse ya está pasando.
+    que este script existe para no generar, así que la capacidad y la posición se dicen cada
+    N turnos. La conducta no espera turno: repetirse ya está pasando. Y el modelo nuevo
+    tampoco espera (hueco H1): si esperase a un veredicto que no sea `sano`, con el hook
+    sembrado el aviso podría no verlo nadie — la ceguera de R1, ahora en silencio.
+
+    «Cada N turnos» se cuenta contra el ÚLTIMO turno en el que se habló, no con un
+    `turnos % N` (hueco H2 del revisor): un `Stop` cubre una cadena entera de herramientas,
+    así que la cuenta de turnos salta de varias en varias y puede no caer NUNCA en un
+    múltiplo exacto. Medido sobre tres sesiones reales: 989 turnos / 33 paradas → cero
+    avisos. Con el resto (`turnos - ultimo >= N`) el aviso llega en la primera parada que
+    pase de largo.
     """
     salida = {"continue": True}
     if informe["veredicto"] == "sin_datos":
         return salida
-    if informe["veredicto"] == "sintomas":
-        salida["systemMessage"] = texto_veredicto(informe)
+    raiz = informe.get("raiz") or RAIZ
+    if informe["veredicto"] == "sintomas" or informe.get("avisar_modelo"):
+        mensaje = texto_veredicto(informe)
+        if mensaje:
+            salida["systemMessage"] = mensaje
+            apuntar_aviso(raiz, informe.get("fichero"), informe.get("turnos") or 0)
         return salida
     if informe["veredicto"] == "sano":
         return salida
     turnos = informe.get("turnos") or 0
     cada = max(1, int(config["turnos_hook"]))
-    if turnos < cada or turnos % cada:
+    ultimo = turno_del_ultimo_aviso(raiz, informe.get("fichero"))
+    if ultimo > turnos:                 # la sesión se reinició bajo el mismo nombre
+        ultimo = 0
+    if turnos < cada or turnos - ultimo < cada:
         return salida
     mensaje = texto_veredicto(informe)
     if mensaje:
         salida["systemMessage"] = mensaje
+        apuntar_aviso(raiz, informe.get("fichero"), turnos)
     return salida
 
 
@@ -1106,7 +1198,7 @@ def main(argv=None):
         # PreCompact(auto): el harness va a compactar, o sea que la sesión YA está llena.
         # Aquí se avisa SIEMPRE, mire alguien el porcentaje o no. Y nunca se bloquea:
         # `continue: true` y exit 0, pase lo que pase (fuera de alcance del contrato).
-        mensaje = texto_veredicto(informe)
+        mensaje = texto_veredicto(informe) if informe["veredicto"] == "sintomas" else ""
         if informe["veredicto"] != "sintomas":
             # Compactar YA es la prueba de que la sesión está llena: aquí no vale ni el
             # "sano" ni el "no sé tu ventana". Suena el aviso de capacidad con lo que se
@@ -1117,6 +1209,9 @@ def main(argv=None):
                 ventana=informe["ventana"] or "?",
                 modelo=informe["modelo"] or "modelo desconocido",
                 fichero=informe["fichero"] or "el harness va a auto-compactar")
+            # El cuerpo se ha rehecho a mano: la nota del modelo nuevo se le pone aquí, que
+            # es donde de verdad se imprime (H1: la memoria se gasta al decirlo).
+            mensaje = con_aviso_de_modelo(informe, mensaje)
         print(json.dumps({"continue": True, "systemMessage": mensaje}, ensure_ascii=False))
         return 0
 
