@@ -52,9 +52,13 @@ def fail(msg):
     print(f"  FAIL {msg}")
 
 
-ESTADOS_UNIDAD = {"planificada", "en_obra", "en_revision", "en_validacion", "mergeada",
-                  "bloqueada", "descartada"}
-TIPOS = {"bug", "feature", "refactor", "migracion", "auditoria", "investigacion", "documentacion"}
+# El vocabulario cerrado de la unidad vive en `repo_config.py` (unidad 050): estaba escrito
+# aquí y en `unidad.py`, coincidiendo por suerte, sin que nada lo comprobara.
+ESTADOS_UNIDAD = repo_config.ESTADOS_UNIDAD
+TIPOS = repo_config.TIPOS
+# `CARRILES` NO se centraliza: aquí son los tres carriles que admite el frontmatter de una
+# unidad, y en `peticion.py` son los seis valores de `--ruta` de una petición. Mismo nombre,
+# conceptos distintos; forzarlos a uno inventaría un bug (unidad 050, R9).
 CARRILES = {"directo", "normal", "completo"}
 DOCS_PERMITIDOS = {"00-metodo", "01-constitucion", "02-flujos", "03-investigacion",
                    "04-planificacion", "05-trabajo", "bugs", "conocimiento", "decisiones"}
@@ -1272,6 +1276,36 @@ else:
              "`python3 docs/00-metodo/scripts/lint_salidas.py`")
     else:
         ok("todo rechazo nuevo de los scripts nombra su salida (línea base sin crecer)")
+
+# --- 8d. Lo que se rompe ENTRE dos piezas que por separado están bien (unidad 050) ---
+# Este linter, sección a sección, mira hacia DENTRO: la raíz tiene la forma correcta, el árbol
+# está congelado, los frontmatters cuadran. La única sección que mira una junta —worktrees
+# contra unidades— es la que sigue cogiendo cosas reales. `lint_juntas.py` es el guardián de
+# las otras tres juntas medidas: el vocabulario que comparten los scripts con la prosa, el tope
+# de 250 líneas que el carril directo promete y nadie medía, y el inventario congelado de
+# puertas duras con su dueño. Va aquí, al arrancar y al cerrar (regla 13), y no dentro de este
+# fichero: son comprobaciones ENTRE piezas, y meterlas en el validador hacia dentro sería
+# repetir el error que corrigen.
+lint_juntas = RAIZ / "docs/00-metodo/scripts/lint_juntas.py"
+inventario_puertas = RAIZ / "docs/00-metodo/puertas.json"
+if not lint_juntas.is_file() or not inventario_puertas.is_file():
+    # Falta una pieza del MÉTODO, no del proyecto: por ADR-026 avisa y no bloquea; el arreglo
+    # llega por Modo D.
+    warn("no se pudieron comprobar las juntas del método: falta "
+         "docs/00-metodo/scripts/lint_juntas.py o docs/00-metodo/puertas.json; actualiza el "
+         "método con `python3 visor/actualizar.py revisar --todos` desde la herramienta de "
+         "ingeniería de requisitos")
+else:
+    resultado_juntas = subprocess.run(
+        [sys.executable, str(lint_juntas), "--raiz", str(RAIZ)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    if resultado_juntas.returncode:
+        fail("hay juntas del método que no cuadran (vocabulario, tope del carril directo o "
+             "puertas duras sin dueño); el detalle y la salida de cada una salen en "
+             "`python3 docs/00-metodo/scripts/lint_juntas.py`")
+    else:
+        ok("las tres juntas del método cuadran (vocabulario, tope directo, puertas con dueño)")
 
 # --- 9. Higiene ---
 if (RAIZ / "codebase").exists():

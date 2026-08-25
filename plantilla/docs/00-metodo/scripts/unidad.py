@@ -67,10 +67,11 @@ BUGS = RAIZ / "docs/bugs"
 PLANTILLAS = RAIZ / "docs/00-metodo/plantillas"
 WORKTREES = RAIZ / "worktrees"
 
-# Vocabulario cerrado: el mismo que valida lint_metodo.py. No se crean variantes.
-TIPOS = ["bug", "feature", "refactor", "migracion", "auditoria", "investigacion", "documentacion"]
-ESTADOS = {"planificada", "en_obra", "en_revision", "en_validacion", "mergeada", "bloqueada",
-           "descartada"}
+# Vocabulario cerrado: el mismo que valida lint_metodo.py, y por eso ya no se escribe aquí.
+# Vive en `repo_config.py`, que importan los catorce scripts; las dos copias coincidían por
+# suerte y nada lo comprobaba (unidad 050). No se crean variantes.
+TIPOS = repo_config.TIPOS
+ESTADOS = repo_config.ESTADOS_UNIDAD
 # `en_validacion` NO está en vuelo (ADR-010): su rama ya está fusionada y el trabajo de
 # construcción terminó; lo único pendiente es que el usuario pruebe la app. Ocupaba cupo de
 # paralelismo sin consumir atención de nadie, y eso obligaba a subir el tope para seguir
