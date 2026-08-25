@@ -86,8 +86,7 @@ presupuestos viven en `runbooks/control-plane.md` (ADR-024).
 unidad: NNN-slug
 tipo: bug | feature | refactor | migracion | auditoria | investigacion | documentacion
 carril: directo | normal | completo
-estado: planificada | en_obra | en_revision | en_validacion | mergeada | bloqueada |
-        descartada
+estado: planificada | en_obra | en_revision | en_validacion | mergeada | bloqueada | descartada
 aprobado: no | YYYY-MM-DD
 actividad: <id del INDICE de flujos>
 ficheros: [rutas que esta unidad posee — dos unidades paralelas jamás comparten]

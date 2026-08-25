@@ -128,6 +128,26 @@ class VocabularioTest(unittest.TestCase):
         self.assertIn("en_validacion", salida.stdout)
         self.assertIn("README.md", salida.stdout)
 
+    def test_r2_termino_en_la_prosa_y_no_en_el_codigo_falla(self):
+        """El «o al revés» de R2: la prosa manda a escribir un valor que el script rechaza."""
+        escribir_workspace(
+            self.raiz,
+            readme=prosa() + "\n```yaml\nestado: "
+                   + " | ".join(list(ESTADOS) + ["jubilada"]) + "\n```\n",
+        )
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout)
+        self.assertIn("jubilada", salida.stdout)
+        self.assertIn("README.md", salida.stdout)
+
+    def test_r2_la_prosa_que_coincide_con_el_codigo_da_verde(self):
+        escribir_workspace(
+            self.raiz,
+            readme=prosa() + "\n```yaml\nestado: " + " | ".join(ESTADOS) + "\n```\n",
+        )
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
     def test_r10_todo_fallo_nombra_un_comando(self):
         escribir_workspace(self.raiz, unidad=fuente_unidad(tipos=TIPOS + ("inventado",)))
         salida = correr(self.raiz)

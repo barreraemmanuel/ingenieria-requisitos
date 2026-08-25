@@ -119,6 +119,23 @@ PAREJAS = (
     ("ESTADOS", "unidad.py", "ESTADOS", "lint_metodo.py", "ESTADOS_UNIDAD"),
 )
 
+# La copia en PROSA se declara en el frontmatter de ejemplo de `00-metodo/README.md`, y ahí
+# sí es una lista cerrada que se puede comparar término a término en los DOS sentidos:
+#   tipo: bug | feature | refactor | …
+#   estado: planificada | en_obra | …
+DECLARACION = {"TIPOS": "tipo", "ESTADOS": "estado"}
+
+
+def declarado_en_prosa(texto, clave):
+    """El conjunto que la prosa declara para `tipo:` o `estado:`. None si no lo declara."""
+    patron = re.compile(rf"^{re.escape(clave)}:\s*(.+)$", re.MULTILINE)
+    encaje = patron.search(texto)
+    if not encaje:
+        return None
+    valores = {t.strip().strip("`") for t in encaje.group(1).split("|")}
+    valores = {v for v in valores if re.fullmatch(r"[a-z_]+", v)}
+    return valores or None
+
 
 def junta_vocabulario(raiz):
     scripts = raiz / "docs/00-metodo/scripts"
@@ -161,6 +178,17 @@ def junta_vocabulario(raiz):
                 f"{etiqueta}: {ausentes} está(n) en el código y NO en la prosa de "
                 f"docs/00-metodo/README.md",
                 f"añádelo a la tabla del README, o retíralo del vocabulario de "
+                f"docs/00-metodo/scripts/repo_config.py; después  python3 {YO}"))
+            continue
+        # Y al revés (R2): un término que la prosa declara y el código ya no admite. La deriva
+        # va en los dos sentidos, y la de vuelta es peor: manda a alguien a escribir en su
+        # ficha un valor que el script rechazará.
+        prosa = declarado_en_prosa(texto, DECLARACION[etiqueta])
+        if prosa and prosa - leida.valores:
+            problemas.append((
+                f"{etiqueta}: {sorted(prosa - leida.valores)} lo declara la prosa de "
+                f"docs/00-metodo/README.md y NO existe en el código",
+                f"retíralo del README, o añádelo al vocabulario de "
                 f"docs/00-metodo/scripts/repo_config.py; después  python3 {YO}"))
     return problemas
 
