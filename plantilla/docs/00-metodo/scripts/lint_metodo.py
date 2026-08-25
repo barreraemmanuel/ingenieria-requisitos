@@ -861,10 +861,11 @@ else:
 
 # --- 4b. Trabajo en vuelo: tope y ownership disjunto ---
 activas = {n: fm for n, fm in unidades.items() if fm.get("estado") in {"en_obra", "en_revision"}}
-if len(activas) > 3:
-    fail(f"{len(activas)} unidades en vuelo (tope absoluto 3, default 1): {sorted(activas)}")
-elif len(activas) > 1:
-    warn(f"{len(activas)} unidades en vuelo (default 1; 2-3 solo sin ficheros compartidos y pedido por el usuario)")
+# Bug 061 / ADR-027: sin tope numérico. Lo que bloquea es compartir ficheros declarados
+# (comprobado justo debajo); el número de unidades en vuelo solo se informa.
+if len(activas) > 1:
+    warn(f"{len(activas)} unidades en vuelo (default 1; en paralelo solo sin ficheros compartidos "
+         f"y pedido por el usuario, ADR-027): {sorted(activas)}")
 
 
 def ficheros_de(fm):
