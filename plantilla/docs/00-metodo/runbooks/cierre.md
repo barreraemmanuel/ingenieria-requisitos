@@ -142,9 +142,16 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    padre (regla 1 de `AGENTS.md`).
 
    Se lanza por `ejecucion.py lanzar NNN-slug --harness claude --rol revisor --prompt
-   "Revisa el diff contra el contrato y firma hallazgos.md"` (o `--harness codex`). El perfil
+   "Revisa el diff contra el contrato y firma hallazgos.md"`. **Sin `--modelo`**: el del
+   revisor lo deriva la tabla de la regla 10 (`roles.md` §Modelo y esfuerzo del subagente), y
+   por eso mismo el harness es `claude` — `codex` queda inejecutable bajo esa regla. El perfil
    hace read-only el código y solo permite como escritura persistente la firma derivada de esa
-   unidad; cwd, rama y el probe quedan en el recibo `ejecucion/v1` (ADR-022).
+   unidad; cwd, rama, modelo y esfuerzo quedan en el recibo `ejecucion/v1` (ADR-022).
+
+   **Si el worktree ya no existe** (la unidad está en `en_validacion` o `mergeada` y el cierre
+   se lo llevó), el mismo comando sigue valiendo: el lanzador se crea uno efímero, detached
+   sobre el `fusion:` de la ficha, y lo borra al terminar. No hay que recrear rama ni worktree
+   a mano.
 
    **El revisor no puede ser quien construyó.** Esto no lo relaja ningún carril:
    lo que los carriles cambian es cuánto papeleo hay, no que la revisión exista.

@@ -127,8 +127,27 @@ def leer_fichero_unidad(path):
     return fichero_unidad_seguro(path).read_text(encoding="utf-8")
 
 
+class ErrorFichaBloqueada(Exception):
+    """La ficha está en solo lectura y el cierre no puede escribirla (bug 065, R4).
+
+    Pasaba de verdad: la ventana de solo lectura del launcher se quedaba abierta cuando el
+    proceso moría por señal, y el `cerrar` siguiente reventaba con un `PermissionError`
+    pelado a media faena. Un traceback no es una salida — este error sí nombra el `chmod`.
+    """
+
+
 def escribir_fichero_unidad(path, text):
-    fichero_unidad_seguro(path).write_text(text, encoding="utf-8")
+    destino = fichero_unidad_seguro(path)
+    try:
+        destino.write_text(text, encoding="utf-8")
+    except PermissionError as exc:
+        raise ErrorFichaBloqueada(
+            f"no puedo escribir {rel(destino)}: está en solo lectura ({exc.strerror}). Es el "
+            f"rastro de una ejecución del launcher que murió con su ventana de solo lectura "
+            f"abierta; el contenido está intacto, solo faltan los permisos. "
+            f"{SALIDA} devuélvele la escritura con `chmod u+w {rel(destino)}` y repite el "
+            f"mismo comando"
+        ) from exc
 
 
 # --------------------------------------------------------------------------- frontmatter y prosa
@@ -1979,14 +1998,42 @@ def modelo_de(recibo):
     return str(recibo.get("modelo") or "").strip()
 
 
+def esfuerzo_de(recibo):
+    return str(recibo.get("esfuerzo") or "").strip()
+
+
+def lineas_de_modelo(recibos):
+    """Con qué modelo y esfuerzo se hizo cada rol de esta unidad (R2 del bug 065).
+
+    La regla 10 se cumplía a ciegas: el recibo guardaba el modelo desde la 033, pero nadie
+    lo enseñaba, así que la única forma de saber con qué se construyó era abrir el JSON. El
+    cierre es el momento en que eso importa —es donde se comprueba que el revisor no repitió
+    modelo—, así que se dice ahí, una línea por rol y sin inventar lo que el recibo no trae.
+    """
+    lineas = []
+    for rol in ("constructor", "revisor"):
+        propios = [r for r in recibos if str(r.get("rol") or "").strip() == rol]
+        if not propios:
+            continue
+        vistos = []
+        for recibo in propios:
+            modelo = modelo_de(recibo) or "modelo sin declarar"
+            detalle = modelo
+            esfuerzo = esfuerzo_de(recibo)
+            if esfuerzo:
+                detalle += f" (esfuerzo {esfuerzo})"
+            if str(recibo.get("modelo_origen") or "").strip() == "excepcion":
+                motivo = str(recibo.get("motivo_modelo") or "").strip()
+                detalle += f" · excepción a la tabla: {motivo or 'sin motivo declarado'}"
+            if detalle not in vistos:
+                vistos.append(detalle)
+        lineas.append(f"{rol}: " + " / ".join(vistos))
+    return lineas
+
+
 # El prompt del revisor no es decorativo: `lanzar` lo exige y es lo que el agente fresco
 # lee como encargo. Se ofrece ya redactado para que la salida se pueda pegar tal cual.
 PROMPT_REVISION = "Revisa el diff contra el contrato y firma hallazgos.md"
-
-# Regla 10: el revisor usa un modelo DISTINTO del que construyó. El valor no se puede
-# adivinar desde aquí (depende de quién construyó), así que queda como hueco declarado.
-HUECO_MODELO = "<modelo-distinto-del-constructor>"
-
 
 def comando_revision(nombre):
     """La salida de las tres variantes del bloqueo del revisor, tal como se teclea.
@@ -1994,10 +2041,16 @@ def comando_revision(nombre):
     Se compone contra el `argparse` real de `ejecucion.py`: subcomando `lanzar`, la unidad
     como POSICIONAL (no existe ningún `--unidad`) y `--prompt`, que es obligatorio. La 033
     publicó aquí un comando que respondía `invalid choice` (bug 034, hallazgo A).
+
+    Ya NO lleva `--modelo`. Hasta el bug 065 ofrecía `--modelo
+    <modelo-distinto-del-constructor>`: un hueco que el lector tenía que rellenar
+    adivinando, porque desde aquí no se sabe con qué construyó el otro. Ahora el modelo del
+    revisor lo deriva la tabla de la regla 10 (`repo_config.plan_de_modelo`) y el comando se
+    pega tal cual; ponerlo a mano exigiría además `--motivo-modelo`, así que el hueco de
+    ayer sería hoy un comando que ni arranca.
     """
     return (f"python3 docs/00-metodo/scripts/ejecucion.py lanzar {nombre} "
-            f"--harness claude --rol revisor --prompt \"{PROMPT_REVISION}\" "
-            f"--modelo {HUECO_MODELO}")
+            f"--harness claude --rol revisor --prompt \"{PROMPT_REVISION}\"")
 
 
 def mensaje_sin_recibo_revisor(nombre):
@@ -3028,6 +3081,9 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
                     warn(aviso)
                 if not fallos_recibo and not avisos_recibo:
                     ok("recibo de revisión: agente distinto del constructor")
+                if not fallos_recibo:
+                    for linea in lineas_de_modelo(recibos_ejecucion(nombre)):
+                        ok(f"regla 10 · {linea}")
     else:
         ok(f"ruta {politica.name}: no exige revisión fresca")
 
@@ -3488,7 +3544,8 @@ def main():
         return 1
     try:
         return args.func(args)
-    except (repo_config.RepoConfigError, workspace_paths.WorkspacePathError) as exc:
+    except (repo_config.RepoConfigError, workspace_paths.WorkspacePathError,
+            ErrorFichaBloqueada) as exc:
         fail(str(exc))
         return 1
 
