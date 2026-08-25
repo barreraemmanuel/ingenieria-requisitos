@@ -61,6 +61,31 @@ camino por el que se da el OK. Si no hay pantalla (`--sin-navegador`, una sesió
 escritorio), los comandos lo dicen e imprimen la dirección: nadie se queda esperando a
 ciegas a que el agente se acuerde.
 
+## Cuando se te necesita, suena
+
+Un agente que espera en silencio le cuesta al usuario la sesión entera mirando la pantalla.
+Por eso el aviso no depende de que nadie se acuerde de nada: son dos hooks que el método
+siembra de serie en cada workspace (`.claude/settings.json`).
+
+| Suena cuando… | Hook | Qué significa |
+|---|---|---|
+| te pide un permiso, o lleva rato esperando una respuesta | `Notification` | te toca a ti |
+| ha terminado el turno | `Stop` | puedes mirar lo hecho |
+
+Mientras trabaja **no suena**: sonar cada dos minutos es la forma más rápida de que alguien
+lo apague para siempre.
+
+Se cambia en `.claude/personalidad.md`, con una línea: `sonido: no` (calla), `sonido: sistema`
+(lo de serie), `sonido: toasty` (tu clip en `.claude/sonidos/toasty.wav`) o la ruta entera de
+un fichero. Los clips no vienen en el método —tienen dueño—: los pone cada cual. Si el que
+pides no está, suena el del sistema y se dice una vez. Para ver qué sonaría en esta máquina:
+`python3 docs/00-metodo/scripts/aviso.py --diagnostico`.
+
+**En Codex CLI esto no existe**: ese harness no tiene hooks, así que allí nada puede sonar
+solo. Es una limitación declarada del harness, no un fallo — está en la fila del canario de
+`detectores.md`, que comparte la misma frontera. Si el usuario trabaja en Codex y pregunta
+por el sonido, se le dice eso, no se le promete un arreglo.
+
 ## Cómo se cuenta un problema
 
 Un rojo son tres datos: **qué comprobación, qué falla y quién lo arregla.** Si son varios, tabla.
