@@ -266,6 +266,7 @@ misma entrada que usa hoy, sin pedirle ningún paso nuevo ni mover nada de sitio
 
 - Comando(s) que deben salir en verde: `python3 -m pytest`
 - **Nivel de test:** unitario, porque la conducta es una regla local y no cruza fronteras.
+- **Criterio portante:** R1 — sin él la unidad entera no sirve de nada.
 """
 
     CUERPO_BUG = """

@@ -45,6 +45,35 @@ bloqueadores: —              # cuántos quedan abiertos (0 si ninguno)
 <Capturas y volcados si hay UI: van a `.runtime/NNN-slug/` (fuera de git, ya existe) y aquí
 se referencian por RUTA, nunca pegados. Lo sensible (credenciales, PII) va a `.private/`.>
 
+## Contraprueba del criterio portante (normal y completo)
+
+<Que los tests estén verdes no demuestra que MUERDAN: un test vacuo pasa igual exista o no el
+comportamiento (ADR-030). Aquí se enseña que el test del **criterio portante** declarado en
+§Verificación de la especificación se pone ROJO cuando se rompe a propósito lo que protege.
+UNO solo, el portante: contraprobar todos los criterios sería un segundo desarrollo.
+En carril **directo y exprés no se pide**, y en **bug** no va aquí: lo cubre el par ROJO→VERDE
+del paso 7 de `runbooks/bug.md`. Prohibido `git stash` para deshacer la rotura —la pila es
+única y compartida entre TODOS los worktrees—: se usa `git checkout -- <fichero>` o
+`git restore <fichero>`.>
+
+```contraprueba
+criterio: —                  # el R-n portante, copiado de §Verificación de la especificación
+test: —                      # el test concreto que lo protege
+rotura: —                    # qué se rompió a propósito y dónde (fichero:línea, y el diff)
+rojo: —                      # el fallo LITERAL, y tiene que nombrar el criterio: un rojo por
+                             # un import roto o un error de sintaxis no prueba nada
+restauracion: —              # cómo se deshizo (nunca `git stash`)
+diff_tras_restaurar: —       # salida de `git diff HEAD` — vacía, pegada
+punta_antes: —               # `git rev-parse HEAD` antes de romper
+punta_despues: —             # `git rev-parse HEAD` después de restaurar — el mismo sha
+verde_de_nuevo: —            # el test otra vez en verde tras restaurar
+```
+
+```
+<los outputs literales: el rojo, el `git diff HEAD` vacío, los dos `git rev-parse HEAD` y el
+verde final. Pegados, no resumidos: la restauración se DEMUESTRA, no se afirma.>
+```
+
 ## Desviaciones de implementación
 
 <El cómo cambió respecto a lo previsto, sin tocar el contrato. Si hubo desviación de

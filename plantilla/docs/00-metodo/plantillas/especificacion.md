@@ -99,6 +99,12 @@ integración; navegador solo para los recorridos y fronteras E2E seleccionados e
   End-to-end solo si cruza la aplicación completa; integración si cruza una frontera; unitario
   si es una regla. Un test que no puede fallar por ESTE cambio no se escribe. `unidad.py
   despachar` BLOQUEA si esta línea sigue sin rellenar.>
+- **Criterio portante:** <cuál de los R* es el que sostiene esta unidad: el que, si no
+  estuviera implementado, deja el resto sin sentido. UNO, nombrado como `R-n` y en una
+  frase. Lo elige quien redacta el contrato, NO quien construye ni quien revisa: el
+  cierre exige la contraprueba sobre ESE test (ADR-030), y elegirlo después es elegir
+  el más fácil de romper. `unidad.py despachar` BLOQUEA en normal y completo si sigue
+  sin rellenar; en directo y exprés no se pide.>
 - Evidencia exigida al cerrar: output de tests + <capturas si hay UI>
 
 ## Contexto para el constructor (leer ANTES de empezar, en este orden)

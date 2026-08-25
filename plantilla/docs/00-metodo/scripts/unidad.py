@@ -580,6 +580,24 @@ def nivel_de_test(texto):
     return resto.strip(" .:·-")
 
 
+RE_CRITERIO_PORTANTE = re.compile(r"^\s*[-*]\s*\*\*Criterio portante:?\*\*(.*)$", re.M | re.I)
+
+
+def criterio_portante(texto):
+    """Lo que se ha escrito de verdad en '**Criterio portante:**', o cadena vacía.
+
+    Mismo molde que `nivel_de_test`, y por el mismo motivo: los huecos `<...>` de la
+    plantilla son la pregunta, no la respuesta, y el de este campo ocupa varias líneas.
+    """
+    m = RE_CRITERIO_PORTANTE.search(texto)
+    if not m:
+        return ""
+    resto = MARCADOR.sub("", m.group(1)).strip()
+    if resto.startswith("<"):
+        return ""
+    return resto.strip(" .:·-")
+
+
 def plantilla_de(clase, fm):
     """Qué plantilla es el MOLDE de esta unidad.
 
@@ -1195,6 +1213,32 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             warn("nivel de test sin declarar: --force lo deja pasar (deuda del hotfix)")
         else:
             ok(f"nivel de test declarado: {nivel[:60]}")
+
+    # --- Precondición 4ter: el criterio PORTANTE está declarado (ADR-030) -------------------
+    # El cierre exige la contraprueba —romper a propósito lo que el criterio protege y enseñar
+    # el rojo— sobre UN criterio. Si se elige al llegar al cierre, lo elige quien construyó, y
+    # elegirá el más fácil de romper: se declara aquí, antes de que exista una línea de código.
+    # Acotado a normal y completo a propósito: en directo y exprés no se pide (el carril entero
+    # existe para no pagar ceremonia) y en bug ya está, en el par ROJO→VERDE del paso 7.
+    # Sin válvula `--force`: esa es la de producción caída, y solo la abre un bug P0, que no
+    # paga esta puerta.
+    carril_unidad = (fm.get("carril") or "normal").strip().lower()
+    modo_unidad = (fm.get("ejecucion") or "").strip().lower()
+    if (unidad["clase"] != "bug" and carril_unidad in ("normal", "completo")
+            and modo_unidad != "expres"):
+        portante = criterio_portante(texto_unidad)
+        if not portante:
+            fail(f"{rel(ruta)}: §Verificación sin '**Criterio portante:**' relleno")
+            err("\n  Declara CUÁL de los R* es el criterio portante: el que, si no estuviera\n"
+                "  implementado, deja el resto sin sentido. Uno solo, nombrado como `R-n`.\n"
+                "  Al cerrar hay que DEMOSTRAR que su test muerde —romperlo a propósito, pegar\n"
+                "  el rojo, restaurar y enseñar el árbol intacto (ADR-030)—, y elegirlo\n"
+                "  entonces es elegir el que más fácil sea de romper. Un test vacuo, el que\n"
+                "  pasa exista o no el comportamiento, atraviesa hoy la revisión firmada, la\n"
+                "  suite completa y el OK del usuario sin que nadie lo note.\n"
+                "  En carril directo y exprés no se pide; en bug tampoco (runbooks/bug.md, 7).")
+            return 1
+        ok(f"criterio portante declarado: {portante[:60]}")
 
     # --- Precondición 5: trabajo en vuelo (regla 5: UNA unidad por defecto) ------------------
     # Las documentales quedan fuera del censo de vuelo: la regla 5 lo dice («las --documental

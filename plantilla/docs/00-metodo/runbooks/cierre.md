@@ -97,6 +97,25 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    provisionador llama al guard canónico antes de su primera mutación. Una allowlist de hosts
    remotos se aporta con `--control-plane-allow-host` desde configuración de confianza, nunca
    desde el propio target.
+
+   **La contraprueba del criterio portante** (ADR-030), en carril **normal y completo**: la
+   suite en verde no demuestra que los tests MUERDAN — un test vacuo pasa exista o no el
+   comportamiento, y atraviesa esta revisión, la suite y el OK del usuario sin que nadie lo
+   note. Quien construye la paga sobre UN solo criterio, el **portante** que declara
+   §Verificación de la especificación (lo eligió quien redactó el contrato, no quien
+   construyó ni quien revisa) y la deja en la sección **Contraprueba del criterio portante**
+   de `hallazgos.md`:
+   1. rompe a propósito la implementación de ESE criterio;
+   2. pega el rojo LITERAL, que tiene que fallar **por eso** —un rojo por un import roto o
+      un error de sintaxis no prueba nada—;
+   3. restaura: `git checkout -- <fichero>` o `git restore <fichero>`, **nunca `git stash`**
+      (prohibido: la pila es única y compartida entre TODOS los worktrees, y un pop se lleva
+      el trabajo de otra rama);
+   4. **demuestra** que el árbol quedó igual, no lo afirma: `git diff HEAD` vacío y
+      `git rev-parse HEAD` idéntico al de antes de romper, los dos pegados, y el test otra
+      vez en verde.
+   En **directo y exprés no se pide**: el carril entero existe para no pagar ceremonia. En
+   **bug** no se repite: ya la exige el par ROJO→VERDE del paso 7 de `runbooks/bug.md`.
 2. **Revisión: alguien que no construyó, con el diff y el contrato delante.** Cada criterio
    implementado, casos límite con test, nada fuera de
    los ficheros declarados, los tests no tocados después de crearse, y ningún módulo
@@ -104,6 +123,15 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    `hallazgos.md`, y su nombre y la fecha al frontmatter (`revisor:`, `revisado:`) **en la
    misma escritura que el veredicto** — es el único que sabe quién es; el despacho del revisor
    se lo pide con esas palabras.
+
+   **Y mira la contraprueba, no la cree.** En normal y completo, el revisor comprueba que la
+   sección Contraprueba de `hallazgos.md` está pagada de verdad: que el criterio es el
+   portante declarado en la especificación, que el rojo pegado **nombra ese criterio**, que
+   la restauración no usó `git stash`, y que el `git diff HEAD` vacío y los dos
+   `git rev-parse HEAD` cuadran. Si falta, si el rojo va de otra cosa o si la restauración
+   se afirma sin pegarse, es hueco de corrección y vuelve al constructor. Esto no lo puede
+   comprobar ningún script —por eso lo hace una persona leyendo el parte— y por eso está
+   escrito aquí en vez de fingir un linter que no puede fallar.
 
    **El revisor es SIEMPRE una sesión o subagente NUEVO** (ADR-017), en todo carril que
    revisa (el exprés no revisa: solo el verde). "De solo lectura" significa sobre el CÓDIGO

@@ -214,6 +214,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- R2: el caso límite no cambia los datos existentes.\n\n"
             "## Verificación\n\n"
             "- **Nivel de test:** unitario, porque la conducta es una regla local.\n"
+            "- **Criterio portante:** R1 — sin él la unidad entera no sirve de nada.\n"
         )
         ruta.write_text(cabecera + cuerpo, encoding="utf-8")
         return ruta

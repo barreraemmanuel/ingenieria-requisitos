@@ -124,6 +124,7 @@ DECISIONES = (
     "027-sin-tope-numerico-de-paralelismo.md",
     "028-ci-es-guia-no-gate.md",
     "029-una-regla-tiene-ejecutor-o-se-retira.md",
+    "030-el-test-portante-tiene-que-morder.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
