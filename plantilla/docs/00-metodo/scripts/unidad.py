@@ -1777,6 +1777,91 @@ def medida_del_cambio(repo, base_sha, punta):
     return tocados, lineas
 
 
+def es_ancestro(repo, posible, descendiente):
+    """¿`posible` está dentro de la historia de `descendiente`? (también si son el mismo)."""
+    if not posible or not descendiente:
+        return False
+    return git(repo, "merge-base", "--is-ancestor", posible, descendiente,
+               silencioso=True)[0] == 0
+
+
+def base_de_medida(repo, punta, principal, base_registrada):
+    """(sha, de dónde salió) — contra qué se mide DE VERDAD el trabajo de una rama (066, R1).
+
+    `metadata.base_sha` es el `origin/<principal>` del día del despacho, y ahí se quedaba.
+    Pero con la principal por delante toda rama se rebasa para poder fusionar por ff, y
+    entonces medir desde aquel SHA cuenta como propios los commits AJENOS que el rebase metió
+    por debajo: el 25-08 la 055 aportaba 14 ficheros y 993 líneas a la medida de una unidad
+    que había tocado dos, y el padre corrigió la base a mano ocho veces.
+
+    La base honesta es `git merge-base(principal, rama)`: dónde se separa la rama de la
+    principal HOY, se haya rebasado o no. Con una excepción, la del final del ritual: cuando
+    la rama entera ya está dentro de la principal —lo normal tras el ff del paso 3— su
+    merge-base ES la propia punta, y medir contra ella daría cero ficheros y cero líneas, que
+    es apagar la puerta. Ahí manda la registrada, que para entonces el paso 3 ya re-anotó.
+
+    Entre dos bases válidas gana la MÁS NUEVA (la que tiene a la otra por antecesora): las dos
+    describen la misma rama, y la más nueva es la que no arrastra trabajo de nadie más.
+    """
+    sha_punta = sha_de(repo, punta) if punta else None
+    if sha_punta is None:
+        return None, "sin punta que medir"
+    candidatas = []
+    referencia_principal = base_principal(repo, principal)
+    if referencia_principal:
+        codigo, salida = git(repo, "merge-base", referencia_principal, sha_punta,
+                             silencioso=True)
+        merge_base = salida.strip() if codigo == 0 else ""
+        if merge_base and merge_base != sha_punta:
+            candidatas.append((merge_base, f"merge-base con {referencia_principal}"))
+    sha_registrada = sha_de(repo, base_registrada) if base_registrada else None
+    if sha_registrada and es_ancestro(repo, sha_registrada, sha_punta):
+        candidatas.append((sha_registrada, "base de despacho registrada"))
+    if not candidatas:
+        return None, "sin base válida contra la que medir"
+    elegida = candidatas[0]
+    for otra in candidatas[1:]:
+        if es_ancestro(repo, elegida[0], otra[0]):
+            elegida = otra
+    return elegida
+
+
+def re_registrar_base(referencias, tipo, ref, nueva_base):
+    """Re-anota `base_sha` tras un rebase y conserva la original (066, R1). Devuelve los P-ID.
+
+    `registrar_despacho` se niega a pisar una base ya escrita, y hace bien: es el dato con el
+    que el pre-push distingue una rama nacida antes de un cambio de principal. Pero un rebase
+    la deja vieja de VERDAD, y conservarla intacta es conservar un dato falso. Así que no se
+    pisa: la del despacho se muda a `base_sha_despacho_original` —donde nadie la borra, y solo
+    la primera vez: un segundo rebase no la sustituye por la del primero— y `base_sha` pasa a
+    ser la base de hoy, que es la que el cierre necesita para medir solo lo de la unidad.
+    """
+    tocadas = []
+    for pid, revision in gestion_peticiones.parsear_referencias(referencias):
+        with gestion_peticiones.lock(pid):
+            try:
+                datos = gestion_peticiones.cargar(pid)
+            except gestion_peticiones.ErrorPeticion:
+                continue
+            cambiada = False
+            for proceso in datos.get("procesos", []):
+                if (proceso.get("tipo") != tipo or proceso.get("ref") != ref
+                        or proceso.get("revision") != revision):
+                    continue
+                metadata = dict(proceso.get("metadata") or {})
+                anterior = metadata.get("base_sha")
+                if not anterior or anterior == nueva_base:
+                    continue
+                metadata.setdefault("base_sha_despacho_original", anterior)
+                metadata["base_sha"] = nueva_base
+                proceso["metadata"] = metadata
+                cambiada = True
+            if cambiada:
+                gestion_peticiones.guardar(datos)
+                tocadas.append(pid)
+    return tocadas
+
+
 def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_proceso,
                          principal, sha_fusion=""):
     """R5 — un directo que se pasó de tamaño se canta solo al cerrar.
@@ -1785,6 +1870,8 @@ def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_pr
     vuelve a mirar el frontmatter, porque es justo el dato que el vigilado escribe. Y el tipo
     de proceso viene por argumento porque un BUG entrega código igual que una unidad: la 033
     lo pedía siempre como "unidad" y por eso los bugs nunca medían nada (bug 034, R4).
+
+    La base ya no es la registrada a secas, sino la que `base_de_medida` da por buena (066).
     """
     if carril != "directo":
         return None, f"carril {carril or 'normal'}: sin límites de directo"
@@ -1793,7 +1880,8 @@ def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_pr
     except gestion_peticiones.ErrorPeticion:
         base_sha = None
     punta = punta_a_medir(repo, nombre, principal, sha_fusion)
-    medida = medida_del_cambio(repo, base_sha, punta)
+    base, origen_base = base_de_medida(repo, punta, principal, base_sha)
+    medida = medida_del_cambio(repo, base, punta)
     if medida is None:
         return None, (f"{nombre}: sin base de despacho registrada, el tamaño del carril "
                       f"directo no se puede medir contra nada; se cierra sin esa "
@@ -1806,7 +1894,135 @@ def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_pr
     if (len(tocados) > LIMITE_DIRECTO_FICHEROS or lineas > LIMITE_DIRECTO_LINEAS or fuera):
         return mensaje_directo_desbordado(nombre, len(tocados), lineas, fuera, punta), None
     return None, (f"carril directo dentro de sus límites: {len(tocados)} fichero(s), "
-                  f"{lineas} línea(s), todos declarados (medido contra {punta})")
+                  f"{lineas} línea(s), todos declarados (medido desde {base[:8]}, "
+                  f"{origen_base}, hasta {punta})")
+
+
+COMANDO_GUARDIAN_METODO = "python3 docs/00-metodo/scripts/lint_metodo.py"
+
+
+def guardian_del_metodo(raiz=None):
+    """(verde, salida) — `lint_metodo.py`, que lleva dentro el trinquete de `lint_salidas`."""
+    raiz = RAIZ if raiz is None else Path(raiz)
+    linter = raiz / "docs/00-metodo/scripts/lint_metodo.py"
+    if not linter.is_file():
+        return False, f"no encuentro {rel(linter)}"
+    proceso = subprocess.run(
+        [sys.executable, str(linter), "--raiz", str(raiz)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    return proceso.returncode == 0, f"{proceso.stdout}{proceso.stderr}".strip()
+
+
+def puerta_prefusion(repo, nombre, principal, guardian=None):
+    """(problemas, notas) — R2 (066): lo que hay que cumplir ANTES del ff del paso 3.
+
+    Dos cosas se comprobaban tarde, y las dos costaron trabajo manual el 25-08:
+
+      1. **La rama, rebasada sobre la principal.** Con la principal por delante el ff no
+         existe hasta que la rama se rebasa; y hasta que se rebasa, todo lo que se mida sobre
+         ella —el tamaño del carril directo, el diff que miró el revisor— habla de otro árbol.
+      2. **Los guardianes en verde SOBRE ese árbol rebasado.** La principal avanza entre el
+         veredicto LIMPIO del revisor y el ff. El 25-08 avanzó dos veces y cada avance metió
+         un rechazo mudo nuevo: el trinquete de `lint_salidas` los cazó al fusionar, con el
+         cierre ya en marcha y el padre arreglando dentro del ritual.
+
+    El orden importa y no es cosmético: si la rama no está rebasada se para ahí y no se gasta
+    un linter entero sobre un árbol que va a cambiar. Cada problema nombra su salida.
+    """
+    guardian = guardian or guardian_del_metodo
+    referencia_principal = base_principal(repo, principal)
+    if referencia_principal is None:
+        return [f"no encuentro la rama principal '{principal}' en {rel(repo)}, así que no "
+                f"puedo saber si {nombre} está rebasada sobre ella. {SALIDA} comprueba "
+                f"`ruta_local` y `principal` en repos.yaml y que el clon exista: "
+                f"git -C {rel(repo)} branch -a"], []
+    sha_rama = (sha_de(repo, f"refs/heads/{nombre}")
+                or sha_de(repo, f"refs/remotes/origin/{nombre}"))
+    if sha_rama is None:
+        return [f"no queda rama {nombre} en {rel(repo)}: sin ella no hay ff que preparar ni "
+                f"árbol rebasado que comprobar. {SALIDA} recupérala antes de fusionar: "
+                f"git -C {rel(repo)} reflog"], []
+    if not es_ancestro(repo, referencia_principal, sha_rama):
+        return [f"{nombre} NO está rebasada sobre {referencia_principal}: el ff del paso 3 "
+                f"no existe todavía, y lo que midan el cierre y el revisor habla de un árbol "
+                f"que aún va a cambiar. {SALIDA} "
+                f"git -C worktrees/{nombre} rebase {principal}"], []
+    notas = [f"{nombre} está rebasada sobre {referencia_principal} ({sha_rama[:8]}): el ff "
+             f"del paso 3 es posible"]
+    verde, salida = guardian()
+    if verde:
+        notas.append("guardianes del método en verde sobre el árbol rebasado")
+        return [], notas
+    return [f"los guardianes del método NO están en verde sobre el árbol rebasado de "
+            f"{nombre}; fusionar ahora mete ese rojo en {principal} y lo hereda el cierre. "
+            f"{SALIDA} arregla lo que dice el linter y vuelve a pasarlo: "
+            f"{COMANDO_GUARDIAN_METODO}\n{salida}"], notas
+
+
+def cmd_prefusion(args):
+    """Paso 3 de `runbooks/cierre.md`: lo que se comprueba justo ANTES del fast-forward."""
+    nombre = args.unidad.strip("/")
+    if not RE_UNIDAD.match(nombre):
+        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug). "
+             f"{SALIDA} pásale el nombre completo: "
+             f"python3 docs/00-metodo/scripts/unidad.py prefusion NNN-slug")
+        return 1
+    unidad = buscar_unidad(nombre)
+    if unidad is None:
+        fail(f"no existe la unidad {nombre} en docs/05-trabajo/ ni en docs/bugs/. "
+             f"{SALIDA} mira qué hay en vuelo: "
+             f"python3 docs/00-metodo/scripts/unidad.py estado")
+        return 1
+    repo, principal = repo_codigo()
+    print(f"== Antes del ff de {nombre} ==\n")
+    problemas, notas = puerta_prefusion(repo, nombre, principal)
+    for nota in notas:
+        ok(nota)
+    if problemas:
+        err(f"\n  FUSIÓN BLOQUEADA ({len(problemas)}). Arréglalo y vuelve a pasar la puerta: "
+            f"python3 docs/00-metodo/scripts/unidad.py prefusion {nombre}")
+        for problema in problemas:
+            err(f"       · {problema}")
+        return 1
+
+    # La rama está rebasada: su merge-base con la principal es la punta de la principal, y esa
+    # —no el `origin/main` del día del despacho— es la base contra la que el paso 6 tiene que
+    # medir. Se re-anota AQUÍ, que es el único momento en que todavía se puede: después del ff
+    # la rama entera está dentro de la principal y el merge-base ya no distingue nada.
+    tipo_proceso = "bug" if unidad["clase"] == "bug" else "unidad"
+    try:
+        referencias = revalidar_origenes(
+            unidad["fm"], proceso=(tipo_proceso, nombre), permitir_legacy=True
+        )
+    except gestion_peticiones.ErrorPeticion as exc:
+        warn(f"no pude releer el origen de {nombre} ({exc}); la base de despacho se queda "
+             f"como estaba y el cierre lo dirá")
+        referencias = []
+    if referencias:
+        punta = sha_de(repo, f"refs/heads/{nombre}") or sha_de(repo, f"refs/remotes/origin/{nombre}")
+        base_registrada = None
+        try:
+            base_registrada = gestion_peticiones.base_despacho(
+                referencias, tipo_proceso, nombre)
+        except gestion_peticiones.ErrorPeticion:
+            pass
+        nueva_base, origen_base = base_de_medida(repo, punta, principal, base_registrada)
+        if nueva_base and base_registrada and nueva_base != base_registrada:
+            try:
+                tocadas = re_registrar_base(referencias, tipo_proceso, nombre, nueva_base)
+            except gestion_peticiones.ErrorPeticion as exc:
+                warn(f"no pude re-anotar la base de despacho de {nombre} ({exc}); el paso 6 "
+                     f"medirá desde {base_registrada[:8]}, que el rebase dejó viejo")
+                tocadas = []
+            for pid in tocadas:
+                ok(f"{pid}: base de despacho re-anotada a {nueva_base[:8]} ({origen_base}); "
+                   f"la original queda en base_sha_despacho_original")
+        elif nueva_base:
+            ok(f"base de despacho al día: {nueva_base[:8]} ({origen_base})")
+
+    print(f"\n  Puedes fusionar: git -C {rel(repo)} merge --ff-only {nombre}")
+    return 0
 
 
 # Tres entregas pueden compartir de verdad una tarde de validación. La cuarta ya no es una
@@ -2414,6 +2630,33 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
         else:
             (ok if fuerte else warn)(motivo)
 
+    # --- Antes de medir: la base de despacho, al día (066/R1) --------------------------------
+    # El paso 3 del ritual re-anota la base al rebasar, que es cuando mejor se ve. Pero un
+    # cierre puede llegar aquí sin haber pasado por él (unidad despachada antes de que el paso
+    # existiera, cierre reanudado a medias), y entonces `base_sha` sigue siendo el
+    # `origin/<principal>` del despacho con commits ajenos por debajo. Si todavía se puede
+    # saber cuál es la base de verdad, se re-anota aquí y la original se conserva; si no, la
+    # medida de la Puerta 6 lo dice contra qué midió y el cierre no se inventa nada.
+    if hay_repo and referencias_peticion and not sin_fusion:
+        punta_para_base = punta_a_medir(repo, nombre, principal, sha_fusion)
+        try:
+            base_registrada = gestion_peticiones.base_despacho(
+                referencias_peticion, tipo_proceso, nombre)
+        except gestion_peticiones.ErrorPeticion:
+            base_registrada = None
+        base_al_dia, origen_base = base_de_medida(
+            repo, punta_para_base, principal, base_registrada)
+        if base_al_dia and base_registrada and base_al_dia != base_registrada:
+            try:
+                for pid in re_registrar_base(
+                        referencias_peticion, tipo_proceso, nombre, base_al_dia):
+                    ok(f"{pid}: base de despacho re-anotada a {base_al_dia[:8]} "
+                       f"({origen_base}) — la del despacho queda en "
+                       f"base_sha_despacho_original")
+            except gestion_peticiones.ErrorPeticion as exc:
+                warn(f"no pude re-anotar la base de despacho de {nombre} ({exc}); la medida "
+                     f"de abajo dice contra qué midió")
+
     # --- Puerta 6 (033/R5): un directo que se pasó de tamaño no era un directo -------------
     # R4 (034): la puerta ya no vive dentro de `if clase == "unidad"`. Un bug entrega código
     # por una rama exactamente igual que una unidad, y era la vía por la que cerraba sin
@@ -2672,7 +2915,8 @@ def main():
         prog="unidad.py",
         description="Despacho de unidades del método: numeración, creación desde plantilla y "
                     "creación de rama/worktree con precondiciones que bloquean.")
-    sub = ap.add_subparsers(dest="comando", metavar="{nnn,nueva,despachar,estado}")
+    sub = ap.add_subparsers(dest="comando",
+                            metavar="{nnn,nueva,despachar,prefusion,cerrar,estado}")
 
     p_nnn = sub.add_parser("nnn", help="imprime el siguiente NNN libre")
     p_nnn.add_argument("--detalle", action="store_true",
@@ -2751,6 +2995,14 @@ def main():
              "puerta que impide firmar entregas en lote con una sola fecha",
     )
     p_cer.set_defaults(func=cmd_cerrar)
+
+    p_pre = sub.add_parser(
+        "prefusion",
+        help="paso 3 de runbooks/cierre.md: comprueba ANTES del ff que la rama está rebasada "
+             "sobre la principal y que los guardianes están verdes sobre ese árbol; de paso "
+             "re-anota la base de despacho que el rebase dejó vieja")
+    p_pre.add_argument("unidad", help="nombre completo NNN-slug")
+    p_pre.set_defaults(func=cmd_prefusion)
 
     p_est = sub.add_parser("estado", help="resumen: unidades, bugs, worktrees y su coherencia")
     p_est.set_defaults(func=cmd_estado)

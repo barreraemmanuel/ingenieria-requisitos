@@ -159,7 +159,30 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    siguen su camino. Una segunda ronda de revisión solo la abre un fallo crítico. Preparar
    hoy problemas que aún no existen retrasa lo único que enseña de verdad: que el usuario use
    la app.
-3. **Fusionar** por el camino A o el B (tabla de arriba).
+3. **Fusionar** por el camino A o el B (tabla de arriba), **pero antes, la puerta de
+   prefusión** (bug 066):
+
+   `python3 docs/00-metodo/scripts/unidad.py prefusion NNN-slug`
+
+   Exige dos cosas y no fusiona nada: que la rama esté **rebasada sobre la principal** (que la
+   punta de la principal sea antecesora suya) y que **`lint_metodo.py` —que lleva dentro el
+   trinquete de `lint_salidas`— esté en verde sobre ese árbol ya rebasado**. Si falta la
+   primera, el FAIL trae `git -C worktrees/NNN-slug rebase main`; si falta la segunda, el
+   comando del linter y su salida literal.
+
+   Por qué aquí y no después. La principal **avanza** entre el veredicto LIMPIO del revisor y
+   el ff: el 25-08 avanzó dos veces y cada avance metió un rechazo mudo nuevo, que el trinquete
+   cazó al fusionar —con el cierre ya en marcha y arreglando dentro del ritual. Y el diff que
+   el revisor dio por bueno era el de otro árbol. Un rojo aquí no se negocia: se rebasa, se
+   arregla y se vuelve a pasar la puerta.
+
+   De paso, y solo si las dos están en verde, **re-anota la base de despacho** que el rebase
+   dejó vieja: `base_sha` pasa a ser el `merge-base` con la principal de HOY y el
+   `origin/main` del día del despacho se conserva en `base_sha_despacho_original`. Sin esto,
+   la medida del carril directo del paso 6 cuenta como propios los commits ajenos que el
+   rebase metió por debajo (el 25-08 hubo que corregir el SHA a mano ocho veces). Es el único
+   momento en que se puede: después del ff la rama entera está dentro de la principal y el
+   `merge-base` ya no distingue el trabajo de nadie.
 4. **Tests sobre la rama principal, al nivel que el cambio merece** (ADR-016), con los comandos
    del `AGENTS.md` del repo de código:
 
