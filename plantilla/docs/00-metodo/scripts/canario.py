@@ -10,7 +10,8 @@ Dos señales, dos avisos DISTINTOS (esta distinción es el contrato, no un detal
 
   capacidad (`aviso`)     el % de la ventana del modelo real supera el umbral del workspace
                           → "zona de riesgo: planifica el corte al terminar este paso"
-  conducta  (`sintomas`)  el transcript repite el mismo comando con el mismo fallo
+  conducta  (`sintomas`)  el transcript repite el mismo comando con el mismo fallo, o se
+                          atasca sin dejar ni una línea de error
                           → "la sesión YA está degradando: escribe la retomada y corta ahora"
 
 Llenarse es un riesgo; repetirse es un hecho. Si coinciden, manda la conducta y sale UN
@@ -20,6 +21,7 @@ Subcomandos:
   (sin nada)   veredicto de la sesión más reciente de este workspace
   retomada     el parte pre-rellenado desde ESTADO.md y la unidad en obra (≤2.000 tokens)
   hook         salida para el hook PreCompact(auto) de Claude Code: informa, JAMÁS bloquea
+  hook-stop    salida para el hook Stop: barato (solo lee el jsonl) y habla cada N turnos
 
 Regla dura de este script: nunca rompe ni retrasa un arranque. Sin sesión localizable,
 fichero corrupto o harness desconocido → silencio y exit 0. El aviso informa; no bloquea.
@@ -56,17 +58,38 @@ DEFECTOS = {
     "turnos_aviso": 250,      # turnos del asistente a partir de los cuales conviene cortar
     "repeticiones": 3,        # repeticiones del mismo comando+fallo que ya son `sintomas`
     "ventana_eventos": 60,    # cuántos pares comando/fallo recientes se miran
+    # Atascos SIN error (bug 062): el agente no falla, simplemente no avanza. Umbrales
+    # holgados a propósito: el canario existe para no generar ruido.
+    "ediciones_seguidas": 5,  # ediciones consecutivas del MISMO fichero
+    "tests_sin_verde": 4,     # lanzadas seguidas del mismo test sin que pase a verde
+    "turnos_sin_ficheros": 40,  # turnos CON herramienta y sin tocar un solo fichero
+    "turnos_hook": 25,        # cada cuántos turnos habla el hook Stop
 }
 
 # Ventanas de contexto conocidas, por familia de modelo. Se emparejan por prefijo porque el
-# id trae sufijos de fecha (`claude-sonnet-4-5-20250929`). Un modelo que no case NO recibe
-# ventana inventada: el veredicto pasa a `incierto` y lo dice (R-1704 del plano).
+# id trae sufijos de fecha (`claude-sonnet-4-5-20250929`), y el ORDEN manda: las entradas
+# largas van primero para que `claude-opus-5` no se coma el prefijo genérico `claude-opus-`.
+#
+# Bug 062: sin las familias actuales aquí, el canario se quedaba mudo justo en los modelos
+# con los que se trabaja («sin umbral para este modelo», visto en campo el 25-08). Un modelo
+# que no case tampoco apaga la vigilancia: se asume la MENOR conocida y se dice UNA vez
+# (`VENTANA_MINIMA`). Asumir de menos avisa antes de tiempo; asumir de más deja ciego.
 VENTANAS_CONOCIDAS = (
+    ("claude-fable-5", 1_000_000),
+    ("claude-opus-5", 1_000_000),
+    ("claude-sonnet-5", 1_000_000),
+    ("claude-haiku-4-5", 200_000),
     ("claude-opus-", 200_000),
     ("claude-sonnet-", 200_000),
     ("claude-haiku-", 200_000),
     ("claude-3-", 200_000),
 )
+
+VENTANA_MINIMA = min(v for _, v in VENTANAS_CONOCIDAS)
+
+# Dónde se apunta lo ya dicho una vez (qué modelos nuevos se han anunciado). Vive junto a
+# la config, en `.claude/`: es memoria local, no método repartido.
+MEMORIA = ".claude/canario-visto.json"
 
 # Marcas de fallo en la salida de una herramienta. Heurística declarada: el harness de Codex
 # no marca el error con un booleano como hace Claude Code, así que la señal de conducta ahí
@@ -102,6 +125,25 @@ AVISO_CONDUCTA = (
     "   sesión nueva. (contexto: {contexto})\n"
     "     python3 docs/00-metodo/scripts/canario.py retomada\n"
     "   Señal leída en {fichero}"
+)
+
+AVISO_ATASCO = (
+    "🚨 CANARIO DE CONTEXTO — la sesión YA está degradando\n"
+    "   {detalle}\n"
+    "   Esto no es un riesgo, es un hecho: escribe la retomada y corta AHORA, en una\n"
+    "   sesión nueva. (contexto: {contexto})\n"
+    "     python3 docs/00-metodo/scripts/canario.py retomada\n"
+    "   Señal leída en {fichero}"
+)
+
+# No lleva la cabecera «CANARIO DE CONTEXTO» a propósito: no es un veredicto, es una nota
+# al pie que acompaña al veredicto de siempre. Y sale UNA sola vez por modelo.
+AVISO_MODELO_NUEVO = (
+    "CANARIO — modelo nuevo ({modelo})\n"
+    "   No tengo su ventana apuntada, así que asumo la MENOR que conozco ({ventana} tokens)\n"
+    "   para no quedarme ciego: el porcentaje es un TECHO, no una medida. Si sabes la real,\n"
+    "   declárala en {config} (\"ventanas\": {{\"{modelo}\": <tokens>}}).\n"
+    "   (este aviso sale una sola vez por modelo)"
 )
 
 AVISO_INCIERTO = (
@@ -141,7 +183,9 @@ def cargar_config(raiz):
         return config
     if not isinstance(datos, dict):
         return config
-    for clave in ("umbral_default", "repeticiones", "ventana_eventos", "turnos_aviso"):
+    for clave in ("umbral_default", "repeticiones", "ventana_eventos", "turnos_aviso",
+                  "ediciones_seguidas", "tests_sin_verde", "turnos_sin_ficheros",
+                  "turnos_hook"):
         valor = datos.get(clave)
         if isinstance(valor, (int, float)) and valor > 0:
             config[clave] = int(valor)
@@ -153,17 +197,57 @@ def cargar_config(raiz):
     return config
 
 
-def ventana_de(modelo, config):
-    """Ventana de contexto del modelo, o None si nadie la ha declarado (no se inventa)."""
+def resolver_ventana(modelo, config):
+    """(ventana, origen) del modelo. `origen` ∈ config | tabla | asumida | None.
+
+    Saber de DÓNDE sale la ventana es lo que distingue un porcentaje medido de un techo
+    asumido, y de eso depende tanto lo que se le cuenta al usuario como si un porcentaje
+    imposible es un error de tabla (hay que decirlo) o la consecuencia esperada de haber
+    asumido la ventana más pequeña que existe.
+    """
     if not modelo:
-        return None
+        return None, None
     declarada = config.get("ventanas", {}).get(modelo)
     if declarada:
-        return int(declarada)
+        return int(declarada), "config"
     for prefijo, ventana in VENTANAS_CONOCIDAS:
         if modelo.startswith(prefijo):
-            return ventana
-    return None
+            return ventana, "tabla"
+    # R1 del bug 062: un modelo que no conozco NO apaga la vigilancia. Se asume la menor
+    # ventana conocida —el techo más prudente— y se dice una vez.
+    return VENTANA_MINIMA, "asumida"
+
+
+def ventana_de(modelo, config):
+    """Ventana de contexto del modelo (asumiendo la menor conocida si no lo tengo)."""
+    return resolver_ventana(modelo, config)[0]
+
+
+def modelo_ya_anunciado(raiz, modelo):
+    """¿Se anunció ya este modelo nuevo? Lo apunta al preguntar: solo dice `no` una vez.
+
+    Si la memoria no se puede leer NI escribir, se responde `no`: repetir el aviso es un
+    incordio menor; callarlo sería justo la ceguera que este bug arregla.
+    """
+    if not modelo:
+        return True
+    fichero = Path(raiz) / MEMORIA
+    try:
+        datos = json.loads(fichero.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        datos = {}
+    vistos = datos.get("modelos") if isinstance(datos, dict) else None
+    vistos = [str(m) for m in vistos] if isinstance(vistos, list) else []
+    if modelo in vistos:
+        return True
+    vistos.append(modelo)
+    try:
+        fichero.parent.mkdir(parents=True, exist_ok=True)
+        fichero.write_text(json.dumps({"modelos": vistos[-50:]}, ensure_ascii=False,
+                                      indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+    return False
 
 
 def umbral_de(modelo, config):
@@ -364,9 +448,61 @@ def _lineas(fichero):
         return
 
 
+# Cola de un comando que no dice NADA sobre lo que se intentó: son las muletillas con las
+# que el agente recorta la salida. Sin quitarlas, `… | tail -20` y `… | tail -40` son dos
+# comandos distintos y el mismo atasco repetido tres veces no cuenta ni una (bug 062).
+COLA_DE_PIPE = re.compile(
+    r"\s*(?:2>&1|1>&2|\|\|\s*true|&&\s*true|"
+    r"\|\s*(?:tail|head|cat|less|more|wc)\b[^|]*|"
+    r">\s*/dev/null(?:\s*2>&1)?)", re.I)
+
+# Directorios temporales: cada intento estrena uno y el comando parece nuevo cada vez.
+RUTAS_TEMPORALES = re.compile(
+    r"(?:/private)?/var/folders/\S+|/tmp/\S+|\$TMPDIR\S*|"
+    r"[A-Za-z]:\\+Users\\+[^\\\s]+\\+AppData\\+Local\\+Temp\\+\S*", re.I)
+
+NUMEROS = re.compile(r"\d+")
+
+# Qué pinta tiene lanzar la batería de tests. Se usa para la señal «el mismo test N veces
+# sin pasar a verde»: no hace falta acertar con todos los runners, basta con los habituales.
+MARCAS_DE_TEST = re.compile(
+    r"\b(?:pytest|unittest|jest|vitest|mocha|tox|rspec|phpunit|"
+    r"go\s+test|cargo\s+test|npm\s+(?:run\s+)?test|yarn\s+test|"
+    r"run-fast|run-nightly|correr\.py)\b", re.I)
+
+# Herramientas que TOCAN un fichero. La señal de «turnos sin producir nada» necesita saber
+# cuándo el agente escribió algo de verdad, no cuándo miró.
+HERRAMIENTAS_DE_FICHERO = {"edit", "write", "multiedit", "notebookedit", "str_replace_editor",
+                           "apply_patch", "create_file"}
+
+
+def _sin_ruido(texto, *, numeros=False):
+    """El texto sin colas de pipe ni rutas temporales; con `numeros`, también sin cifras."""
+    texto = COLA_DE_PIPE.sub("", str(texto))
+    texto = RUTAS_TEMPORALES.sub("<tmp>", texto)
+    if numeros:
+        texto = NUMEROS.sub("#", texto)
+    return re.sub(r"\s+", " ", texto).strip()
+
+
+def normalizar_comando(orden):
+    """R2: dos intentos del MISMO comando se reconocen aunque no sean literales.
+
+    El agente atascado no repite el comando calcado: cambia el directorio temporal, sube el
+    `-20` del tail a `-40`, añade un `|| true`. Comparar literalmente es no comparar.
+    """
+    return _sin_ruido(orden, numeros=True)[:200]
+
+
 def _firma(texto):
-    """Firma estable de un fallo: lo que permite decir 'el MISMO fallo' sin ser literal."""
-    return re.sub(r"\s+", " ", str(texto)).strip().lower()[:200]
+    """Firma estable de un fallo: lo que permite decir 'el MISMO fallo' sin ser literal.
+
+    Aquí los números SÍ distinguen, al revés que en el comando: «fallo en la línea 12» y
+    «fallo en la línea 40» son dos fallos, y borrar la cifra los fundiría en uno solo —el
+    canario gritaría por un agente que va probando cosas distintas—. Lo único que se quita
+    es el directorio temporal, que cambia en cada intento sin significar nada.
+    """
+    return _sin_ruido(texto).lower()[:200]
 
 
 def _texto_de(contenido):
@@ -387,13 +523,20 @@ def _texto_de(contenido):
 
 
 def leer_claude(fichero):
-    """Uso de contexto y pares comando/fallo del JSONL de una sesión de Claude Code.
+    """Uso de contexto, pares comando/fallo y señales de atasco de una sesión de Claude Code.
 
     El contexto de la petición es lo que el modelo vuelve a leer entero en cada turno:
     entrada + caché leída + caché escrita. La salida no ocupa ventana de entrada.
+
+    Bug 062 — el harness de Claude Code marca `is_error` solo cuando el proceso sale con
+    código != 0, y el agente encadena `| tail`, `2>&1` y `|| true`: el exit del pipeline es
+    0 y el fallo viaja DENTRO del texto. En 223 turnos de campo hubo un solo `is_error`. Por
+    eso aquí el fallo se lee igual que en Codex: por el CONTENIDO. Y de paso se recogen las
+    tres señales de atasco que no dejan ni una línea de error (R3).
     """
     modelo, tokens, turnos = None, None, 0
     comandos, fallos = {}, []
+    ediciones, pruebas, turnos_secos = [], [], []
     for dato in _lineas(fichero):
         mensaje = dato.get("message")
         if not isinstance(mensaje, dict):
@@ -414,22 +557,42 @@ def leer_claude(fichero):
         contenido = mensaje.get("content")
         if not isinstance(contenido, list):
             continue
+        herramientas, toco_fichero = 0, False
         for bloque in contenido:
             if not isinstance(bloque, dict):
                 continue
             if bloque.get("type") == "tool_use":
+                herramientas += 1
                 entrada = bloque.get("input") if isinstance(bloque.get("input"), dict) else {}
-                orden = entrada.get("command") or entrada.get("file_path") or entrada.get(
+                nombre = str(bloque.get("name") or "")
+                fichero_tocado = entrada.get("file_path") or entrada.get("path")
+                if nombre.lower() in HERRAMIENTAS_DE_FICHERO:
+                    toco_fichero = True
+                    if fichero_tocado:
+                        ediciones.append(str(fichero_tocado))
+                orden = entrada.get("command") or fichero_tocado or entrada.get(
                     "pattern") or json.dumps(entrada, sort_keys=True, ensure_ascii=False)
-                comandos[bloque.get("id")] = f"{bloque.get('name')}: {orden}"[:200]
-            elif bloque.get("type") == "tool_result" and bloque.get("is_error"):
+                comandos[bloque.get("id")] = f"{nombre}: {normalizar_comando(orden)}"[:200]
+            elif bloque.get("type") == "tool_result":
                 orden = comandos.get(bloque.get("tool_use_id"))
-                if orden:
-                    fallos.append((orden, _firma(_texto_de(bloque.get("content")))))
+                if not orden:
+                    continue
+                texto = _texto_de(bloque.get("content"))
+                roto = bool(bloque.get("is_error")) or bool(MARCAS_DE_FALLO.search(texto))
+                if roto:
+                    fallos.append((orden, _firma(texto)))
+                if MARCAS_DE_TEST.search(orden):
+                    # Verde = ni error ni marca de fallo Y la palabra que dice que pasó.
+                    verde = not roto and bool(re.search(r"\b(?:ok|passed|passing|all tests)\b",
+                                                        texto, re.I))
+                    pruebas.append((orden, verde))
+        if herramientas:
+            turnos_secos.append(toco_fichero)
     if tokens is None:
         return None
     return {"modelo": modelo, "tokens": tokens, "ventana": None, "fallos": fallos,
-            "turnos": turnos}
+            "turnos": turnos, "ediciones": ediciones, "pruebas": pruebas,
+            "turnos_secos": turnos_secos}
 
 
 def leer_codex(fichero):
@@ -457,7 +620,8 @@ def leer_codex(fichero):
                     ventana = int(info["model_context_window"])
         elif tipo in ("function_call", "custom_tool_call"):
             crudo = payload.get("arguments") or payload.get("input") or ""
-            comandos[payload.get("call_id")] = f"{payload.get('name')}: {_orden(crudo)}"[:200]
+            comandos[payload.get("call_id")] = (
+                f"{payload.get('name')}: {normalizar_comando(_orden(crudo))}"[:200])
         elif tipo in ("function_call_output", "custom_tool_call_output"):
             texto = _texto_de(payload.get("output"))
             orden = comandos.get(payload.get("call_id"))
@@ -467,8 +631,11 @@ def leer_codex(fichero):
             modelo = payload.get("model") or modelo
     if tokens is None:
         return None
+    # Codex no publica ediciones ni tests por separado: sus señales de atasco son las
+    # mismas repeticiones de siempre. Las claves viajan vacías para que el veredicto no
+    # tenga que preguntar de qué harness viene.
     return {"modelo": modelo, "tokens": tokens, "ventana": ventana, "fallos": fallos,
-            "turnos": turnos}
+            "turnos": turnos, "ediciones": [], "pruebas": [], "turnos_secos": []}
 
 
 def _orden(crudo):
@@ -505,11 +672,66 @@ def detectar_sintomas(fallos, config):
     (comando, fallo), veces = max(cuenta.items(), key=lambda kv: kv[1])
     if veces < config["repeticiones"]:
         return None
-    return {"comando": comando, "fallo": fallo, "veces": veces}
+    return {"tipo": "repeticion", "comando": comando, "fallo": fallo, "veces": veces}
 
 
-def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=None):
-    """Informe completo de la sesión más reciente. Nunca lanza: como mucho, `sin_datos`."""
+def _racha_final(secuencia):
+    """(elemento, longitud) de la racha de valores iguales con la que TERMINA la lista."""
+    if not secuencia:
+        return None, 0
+    ultimo, largo = secuencia[-1], 1
+    for valor in reversed(secuencia[:-1]):
+        if valor != ultimo:
+            break
+        largo += 1
+    return ultimo, largo
+
+
+def detectar_atasco(señal, config):
+    """R3 del bug 062: los atascos que no dejan ni una línea de error.
+
+    Tres formas de no avanzar, en orden de cuánto delatan:
+      1. el mismo fichero editado N veces SEGUIDAS (se reescribe el mismo sitio a ciegas),
+      2. el mismo test lanzado N veces sin pasar a verde (se prueban remedios),
+      3. N turnos con herramienta y sin tocar un solo fichero (se da vueltas).
+    La racha se mide al FINAL, no en toda la sesión: lo que importa es si está pasando
+    AHORA. Y solo cuentan los turnos que usaron herramienta: una conversación larga no es
+    un atasco, es una conversación (de eso ya avisa el eje de posición).
+    """
+    fichero, veces = _racha_final(señal.get("ediciones") or [])
+    if fichero and veces >= config["ediciones_seguidas"]:
+        return {"tipo": "ediciones", "veces": veces, "sujeto": fichero,
+                "detalle": f"{veces} ediciones seguidas del mismo fichero: {fichero}"}
+
+    pruebas = señal.get("pruebas") or []
+    if pruebas:
+        seguidas, orden = 0, None
+        for comando, verde in reversed(pruebas):
+            if verde or (orden is not None and comando != orden):
+                break
+            orden, seguidas = comando, seguidas + 1
+        if orden and seguidas >= config["tests_sin_verde"]:
+            return {"tipo": "tests", "veces": seguidas, "sujeto": orden,
+                    "detalle": f"{seguidas} veces el mismo test sin pasar a verde: {orden}"}
+
+    tocado, secos = _racha_final(señal.get("turnos_secos") or [])
+    if tocado is False and secos >= config["turnos_sin_ficheros"]:
+        return {"tipo": "sin_ficheros", "veces": secos, "sujeto": None,
+                "detalle": f"{secos} turnos seguidos usando herramientas sin tocar "
+                           "un solo fichero"}
+    return None
+
+
+def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=None,
+                 transcript=None):
+    """Informe completo de la sesión más reciente. Nunca lanza: como mucho, `sin_datos`.
+
+    `transcript` es el atajo barato del hook `Stop`: el harness ya dice qué fichero está
+    escribiendo, así que no hace falta rastrear ninguna carpeta.
+
+    Ojo, efecto de lado declarado: cuando el modelo no está en la tabla, apunta en
+    `.claude/canario-visto.json` que ya se anunció, para que el aviso salga UNA vez (R1).
+    """
     raiz = Path(raiz or RAIZ)
     cwd = Path(cwd or Path.cwd())
     por_defecto = _rutas_por_defecto()
@@ -520,10 +742,14 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
                "ventana": None, "porcentaje": None, "umbral": config["umbral_default"],
                "veredicto": "sin_datos", "sintoma": None, "candidatos": 0,
                "turnos": None, "turnos_aviso": config["turnos_aviso"],
-               "ventana_incoherente": None,
+               "ventana_incoherente": None, "ventana_asumida": False,
+               "avisar_modelo": False,
                "config": str(raiz / CONFIG)}
 
-    sesion = localizar_sesion(cwd, claude_projects, codex_sessions, raiz)
+    if transcript and Path(transcript).is_file():
+        sesion = {"harness": "claude", "fichero": Path(transcript), "candidatos": 1}
+    else:
+        sesion = localizar_sesion(cwd, claude_projects, codex_sessions, raiz)
     if not sesion:
         return informe
     informe["harness"] = sesion["harness"]
@@ -538,20 +764,32 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     informe["modelo"] = señal["modelo"]
     informe["tokens"] = señal["tokens"]
     informe["turnos"] = señal.get("turnos")
-    informe["ventana"] = señal["ventana"] or ventana_de(señal["modelo"], config)
+    ventana, origen = resolver_ventana(señal["modelo"], config)
+    if señal["ventana"]:                    # el rollout de Codex la trae escrita: manda
+        ventana, origen = señal["ventana"], "config"
+    informe["ventana"] = ventana
+    informe["ventana_asumida"] = origen == "asumida"
     informe["umbral"] = umbral_de(señal["modelo"], config)
     if informe["ventana"]:
         informe["porcentaje"] = 100.0 * señal["tokens"] / informe["ventana"]
-    if informe["porcentaje"] is not None and informe["porcentaje"] > 100:
+    if (informe["porcentaje"] is not None and informe["porcentaje"] > 100
+            and origen != "asumida"):
         # Más del 100 % no significa "el doble de llena": significa que la ventana con la
         # que se divide es falsa (modelo nuevo, ventana ampliada). Caso de campo el 18-08
         # con claude-fable-5. Un número imposible dicho con aplomo es peor que no decirlo:
         # se declara la incertidumbre y se pide la ventana real en la config.
+        #
+        # Con la ventana ASUMIDA, en cambio, pasarse del 100 % no delata ningún error: es
+        # la consecuencia esperada de haber asumido la más pequeña que existe. Ahí el
+        # porcentaje es un techo y se dice como tal, no se tira a la basura.
         informe["ventana_incoherente"] = informe["ventana"]
         informe["ventana"] = None
         informe["porcentaje"] = None
+    if informe["ventana_asumida"]:
+        informe["avisar_modelo"] = not modelo_ya_anunciado(raiz, señal["modelo"])
 
-    informe["sintoma"] = detectar_sintomas(señal["fallos"], config)
+    informe["sintoma"] = (detectar_sintomas(señal["fallos"], config)
+                          or detectar_atasco(señal, config))
     if informe["sintoma"]:
         informe["veredicto"] = "sintomas"           # la conducta manda sobre la capacidad
     elif informe["porcentaje"] is not None and informe["porcentaje"] >= informe["umbral"]:
@@ -570,15 +808,30 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
 
 def texto_veredicto(informe):
     """El texto que ve el usuario. Vacío = silencio: sin sesión no se dice nada."""
+    cuerpo = _cuerpo_veredicto(informe)
+    if not cuerpo or not informe.get("avisar_modelo"):
+        return cuerpo
+    # La nota del modelo nuevo acompaña al veredicto de siempre; nunca lo sustituye ni lo
+    # duplica (por eso no lleva la cabecera «CANARIO DE CONTEXTO»).
+    return AVISO_MODELO_NUEVO.format(modelo=informe["modelo"] or "desconocido",
+                                     ventana=informe["ventana"] or VENTANA_MINIMA,
+                                     config=informe["config"]) + "\n" + cuerpo
+
+
+def _cuerpo_veredicto(informe):
     veredicto = informe["veredicto"]
     if veredicto == "sin_datos":
         return ""
     if veredicto == "sintomas":
         contexto = ("%d %% de %s" % (round(informe["porcentaje"]), informe["ventana"])
                     if informe["porcentaje"] is not None else "sin porcentaje")
-        return AVISO_CONDUCTA.format(veces=informe["sintoma"]["veces"],
-                                     comando=informe["sintoma"]["comando"],
-                                     fallo=informe["sintoma"]["fallo"][:120],
+        sintoma = informe["sintoma"]
+        if sintoma.get("tipo", "repeticion") != "repeticion":
+            return AVISO_ATASCO.format(detalle=sintoma["detalle"], contexto=contexto,
+                                       fichero=informe["fichero"])
+        return AVISO_CONDUCTA.format(veces=sintoma["veces"],
+                                     comando=sintoma["comando"],
+                                     fallo=sintoma["fallo"][:120],
                                      contexto=contexto, fichero=informe["fichero"])
     if veredicto == "largo":
         return AVISO_POSICION.format(turnos=informe["turnos"], fichero=informe["fichero"])
@@ -781,13 +1034,55 @@ def _capar(parte):
     return corte + "\n\n[…] (parte recortado al tope de 2.000 tokens)\n"
 
 
+# --------------------------------------------------------------------------- hooks
+
+def _entrada_del_hook():
+    """El JSON que el harness escribe por stdin, o {} si no hay nada legible.
+
+    Nunca bloquea ni revienta: si stdin es una terminal o viene vacío, el hook sigue su
+    camino y localiza la sesión como siempre.
+    """
+    try:
+        if sys.stdin is None or sys.stdin.isatty():
+            return {}
+        datos = json.loads(sys.stdin.read() or "{}")
+    except (OSError, ValueError):
+        return {}
+    return datos if isinstance(datos, dict) else {}
+
+
+def salida_hook_stop(informe, config, *, entrada=None):
+    """R4: lo que imprime el hook `Stop`. Barato, callado y JAMÁS bloqueante.
+
+    El hook se dispara al final de CADA turno. Hablar en todos sería ruido y el ruido es lo
+    que este script existe para no generar, así que la capacidad y la posición se cuentan
+    de N en N turnos. La conducta no espera turno: repetirse ya está pasando.
+    """
+    salida = {"continue": True}
+    if informe["veredicto"] == "sin_datos":
+        return salida
+    if informe["veredicto"] == "sintomas":
+        salida["systemMessage"] = texto_veredicto(informe)
+        return salida
+    if informe["veredicto"] == "sano":
+        return salida
+    turnos = informe.get("turnos") or 0
+    cada = max(1, int(config["turnos_hook"]))
+    if turnos < cada or turnos % cada:
+        return salida
+    mensaje = texto_veredicto(informe)
+    if mensaje:
+        salida["systemMessage"] = mensaje
+    return salida
+
+
 # --------------------------------------------------------------------------- CLI
 
 def main(argv=None):
     parser = argparse.ArgumentParser(
         description="Canario de contexto: avisa de una sesión degradada y deja la retomada.")
     parser.add_argument("comando", nargs="?", default="veredicto",
-                        choices=["veredicto", "retomada", "hook"])
+                        choices=["veredicto", "retomada", "hook", "hook-stop"])
     parser.add_argument("--workspace", default=None, help="raíz del meta-repo")
     parser.add_argument("--cwd", default=None, help="directorio de la sesión a mirar")
     parser.add_argument("--json", action="store_true", help="el informe crudo, para scripts")
@@ -796,6 +1091,14 @@ def main(argv=None):
     raiz = Path(args.workspace or RAIZ)
     if args.comando == "retomada":
         print(texto_retomada(raiz))
+        return 0
+
+    if args.comando == "hook-stop":
+        entrada = _entrada_del_hook()
+        informe = diagnosticar(raiz=raiz, cwd=args.cwd or Path.cwd(),
+                               transcript=entrada.get("transcript_path"))
+        print(json.dumps(salida_hook_stop(informe, cargar_config(raiz)),
+                         ensure_ascii=False))
         return 0
 
     informe = diagnosticar(raiz=raiz, cwd=args.cwd or Path.cwd())

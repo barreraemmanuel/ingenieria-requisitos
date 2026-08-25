@@ -211,18 +211,32 @@ def manifiesto_metodo():
 
 
 ORDEN_CANARIO = "python3 docs/00-metodo/scripts/canario.py hook"
+ORDEN_CANARIO_STOP = "python3 docs/00-metodo/scripts/canario.py hook-stop"
+
+
+def _ya_hay_canario(ganchos, sufijo):
+    """¿Alguno de estos ganchos ya llama al canario con ese subcomando?"""
+    return any(sufijo in str(orden.get("command", ""))
+               for entrada in ganchos if isinstance(entrada, dict)
+               for orden in entrada.get("hooks", []) if isinstance(orden, dict))
 
 
 def sembrar_hook_canario(destino):
-    """Siembra el hook PreCompact(auto) -> canario.py en `.claude/settings.json`.
+    """Siembra los dos hooks del canario en `.claude/settings.json`: PreCompact y Stop.
 
-    Es la única alarma INALUDIBLE del canario: cuando Claude Code va a auto-compactar, el
+    `PreCompact(auto)` es la alarma INELUDIBLE: cuando Claude Code va a auto-compactar, el
     hook avisa aunque nadie haya mirado el porcentaje (la instrucción de AGENTS.md, en
     cambio, la obedece peor justo el agente sobrecargado). Informa y ya: el auto-compact no
     se bloquea ni se retrasa.
 
+    `Stop` es lo que arregla el bug 062: el PreCompact solo suena cuando la sesión YA está
+    llena, así que el usuario podía pasarse una sesión entera sin ver al canario ni una vez.
+    El hook Stop corre al final de cada turno, es barato (abrir un jsonl) y solo habla cada
+    N turnos —o en el acto si detecta conducta—.
+
     Idempotente y respetuosa: `.claude/` guarda preferencias del dueño, así que se conserva
-    todo lo que hubiera y solo se añade el gancho si no está. Devuelve True si escribió.
+    todo lo que hubiera y cada gancho se añade solo si no está —un workspace que ya tenía
+    el PreCompact gana el Stop sin duplicar nada—. Devuelve True si escribió.
     """
     carpeta = destino / ".claude"
     carpeta.mkdir(parents=True, exist_ok=True)
@@ -237,17 +251,30 @@ def sembrar_hook_canario(destino):
         datos = {}
     hooks = datos.setdefault("hooks", {}) if isinstance(datos.get("hooks", {}), dict) else {}
     datos["hooks"] = hooks
+
+    escrito = False
     precompact = hooks.get("PreCompact")
     if not isinstance(precompact, list):
         precompact = []
-    ya_esta = any("canario.py" in str(orden.get("command", ""))
-                  for entrada in precompact if isinstance(entrada, dict)
-                  for orden in entrada.get("hooks", []) if isinstance(orden, dict))
-    if ya_esta:
+    # El PreCompact ya sembrado lleva `hook` a secas: se busca por el sufijo del subcomando
+    # para no confundirlo con el Stop, que llama al mismo script.
+    if not _ya_hay_canario(precompact, "canario.py hook"):
+        precompact.append({"matcher": "auto",
+                           "hooks": [{"type": "command", "command": ORDEN_CANARIO}]})
+        hooks["PreCompact"] = precompact
+        escrito = True
+
+    parada = hooks.get("Stop")
+    if not isinstance(parada, list):
+        parada = []
+    if not _ya_hay_canario(parada, "canario.py hook-stop"):
+        # Stop no usa `matcher`: se dispara al terminar cualquier turno.
+        parada.append({"hooks": [{"type": "command", "command": ORDEN_CANARIO_STOP}]})
+        hooks["Stop"] = parada
+        escrito = True
+
+    if not escrito:
         return False
-    precompact.append({"matcher": "auto",
-                       "hooks": [{"type": "command", "command": ORDEN_CANARIO}]})
-    hooks["PreCompact"] = precompact
     fichero.write_text(json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
                        encoding="utf-8")
     return True
@@ -1039,7 +1066,7 @@ def main():
     # línea que importa el router. Cualquier agente nuevo se añade aquí, no en AGENTS.md.
     for puente in ("CLAUDE.md", "GEMINI.md"):
         (destino / puente).write_text("@AGENTS.md\n@.claude/personalidad.md\n", encoding="utf-8")
-    # Canario de contexto: el hook PreCompact(auto) y la tabla de umbrales. Van en
+    # Canario de contexto: los hooks (PreCompact(auto) y Stop) y la tabla de umbrales. Van en
     # `.claude/` (gitignorada) porque son preferencia local del dueño, no método repartido.
     sembrar_hook_canario(destino)
     sembrar_config_canario(destino)

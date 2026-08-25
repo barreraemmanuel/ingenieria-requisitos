@@ -1102,12 +1102,32 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad):
     return 0
 
 
+def sembrar_ganchos_locales(workspace):
+    """Los hooks del canario en `.claude/`, para los workspaces que ya existían.
+
+    Van FUERA de la transacción a propósito: `.claude/` está gitignorada —es preferencia
+    local del dueño— y no forma parte del conjunto publicado que Modo D versiona, revierte
+    y comprueba por huella. La siembra es idempotente y aditiva (respeta lo que hubiera),
+    así que un fallo aquí no puede dejar el workspace a medias; se traga y se sigue.
+
+    Sin esto, el hook `Stop` del bug 062 solo llegaría a los workspaces nuevos y el canario
+    seguiría invisible justo donde ya se trabaja.
+    """
+    try:
+        bootstrap.sembrar_hook_canario(workspace)
+    except OSError:
+        pass
+
+
 def aplicar(workspace, titulo):
     try:
         ruta_workspace(workspace, JOURNAL.as_posix())
         manager = gestion_leases.LeaseManager(workspace)
         with manager.acquire(("workspace", "git-index")) as autoridad:
-            return _aplicar_bajo_lease(workspace, titulo, autoridad)
+            codigo = _aplicar_bajo_lease(workspace, titulo, autoridad)
+        if codigo == 0:
+            sembrar_ganchos_locales(workspace)
+        return codigo
     except gestion_leases.LeaseBusy as exc:
         print(f"\n=== {titulo} ===\n    {workspace}\n    NO TOCO NADA: {exc}")
         return 1

@@ -56,7 +56,11 @@ class BaseCanario(unittest.TestCase):
 
     # --- fábricas de sesiones sintéticas ------------------------------------
 
-    def sesion_claude(self, *, tokens, modelo="claude-opus-5", nombre="sesion.jsonl",
+    # `claude-opus-4-1-…` y no `claude-opus-5`: desde el bug 062 la tabla da 1.000.000 a los
+    # modelos actuales, y estos tests hablan de porcentajes de una ventana de 200.000. El
+    # modelo del fixture cambia; lo que se afirma, no.
+    def sesion_claude(self, *, tokens, modelo="claude-opus-4-1-20250805",
+                      nombre="sesion.jsonl",
                       eventos=(), cwd=None, mtime=None):
         cwd = str(cwd or self.cwd)
         carpeta = self.claude / canario.normalizar_proyecto(cwd)
@@ -245,8 +249,9 @@ class UmbralPorModeloTest(BaseCanario):
         self.assertEqual(informe["veredicto"], "sano")
 
     def test_el_modelo_con_cifra_propia_avisa_antes(self):
-        self.config({"umbral_default": 80, "umbrales": {"claude-opus-5": 60}})
-        self.sesion_claude(tokens=150_000, modelo="claude-opus-5")     # 75 %
+        self.config({"umbral_default": 80,
+                     "umbrales": {"claude-opus-4-1-20250805": 60}})
+        self.sesion_claude(tokens=150_000, modelo="claude-opus-4-1-20250805")   # 75 %
 
         informe = self.diagnostico()
 
@@ -262,17 +267,25 @@ class UmbralPorModeloTest(BaseCanario):
         self.assertEqual(informe["umbral"], 80)
         self.assertEqual(informe["veredicto"], "sano")
 
-    def test_modelo_sin_ventana_conocida_declara_incertidumbre(self):
-        """R-1704: sin ventana publicada NO se inventa un número."""
+    def test_modelo_sin_ventana_conocida_asume_la_menor_y_lo_dice(self):
+        """R-1704 del plano, releída por el R1 del bug 062.
+
+        El plano decía «sin ventana publicada NO se inventa un número», y el canario se
+        callaba. En campo eso salió mal: los modelos con los que se trabaja no estaban en la
+        tabla y la vigilancia quedó apagada meses. La regla nueva conserva el fondo —no
+        inventar— y quita el efecto: se asume la MENOR ventana conocida, que es un techo
+        prudente, se sigue vigilando y se DICE que es una suposición.
+        """
         self.sesion_claude(tokens=150_000, modelo="modelo-de-otro-lab")
 
         informe = self.diagnostico()
         texto = canario.texto_veredicto(informe)
 
-        self.assertEqual(informe["veredicto"], "incierto")
-        self.assertIsNone(informe["porcentaje"])
+        self.assertEqual(informe["ventana"], canario.VENTANA_MINIMA)
+        self.assertTrue(informe["ventana_asumida"])
+        self.assertEqual(round(informe["porcentaje"]), 75)
         self.assertIn("modelo-de-otro-lab", texto)
-        self.assertIn("no sé", texto.lower())
+        self.assertIn("asumo", texto.lower())
 
     def test_un_porcentaje_imposible_se_declara_incierto_en_vez_de_cantarlo(self):
         """Caso de campo 18-08: claude-fable-5 gastó 202.822 tokens con la tabla en 200.000.
@@ -280,7 +293,7 @@ class UmbralPorModeloTest(BaseCanario):
         Más del 100 % no es 'el doble de llena': es que la ventana apuntada es falsa. Un
         número imposible dicho con aplomo es peor que no decir nada.
         """
-        self.sesion_claude(tokens=202_822, modelo="claude-opus-5")
+        self.sesion_claude(tokens=202_822, modelo="claude-opus-4-1-20250805")
 
         informe = self.diagnostico()
         texto = canario.texto_veredicto(informe)
@@ -364,7 +377,8 @@ class ConductaTest(BaseCanario):
     def test_el_mismo_comando_con_fallos_distintos_no_es_sintoma(self):
         eventos = []
         for i in range(4):
-            eventos.extend(self.par_fallido_claude("pytest -q", f"fallo distinto {i}", 1))
+            eventos.extend(self.par_fallido_claude(
+                "curl -s https://api.ejemplo/v1/cosas", f"fallo distinto {i}", 1))
         self.sesion_claude(tokens=20_000, eventos=eventos)
 
         self.assertEqual(self.diagnostico()["veredicto"], "sano")
