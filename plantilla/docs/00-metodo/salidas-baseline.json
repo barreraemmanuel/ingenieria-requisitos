@@ -257,10 +257,6 @@
    "fichero": "lint_metodo.py",
    "mensaje": "FAIL …: carril '…' fuera del vocabulario"
   },
-  "lint_metodo.py::c8e44f3810285979": {
-   "fichero": "lint_metodo.py",
-   "mensaje": "FAIL … unidades en vuelo (tope absoluto 3, default 1): …"
-  },
   "lint_metodo.py::d2e330e7f7edd454": {
    "fichero": "lint_metodo.py",
    "mensaje": "FAIL … y … comparten ficheros declarados: … (paralelas jamás comparten)"
