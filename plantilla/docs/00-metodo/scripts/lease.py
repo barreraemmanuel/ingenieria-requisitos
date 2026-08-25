@@ -321,19 +321,37 @@ class LeaseManager:
     def _path(self, scope):
         return self.active / f"{_scope_key(scope)}.json"
 
-    @staticmethod
-    def _ensure_directory(path, label):
-        # `es_enlace` y no `is_symlink`: en Windows un junction (mklink /J, SIN
-        # privilegio) redirige igual y es invisible para is_symlink(). Se comprobó
-        # explotable: con .runtime/leases/active como junction, el lease se escribía
-        # FUERA del workspace (unidad 043).
+    def _confinar(self, path, label):
+        """Los DOS controles de la unidad 043, no uno.
+
+        1) `es_enlace` y no `is_symlink`: en Windows un junction (mklink /J, SIN
+           privilegio) redirige igual y es invisible para is_symlink(). Se comprobó
+           explotable: con .runtime/leases/active como junction, el lease se escribía
+           FUERA del workspace.
+        2) el contraste de la ruta REAL contra la raíz del workspace, el mismo que
+           hace `workspace_paths.confined_path`. Hace falta porque el control (1) solo
+           mira la HOJA que se le pasa —.runtime/leases, active, fencing— y nunca el
+           tramo `.runtime`: con el enlace ahí, `mkdir(parents=True)` lo atravesaba y
+           la escritura salía del workspace igual. `confined_path` recorre TODOS los
+           tramos y además comprueba que la ruta resuelta cuelgue de la raíz.
+        """
         if workspace_paths.es_enlace(path):
             raise LeaseError(f"{label} no puede ser un enlace (symlink o junction)")
+        try:
+            workspace_paths.confined_path(self.workspace, path, label=label)
+        except workspace_paths.WorkspacePathError as exc:
+            raise LeaseError(f"{label} no queda dentro del workspace: {exc}") from exc
+
+    def _ensure_directory(self, path, label):
+        self._confinar(path, label)
         try:
             path.mkdir(parents=True, exist_ok=True)
         except OSError as exc:
             raise LeaseError(f"{label} ilegible: {exc}") from exc
-        if workspace_paths.es_enlace(path) or not path.is_dir():
+        # Otra vez después del mkdir: entre comprobar y crear, alguien ha podido
+        # sustituir el directorio por un enlace.
+        self._confinar(path, label)
+        if not path.is_dir():
             raise LeaseError(f"{label} no es un directorio regular")
 
     @staticmethod
