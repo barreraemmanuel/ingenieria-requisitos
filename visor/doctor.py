@@ -29,6 +29,17 @@ BASE = Path(__file__).resolve().parent      # visor/
 RAIZ = BASE.parent                          # el clone
 
 
+def which_sin_cwd(programa):
+    """`shutil.which` pero SIN el directorio actual, que en Windows se antepone al PATH.
+
+    Gemelo de workspace_paths.which_sin_cwd() por la misma razón que buscar_bash().
+    """
+    rutas = os.environ.get("PATH", os.defpath).split(os.pathsep)
+    cwd = os.path.abspath(os.getcwd())
+    limpias = [r for r in rutas if r and os.path.abspath(r) != cwd]
+    return shutil.which(programa, path=os.pathsep.join(limpias))
+
+
 def buscar_bash():
     """Ruta a un `bash` utilizable, o None. Gemelo de workspace_paths.buscar_bash().
 
@@ -36,14 +47,20 @@ def buscar_bash():
     diagnóstico en un clone INCOMPLETO —es media razón de existir— y un import de
     plantilla/ lo mataría justo en el caso que debe diagnosticar.
 
+    Gemelo quiere decir gemelo: MISMO criterio, incluida la exclusión del cwd. Si
+    divergieran, el doctor diría «OK Plataforma» con un `bash.exe` versionado en el
+    repo de código mientras `unidad.orden_para_hook` lo rechaza — el diagnóstico
+    mentiría justo sobre lo que existe para diagnosticar.
+    `visor/tests/test_buscar_bash.py::LosDosGemelosDecidenIgualTest` ata las dos copias.
+
     En Windows el PATH lleva `Git\\cmd` (que solo tiene git.exe), no `Git\\bin`, así que
     `which("bash")` da None aunque Git for Windows SIEMPRE traiga bash. Si no está en el
     PATH se busca junto al git que sí se encontró: misma instalación, misma confianza.
     """
-    encontrado = shutil.which("bash")
+    encontrado = which_sin_cwd("bash")
     if encontrado:
         return encontrado
-    git = shutil.which("git")
+    git = which_sin_cwd("git")
     if not git or os.name != "nt":
         return None
     raiz_git = Path(git).resolve().parent.parent

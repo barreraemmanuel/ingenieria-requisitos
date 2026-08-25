@@ -44,3 +44,24 @@ def borrar_arbol(ruta):
         shutil.rmtree(ruta, onexc=reintentar)
     else:
         shutil.rmtree(ruta, onerror=reintentar)
+
+
+class OsDeWindows:
+    """Doble de `os` que miente SOLO en `.name` y delega todo lo demás.
+
+    Los tres `buscar_bash()` deciden por `os.name == "nt"`, así que simular Windows
+    fuera de Windows exige moverlo. Pero `mock.patch("os.name", "nt")` global no vale:
+    hasta Python 3.11 `pathlib.Path()` consulta `os.name` para elegir entre PosixPath
+    y WindowsPath, y la producción bajo prueba —que hace `Path(git).resolve()`— muere
+    con `NotImplementedError`. Se sustituye el `os` que ve el módulo bajo prueba
+    (`mock.patch.object(modulo, "os", OsDeWindows())`) y pathlib se queda en paz.
+
+    Vive aquí y no dentro de un test porque lo necesitan los dos gemelos: el
+    `buscar_bash()` de `visor/doctor.py` (test_doctor) y el de producción en
+    `workspace_paths.py` (test_buscar_bash). Una sola copia, no una por fichero.
+    """
+
+    name = "nt"
+
+    def __getattr__(self, atributo):
+        return getattr(os, atributo)

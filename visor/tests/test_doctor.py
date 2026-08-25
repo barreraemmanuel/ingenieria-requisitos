@@ -4,29 +4,16 @@ comprueba ni receta un mecanismo de sandbox de SO — la unidad 012 lo quitó de
 avisa de lo que sigue siendo real: bash y el alias python3."""
 
 import importlib.util
-import os
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
+
+import ayuda_windows
 
 RAIZ = Path(__file__).resolve().parents[2]
 DOCTOR_PATH = RAIZ / "visor/doctor.py"
-
-class _OsDeWindows:
-    """El `os` que ve SOLO el doctor: `nt` en `name`, el de verdad en todo lo demás.
-
-    `buscar_bash()` decide por `os.name`, no por `sys.platform`, así que un test que solo
-    movía `sys.platform` simulaba Windows a medias y comprobaba algo que en un Mac no podía
-    pasar nunca. Se parchea el `os` del módulo bajo prueba en vez del global porque `pathlib`
-    también lee `os.name` para elegir WindowsPath, y ese no se puede instanciar aquí.
-    """
-
-    name = "nt"
-
-    def __getattr__(self, atributo):
-        return getattr(os, atributo)
-
 
 _spec = importlib.util.spec_from_file_location("doctor_bajo_test", DOCTOR_PATH)
 doctor = importlib.util.module_from_spec(_spec)
@@ -37,7 +24,8 @@ class RevisarPlataformaTest(unittest.TestCase):
     def setUp(self):
         self._platform_original = sys.platform
         # buscar_bash() decide por os.name, no por sys.platform: simular Windows a medias
-        # dejaba el test comprobando algo que en un Mac no podía pasar nunca.
+        # dejaba el test comprobando algo que en un Mac no podía pasar nunca. El doble lo
+        # pone y lo quita `mock.patch.object`; esto es la red por si alguien lo asigna a mano.
         self._os_original = doctor.os
         self._which_original = doctor.shutil.which
         self._rutas_original = doctor.rutas_largas_activas
@@ -85,12 +73,21 @@ class RevisarPlataformaTest(unittest.TestCase):
     def test_win32_encuentra_el_bash_de_git_for_windows_fuera_del_PATH(self):
         """El PATH de Windows lleva `Git\\cmd` (solo git.exe), no `Git\\bin`: which("bash")
         daba None y el doctor avisaba de una falta que no existía, mientras el despacho
-        se negaba a correr hooks con el bash que tenía al lado. Se busca junto a git."""
+        se negaba a correr hooks con el bash que tenía al lado. Se busca junto a git.
+
+        `os.name` va parcheado ADEMÁS de `sys.platform`: `buscar_bash()` decide por
+        `os.name`, y mover solo `sys.platform` dejaba este test en rojo fuera de Windows
+        (así se fusionó en la primera ronda). El doble vive en `ayuda_windows`: la 052
+        traía aquí una copia local (`_OsDeWindows`) y esta unidad otra en la ayuda; al
+        rebasar se funden en UNA, la compartida, que es la que usan los tres tests que
+        fingen Windows. La raíz del temporal va con `.resolve()` porque en macOS es
+        `/var/…`, un symlink a `/private/var/…`, y la producción resuelve la ruta de git
+        antes de subir a la raíz de la instalación.
+        """
         sys.platform = "win32"
-        doctor.os = _OsDeWindows()
         temporal = tempfile.TemporaryDirectory(prefix="git-for-windows-")
         self.addCleanup(temporal.cleanup)
-        raiz = Path(temporal.name)
+        raiz = Path(temporal.name).resolve()
         (raiz / "cmd").mkdir(parents=True)
         (raiz / "bin").mkdir(parents=True)
         (raiz / "cmd" / "git.exe").write_text("", encoding="utf-8")
@@ -101,11 +98,9 @@ class RevisarPlataformaTest(unittest.TestCase):
             else "/usr/bin/" + nombre
         )
 
-        # buscar_bash() resuelve la ruta del git encontrado, y en macOS /var es un enlace
-        # a /private/var: se compara contra la ruta resuelta, no contra la del temporal.
-        self.assertEqual(
-            doctor.buscar_bash(), str((raiz / "bin" / "bash.exe").resolve()))
-        estado, _detalle, consecuencia = doctor.revisar_plataforma()
+        with mock.patch.object(doctor, "os", ayuda_windows.OsDeWindows()):
+            self.assertEqual(doctor.buscar_bash(), str(raiz / "bin" / "bash.exe"))
+            estado, _detalle, consecuencia = doctor.revisar_plataforma()
         self.assertEqual(estado, "OK")
         self.assertNotIn("bash", consecuencia)
 

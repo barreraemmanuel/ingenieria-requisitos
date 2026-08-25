@@ -201,9 +201,24 @@ def borrar_arbol(ruta):
     borrarlos: con `ignore_errors=True` el fallo se tragaba en silencio y el clon
     temporal se quedaba en %TEMP% en CADA arranque de CADA sesión, para siempre.
     """
-    def reintentar(func, objetivo, _exc):
+    def abrir_escritura(objetivo):
+        """Añade el permiso de escritura SIN quitar los que ya había.
+
+        `chmod(objetivo, S_IWRITE)` a secas deja el modo en 0o200 exacto: en un
+        directorio eso borra el bit de recorrido y rmtree ya no puede ni entrar.
+        """
         try:
-            os.chmod(objetivo, stat.S_IWRITE)
+            os.chmod(objetivo, os.stat(objetivo).st_mode | stat.S_IWRITE)
+        except OSError:
+            pass
+
+    def reintentar(func, objetivo, _exc):
+        # Windows bloquea por el 0o444 del propio objeto; en POSIX el permiso que manda
+        # para borrar una entrada es el del DIRECTORIO que la contiene. Se abren los dos:
+        # el clon superficial de git trae las dos formas de solo-lectura.
+        abrir_escritura(os.path.dirname(os.fspath(objetivo)) or ".")
+        abrir_escritura(objetivo)
+        try:
             func(objetivo)
         except OSError:
             pass                       # el borrado del temporal jamás bloquea el arranque
