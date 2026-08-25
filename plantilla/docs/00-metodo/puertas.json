@@ -1,0 +1,10 @@
+{
+ "_porque": "Cada puerta dura del método y QUIÉN la hace cumplir. Una puerta sin dueño es prosa: ya nos pasó con la de adopcion.md, que era texto que nadie ejecutaba, y el ADR-029 retiró la marca del método por eso. Esta lista está CONGELADA y solo puede encoger; una marca nueva que no esté aquí es FAIL, y una entrada que ya no case con ninguna marca también, porque arreglada y perdida son indistinguibles desde fuera.",
+ "puertas": {
+  "docs/00-metodo/decisiones/029-una-regla-tiene-ejecutor-o-se-retira.md::- **La marca `` como señal de puerta infranqueable.** Aparecía 62 veces en 25": {
+   "fichero": "docs/00-metodo/decisiones/029-una-regla-tiene-ejecutor-o-se-retira.md",
+   "texto": "- **La marca `` como señal de puerta infranqueable.** Aparecía 62 veces en 25",
+   "dueno": "lint_juntas.py — el ADR-029 retiró la marca del método entero y este guardián es quien impide que vuelva: sigue nombrada aquí porque quien retira una regla es el único que puede seguir nombrándola"
+  }
+ }
+}

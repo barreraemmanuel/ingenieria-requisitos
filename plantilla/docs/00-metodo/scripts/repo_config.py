@@ -18,6 +18,23 @@ class RepoConfigError(ValueError):
     pass
 
 
+# --------------------------------------------------------- el vocabulario cerrado de la unidad
+# `TIPOS` y `ESTADOS` estaban escritos DOS veces en código —`unidad.py` como listas,
+# `lint_metodo.py` como conjuntos— y una tercera en la prosa de `00-metodo/README.md`. Coincidían
+# por suerte: nada lo comprobaba, y la tercera copia ya había derivado (`en_validacion` vivía en
+# el código y no en el README). Viven aquí, en el módulo que ya importan los catorce scripts,
+# porque una junta que no se puede desalinear no hay que vigilarla (unidad 050).
+#
+# Son TUPLAS, no conjuntos: el orden es el del ciclo de vida y el de la ayuda de `unidad.py
+# nueva`, y un conjunto lo perdía. Quien necesite operaciones de conjunto hace `set(...)`.
+TIPOS = ("bug", "feature", "refactor", "migracion", "auditoria", "investigacion",
+         "documentacion")
+# `en_validacion` NO está en vuelo (ADR-010): su rama ya está fusionada y lo único pendiente es
+# que el usuario pruebe la app.
+ESTADOS_UNIDAD = ("planificada", "en_obra", "en_revision", "en_validacion", "mergeada",
+                  "bloqueada", "descartada")
+
+
 # Política de publicación del workspace (unidad 018). `agente` es el comportamiento de
 # siempre: el método empuja la rama y abre el PR. `usuario` significa que publicar es cosa
 # de la persona, y entonces el método se detiene en el commit/merge local y le deja el

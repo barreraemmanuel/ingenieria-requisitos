@@ -68,6 +68,9 @@ presupuestos viven en `runbooks/control-plane.md` (ADR-024).
 
 - **Unidad** (`estado:` en el frontmatter de su especificación):
   `planificada → en_obra → en_revision → mergeada` · desvíos: `bloqueada`, `descartada`.
+  Entre medias cabe `en_validacion` (ADR-010): la rama ya está fusionada y el trabajo
+  de construcción terminó; lo único pendiente es que el usuario pruebe la app, así que
+  NO cuenta como trabajo en vuelo y no ocupa cupo de paralelismo.
   Al cerrar, la carpeta pasa a `archivo/` (estado final implícito: archivada).
 - **Actividad**: la fuente de verdad es `02-flujos/planos/planos.json`, que lo escribe el
   aparato heredado de ingeniería de requisitos (ADR-007); `02-flujos/INDICE.md` lo refleja.
@@ -83,7 +86,7 @@ presupuestos viven en `runbooks/control-plane.md` (ADR-024).
 unidad: NNN-slug
 tipo: bug | feature | refactor | migracion | auditoria | investigacion | documentacion
 carril: directo | normal | completo
-estado: planificada | en_obra | en_revision | mergeada | bloqueada | descartada
+estado: planificada | en_obra | en_revision | en_validacion | mergeada | bloqueada | descartada
 aprobado: no | YYYY-MM-DD
 actividad: <id del INDICE de flujos>
 ficheros: [rutas que esta unidad posee — dos unidades paralelas jamás comparten]
