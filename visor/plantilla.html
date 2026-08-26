@@ -31,7 +31,6 @@
   .seccion > .nota { font-size: 13px; line-height: 1.6; color: var(--faint); margin-bottom: var(--hueco-grande); max-width: 65ch; }
 
   .contrato { border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); background: var(--sheet); font-size: var(--t-lectura); line-height: var(--lh-lectura); max-width: 70ch; }
-  .contrato .exito { font-size: 13px; color: var(--muted); margin-top: 6px; }
   .actores { margin-top: var(--hueco-grande); font-size: 13px; color: var(--muted); }
   .actores span { display: inline-block; background: var(--line-soft); border: 1px solid var(--line); border-radius: var(--pildora); padding: 4px 12px; margin: 5px 5px 0 0; }
   .progreso { margin-top: 18px; }
@@ -425,14 +424,13 @@ function tabResumen(d, presentes) {
   s.appendChild(el("div", "mini-titulo", "El objetivo"));
   if (d.contrato && d.contrato.frase) {
     const c = el("div", "contrato");
-    c.appendChild(document.createTextNode(d.contrato.frase));
+    c.appendChild(el("p", "frase", d.contrato.frase));
     if (d.contrato.exito) {
       const lista = Array.isArray(d.contrato.exito) ? d.contrato.exito : [d.contrato.exito];
-      const t = el("div", "exito", "Sabremos que funcionó si:");
-      const ul = el("ul", "lista");
+      c.appendChild(el("div", "subtitulo", "Sabremos que funcionó si"));
+      const ul = el("ul", "lista-criterios");
       lista.forEach(x => ul.appendChild(el("li", null, x)));
-      t.appendChild(ul);
-      c.appendChild(t);
+      c.appendChild(ul);
     }
     s.appendChild(c);
   } else {

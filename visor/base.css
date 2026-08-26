@@ -374,6 +374,13 @@ dl.vocab dd:last-child { border-bottom: 0; }
 .lista-pasos li { counter-increment: paso; display: flex; gap: 14px; align-items: flex-start; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); font-size: var(--t-lectura); line-height: 1.6; }
 .lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); letter-spacing: .06em; padding-top: 3px; }
 .lista-pasos li:last-child { border-bottom: 0; }
+/* lista de criterios (éxito, aceptación): una fila por criterio con casilla */
+.lista-criterios { list-style: none; margin: 0; }
+.lista-criterios li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); line-height: 1.6; }
+.lista-criterios li::before { content: "◻"; flex: none; color: var(--faint); }
+.lista-criterios li:last-child { border-bottom: 0; }
+.contrato .frase, .tarjeta > p { margin: 0 0 var(--e-parrafo); line-height: 1.65; }
+.contrato .subtitulo { margin-top: var(--hueco-grande); }
 .md li { margin: 8px 0; padding-left: 4px; }
 .md li::marker { color: var(--faint); }
 .md li.tarea { list-style: none; margin-left: -22px; margin-top: 10px; margin-bottom: 10px; }
