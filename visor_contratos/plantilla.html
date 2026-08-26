@@ -191,16 +191,14 @@
     return html;
   }
 
+  // Cabecera de la ficha: UN chip (lo que decide) y el resto como línea de texto tenue.
   function chipsDe(u) {
-    var html = "";
-    if (u.pendiente_de_aprobar) {
-      html += '<span class="chip chip-pendiente">pendiente de aprobar</span>';
-    } else {
-      html += '<span class="chip chip-aprobado">aprobado ' + esc(u.aprobado) + "</span>";
-    }
-    if (u.estado) html += '<span class="chip">' + esc(u.estado) + "</span>";
-    if (u.carril) html += '<span class="chip">' + esc(u.carril) + "</span>";
-    if (u.tipo) html += '<span class="chip">' + esc(u.tipo) + "</span>";
+    var html = u.pendiente_de_aprobar
+      ? '<span class="chip chip-pendiente">pendiente de aprobar</span>'
+      : '<span class="chip chip-aprobado">aprobado ' + esc(u.aprobado) + "</span>";
+    var meta = [u.tipo, u.estado && u.estado.replace("_", " "), u.carril && ("carril " + u.carril)]
+      .filter(Boolean).map(esc).join(" · ");
+    if (meta) html += '<span class="meta">' + meta + "</span>";
     return html;
   }
 

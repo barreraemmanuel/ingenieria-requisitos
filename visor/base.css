@@ -315,6 +315,7 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
 .pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
 
+.meta { display: inline-block; margin: 8px 0 0 12px; font-size: var(--t-menor); color: var(--faint); vertical-align: middle; }
 .chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
 /* El glifo NO es texto: es la marca de estado. Se mide en `em` para que
    crezca con su etiqueta y no compita con el suelo de la letra (R2/076). */
