@@ -180,7 +180,9 @@ class SinCiRemotoPorDefectoTest(unittest.TestCase):
         for carpeta in ("docs/00-metodo/scripts", "docs/00-metodo/runbooks",
                         "docs/00-metodo/plantillas"):
             for ruta in sorted((PLANTILLA / carpeta).rglob("*")):
-                if not ruta.is_file():
+                # Solo papeles versionados: un .pyc de __pycache__ (generado al ejecutar
+                # lint_ci.py) contiene la cadena y ponía el test rojo sin defecto alguno.
+                if not ruta.is_file() or "__pycache__" in ruta.parts or ruta.suffix == ".pyc":
                     continue
                 texto = ruta.read_text(encoding="utf-8", errors="replace")
                 if ".github/workflows" in texto:
