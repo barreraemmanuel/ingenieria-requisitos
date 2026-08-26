@@ -426,6 +426,57 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertFalse((self.ws / "worktrees" / primero).exists())
         self.assertEqual(proceso_b.returncode, 0, salida_b + error_b)
 
+    def sembrar_lease_huerfano(self, scope):
+        """Deja en el workspace un lease a nombre de un proceso que YA NO EXISTE.
+
+        Es exactamente el rastro que deja un `kill -9` (o el cierre de golpe de la
+        terminal) sobre `ejecucion.py lanzar`: nadie corrió ningún manejador, así que el
+        lease sigue ahí con el PID de un muerto. Se siembra desde un proceso aparte que
+        termina, para que el PID sea real y esté realmente muerto."""
+        difunto = subprocess.Popen([sys.executable, "-c", "pass"])
+        difunto.wait()
+        scripts = self.ws / "docs/00-metodo/scripts"
+        codigo = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(scripts)!r})\n"
+            "import lease\n"
+            f"lease.LeaseManager({str(self.ws)!r}, session_id='sesion-muerta', "
+            f"pid={difunto.pid}, process_started='ps:una-sesion-que-ya-no-esta')"
+            f".acquire({scope!r})\n"
+        )
+        sembrado = subprocess.run(
+            [sys.executable, "-c", codigo], cwd=self.ws, text=True,
+            encoding="utf-8", errors="replace", capture_output=True,
+        )
+        self.assertEqual(sembrado.returncode, 0, sembrado.stdout + sembrado.stderr)
+        activos = sorted((self.ws / ".runtime/leases/active").glob("*.json"))
+        self.assertEqual(len(activos), 1, activos)
+        return activos[0]
+
+    def test_despachar_no_se_lleva_por_delante_un_lanzamiento_interrumpido(self):
+        # Bug 077 · R2, hueco del revisor: `lanzar` ya paraba ante un lease de dueño
+        # muerto, pero `despachar` —la otra puerta a la misma unidad— seguía adquiriendo
+        # encima. `acquire` retira ese lease POR EL CAMINO, así que el rastro del
+        # lanzamiento interrumpido desaparecía en silencio y con él la única pista de que
+        # podía quedar un harness huérfano escribiendo en el worktree y la ficha en 0444.
+        nombre = self.preparar_hotfix("lanzamiento-interrumpido")
+        lease = self.sembrar_lease_huerfano(f"unit:{nombre}")
+
+        resultado = self.ejecutar(
+            self.unidad, "despachar", nombre, "--force", "--motivo", "producción caída",
+        )
+
+        traza = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, traza)
+        self.assertIn("INTERRUMPIDO", traza)
+        self.assertIn(f"desbloquear {nombre}", traza,
+                      f"el rechazo no nombra el comando que lo deshace · {traza}")
+        self.assertTrue(
+            lease.exists(),
+            "despachar se llevó por delante el lease del lanzamiento interrumpido",
+        )
+        self.assertFalse((self.ws / "worktrees" / nombre).exists())
+
     def test_unidad_y_peticion_rechazan_ruta_local_absoluta(self):
         pid = self.capturar("Cambio exprés")
         self.evaluar(pid, ruta="expres")

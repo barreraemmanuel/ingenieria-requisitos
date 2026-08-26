@@ -138,10 +138,14 @@ marca el recibo como recuperado. **Nunca le quita el lease a un dueño vivo**: c
 todavía ahí, se niega y te dice cómo comprobarlo. Eso no es un rodeo del bloqueo de otra
 sesión, es lo contrario.
 
-En Windows no hay SIGHUP ni grupos de proceso POSIX: el Ctrl-C y el `kill` sí se atienden
-(consola + `CREATE_NEW_PROCESS_GROUP`), pero **cerrar la ventana de la consola no garantiza
-ninguna limpieza**. Ese hueco lo cubre `desbloquear`, y es la vía declarada para esa
-plataforma.
+En Windows la limpieza automática cubre MENOS de lo que parece, y conviene saber qué
+exactamente. Solo las señales de consola —**Ctrl-C y Ctrl-Break**— llegan al manejador:
+son las únicas que Windows entrega como tales, y por eso el hijo nace con
+`CREATE_NEW_PROCESS_GROUP`. **Todo lo demás termina el proceso sin darle turno a nadie**:
+`taskkill` (con o sin `/F`), el "Finalizar tarea" del administrador de tareas y cerrar la
+ventana de la consola. Ahí no corre ningún manejador, igual que un `kill -9` en POSIX, y lo
+que queda atrás es el lease huérfano, el harness vivo y la ficha congelada. Ese hueco lo
+cubre `desbloquear`, y es la vía declarada para esa plataforma (R3).
 
 ## Suites de este método
 
