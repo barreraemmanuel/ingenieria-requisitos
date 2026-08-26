@@ -262,6 +262,14 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .acciones .caja-cambios { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
 .acciones textarea { font: inherit; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: var(--radio); padding: 10px; }
 .acciones .resultado { flex-basis: 100%; color: var(--faint); }
+/* formulario de decisión (validación guiada): un componente */
+.decision fieldset { margin: var(--e-bloque) 0 0; padding: 0; border: 0; }
+.decision legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
+.decision label { display: flex; gap: 10px; align-items: center; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--line); border-radius: var(--radio-chico); cursor: pointer; }
+.decision label:has(input:checked) { border-color: var(--ink); background: var(--panel); }
+.decision label.comentario { display: block; border: 0; padding: 0; margin-top: var(--hueco); cursor: default; }
+.decision textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
+.decision .boton { margin-top: var(--hueco); }
 
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
    Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,

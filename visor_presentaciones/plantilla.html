@@ -31,14 +31,7 @@
   .adjunto h4 { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); font-family: var(--mono); margin-bottom: var(--hueco-chico); word-break: break-all; }
   pre.codigo { margin: 0; padding: var(--hueco) var(--hueco-grande); overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); font: var(--t-menor)/1.5 var(--mono); }
   pre.codigo .num { display: inline-block; width: 3em; color: var(--faint); user-select: none; text-align: right; margin-right: 12px; }
-  fieldset { margin: var(--e-bloque) 0 0; padding: 0; border: 0; }
-  legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
-  label { display: block; margin: var(--hueco) 0; }
-  textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
-  button:not(.boton-tema):not(.ir-detalle):not(.menu-item) { padding: 11px 20px; border: 1px solid var(--accent); border-radius: var(--pildora); background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
-  button.ir-detalle { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: var(--sheet); color: var(--ink); font: inherit; cursor: pointer; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
-  @media (max-width: 700px) { button:not(.boton-tema) { width: 100%; } }
 </style>
 <!-- /apartado:estilos -->
 </head>
@@ -274,7 +267,7 @@
       p.peticiones.forEach(function (pet) {
         html += '<div class="bluf"><h3>' + esc(pet.titulo) + "</h3>" +
                 chipEstado(decididas[pet.destino] ? "decidida" : pet.estado) +
-                "<p>" + esc(pet.detalle) + '</p><p><button type="button" class="ir-detalle" data-id="' +
+                "<p>" + esc(pet.detalle) + '</p><p><button type="button" class="boton ir-detalle" data-id="' +
                 esc(pet.destino) + '">Abrir</button></p></div>';
       });
     }
@@ -296,13 +289,13 @@
       cuerpo += listaSeccion("Pasos", p.pasos) + listaSeccion("Evidencia", p.evidencia);
       contenidoRevisado = p.pasos.join("\n");
     }
-    cuerpo += '<form id="decision" data-contenido="' + esc(contenidoRevisado) +
+    cuerpo += '<form id="decision" class="decision" data-contenido="' + esc(contenidoRevisado) +
               '"><fieldset><legend>Registrar decisión</legend><div id="opciones">';
     p.opciones.forEach(function (o) {
       cuerpo += '<label><input type="radio" name="eleccion" value="' + esc(o) + '"> ' + esc(o) + "</label>";
     });
-    cuerpo += '</div><label>Comentario<textarea id="comentario" maxlength="2000"></textarea></label>' +
-              '<button id="confirmar" type="submit">Confirmar decisión</button>' +
+    cuerpo += '</div><label class="comentario">Comentario<textarea id="comentario" maxlength="2000"></textarea></label>' +
+              '<button id="confirmar" type="submit" class="boton boton-primario">Confirmar decisión</button>' +
               '<p id="mensaje" class="sub" role="alert" aria-live="polite"></p></fieldset></form>';
     return cuerpo;
   }
