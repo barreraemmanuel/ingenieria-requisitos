@@ -61,6 +61,17 @@
     });
   })();
 </script>
+<style>
+  .acciones { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 10px; align-items: center; }
+  .acciones .boton { font: inherit; padding: 8px 14px; border: 1px solid var(--line); border-radius: 999px; background: transparent; color: var(--ink); cursor: pointer; }
+  .acciones .boton-ok { border-color: var(--ok); color: var(--ok); }
+  .acciones .boton[disabled] { opacity: .5; cursor: default; }
+  .acciones .caja-cambios { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
+  .acciones textarea { font: inherit; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: var(--radio); padding: 10px; }
+  .acciones .resultado { flex-basis: 100%; color: var(--faint); }
+  .grupo > summary { cursor: pointer; display: flex; justify-content: space-between; padding: 10px 6px 6px; color: var(--faint); font-size: 12px; letter-spacing: .08em; text-transform: uppercase; border-bottom: 1px solid var(--line); margin-bottom: 6px; }
+  .grupo > summary .cuenta { color: var(--ink); }
+</style>
 <!-- apartado:cuerpo -->
   <div class="pagina">
     <header>
@@ -199,11 +210,68 @@
     return "docs/05-trabajo/" + u.carpeta + "/especificacion.md";
   }
 
+  function accionesDe(u) {
+    if (!u.pendiente_de_aprobar) return "";
+    return '<div class="acciones" data-carpeta="' + esc(u.carpeta) + '">' +
+           '<button type="button" class="boton boton-ok" data-accion="aprobar">Aprobar este contrato</button>' +
+           '<button type="button" class="boton" data-accion="cambios">Pedir cambios</button>' +
+           '<div class="caja-cambios" hidden><textarea rows="4" placeholder="Qué cambiarías y por qué…"></textarea>' +
+           '<button type="button" class="boton boton-ok" data-accion="enviar-cambios">Enviar al agente</button></div>' +
+           '<div class="resultado" aria-live="polite"></div></div>';
+  }
+
+  function enviar(ruta, cuerpo) {
+    return fetch(RUTA(ruta), {method: "POST", headers: {"Content-Type": "application/json"},
+                              body: JSON.stringify(cuerpo || {})})
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); });
+  }
+
+  panel.addEventListener("click", function (ev) {
+    var boton = ev.target.closest("button[data-accion]");
+    if (!boton) return;
+    var caja = boton.closest(".acciones");
+    var carpeta = caja.getAttribute("data-carpeta");
+    var resultado = caja.querySelector(".resultado");
+    var accion = boton.getAttribute("data-accion");
+    if (accion === "cambios") { caja.querySelector(".caja-cambios").hidden = false; return; }
+    if (accion === "aprobar") {
+      if (!confirm("Aprobar el contrato " + carpeta + " con fecha de hoy?")) return;
+      boton.disabled = true;
+      enviar("/aprobar/" + encodeURIComponent(carpeta)).then(function (d) {
+        resultado.textContent = "Aprobado el " + d.aprobado + ". El agente ya puede despacharlo.";
+        cargarUnidades().then(function () { var u = porCarpeta(carpeta); if (u) abrir(u); });
+      }).catch(function (e) { boton.disabled = false; resultado.textContent = "No se pudo aprobar: " + e.message; });
+      return;
+    }
+    if (accion === "enviar-cambios") {
+      var texto = caja.querySelector("textarea").value;
+      boton.disabled = true;
+      enviar("/pedir-cambios/" + encodeURIComponent(carpeta), {comentario: texto}).then(function (d) {
+        resultado.textContent = "Anotado en el contrato (" + d.anotado + "). El agente lo leerá antes de seguir.";
+      }).catch(function (e) { boton.disabled = false; resultado.textContent = "No se pudo anotar: " + e.message; });
+    }
+  });
+
+  function porCarpeta(carpeta) {
+    for (var i = 0; i < unidades.length; i++) if (unidades[i].carpeta === carpeta) return unidades[i];
+    return null;
+  }
+
+  // Jerarquía de la lista: primero lo que te toca a TI, luego lo que está en marcha,
+  // luego lo que espera tu validación, al final lo cerrado. Dentro, lo más nuevo arriba.
+  var GRUPOS = [
+    {clave: "aprobar", titulo: "Te toca aprobar", test: function (u) { return u.pendiente_de_aprobar; }},
+    {clave: "validar", titulo: "Esperan tu validación", test: function (u) { return u.estado === "en_validacion"; }},
+    {clave: "obra", titulo: "En marcha", test: function (u) { return u.estado === "en_obra" || u.estado === "en_revision"; }},
+    {clave: "cola", titulo: "Aprobadas, en cola", test: function (u) { return u.estado === "planificada"; }},
+    {clave: "cerradas", titulo: "Cerradas", test: function () { return true; }}
+  ];
+
   function pintarContrato(u, texto) {
     var doc = trocear(texto);
     var html = '<div class="cabecera-contrato"><h2>' +
                esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
-               '<div class="ruta">' + esc(rutaDe(u)) + "</div></div>";
+               '<div class="ruta">' + esc(rutaDe(u)) + "</div>" + accionesDe(u) + "</div>";
     var secciones = ordenBluf(doc.secciones);
     for (var i = 0; i < secciones.length; i++) {
       var s = secciones[i];
@@ -252,12 +320,23 @@
       listado.innerHTML = '<div class="vacio">Ninguna unidad coincide.</div>';
       return;
     }
-    listado.innerHTML = visibles.map(function (u) {
-      return '<button type="button" data-carpeta="' + esc(u.carpeta) + '"' +
-             (u.carpeta === elegida ? ' class="activa" aria-current="true"' : "") +
-             '><span class="nombre">' + esc(u.unidad) + "</span>" +
-             chipsDe(u) + "</button>";
-    }).join("");
+    var restantes = visibles.slice().sort(function (a, b) { return a.carpeta < b.carpeta ? 1 : -1; });
+    var html = "";
+    GRUPOS.forEach(function (g) {
+      var mios = restantes.filter(g.test);
+      restantes = restantes.filter(function (u) { return mios.indexOf(u) < 0; });
+      if (!mios.length) return;
+      html += '<details class="grupo" ' + (g.clave === "cerradas" ? "" : "open") +
+              '><summary><span class="etiqueta">' + esc(g.titulo) + '</span><span class="cuenta">' + mios.length + '</span></summary>';
+      html += mios.map(function (u) {
+        return '<button type="button" data-carpeta="' + esc(u.carpeta) + '"' +
+               (u.carpeta === elegida ? ' class="activa" aria-current="true"' : "") +
+               '><span class="nombre">' + esc(u.unidad) + "</span>" +
+               chipsDe(u) + "</button>";
+      }).join("");
+      html += "</details>";
+    });
+    listado.innerHTML = html;
   }
 
   listado.addEventListener("click", function (ev) {

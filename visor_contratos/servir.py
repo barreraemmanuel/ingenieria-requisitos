@@ -240,6 +240,50 @@ def ruta_contrato(workspace, nombre):
     return None
 
 
+LINEA_APROBADO = re.compile(r"^aprobado:[^\n]*$", re.M)
+
+
+def aprobar_contrato(workspace, nombre, quien="usuario (web)"):
+    """Escribe `aprobado: <hoy>` en el frontmatter del contrato y deja rastro.
+
+    Es la aprobación del USUARIO desde la web (iteración rápida del 26-08, alcance de la
+    unidad 091): el agente nunca llama a esto. Conserva el comentario guía de la línea.
+    """
+    ruta = ruta_contrato(workspace, nombre)
+    if not ruta:
+        raise FileNotFoundError(nombre)
+    hoy = time.strftime("%Y-%m-%d")
+    texto = Path(ruta).read_text(encoding="utf-8")
+    if not LINEA_APROBADO.search(texto):
+        raise ValueError("el contrato no tiene línea aprobado:")
+    texto = LINEA_APROBADO.sub(
+        "aprobado: %s      # aprobado desde la web por el %s" % (hoy, quien), texto, count=1)
+    Path(ruta).write_text(texto, encoding="utf-8")
+    registro = Path(workspace) / ".runtime" / RASTRO
+    registro.parent.mkdir(parents=True, exist_ok=True)
+    with open(registro, "a", encoding="utf-8") as rastro:
+        rastro.write("%s contrato aprobado desde la web: %s\n"
+                     % (time.strftime("%Y-%m-%dT%H:%M:%S"), nombre))
+    return hoy
+
+
+def pedir_cambios(workspace, nombre, comentario):
+    """Añade al final del contrato una sección fechada con lo que el usuario pide.
+
+    El agente la lee al arrancar (la ficha es la fuente); no toca el frontmatter.
+    """
+    ruta = ruta_contrato(workspace, nombre)
+    if not ruta:
+        raise FileNotFoundError(nombre)
+    comentario = (comentario or "").strip()
+    if not comentario:
+        raise ValueError("comentario vacío")
+    cuando = time.strftime("%Y-%m-%d %H:%M")
+    with open(ruta, "a", encoding="utf-8") as f:
+        f.write("\n\n## Cambios pedidos desde la web (%s)\n\n%s\n" % (cuando, comentario))
+    return cuando
+
+
 def hacer_handler(workspace, estado):
     class VisorContratos(http.server.BaseHTTPRequestHandler):
         def do_GET(self):
@@ -274,15 +318,23 @@ def hacer_handler(workspace, estado):
 
         def do_POST(self):
             estado["ultimo"] = time.time()
-            return self._json(
-                405,
-                {
-                    "error": (
-                        "visor de solo lectura; aprobar el contrato o pedir "
-                        "cambios se sigue haciendo hablando con el agente"
-                    )
-                },
-            )
+            pedida = urlsplit(self.path).path
+            m = re.match(r"^/(aprobar|pedir-cambios)/(\d{3}-[a-z0-9][a-z0-9-]*)$", pedida)
+            if not m:
+                return self._json(404, {"error": "ruta inexistente"})
+            accion, nombre = m.group(1), m.group(2)
+            try:
+                largo = int(self.headers.get("Content-Length") or 0)
+                cuerpo = json.loads(self.rfile.read(largo) or b"{}") if largo else {}
+                if accion == "aprobar":
+                    fecha = aprobar_contrato(workspace, nombre)
+                    return self._json(200, {"unidad": nombre, "aprobado": fecha})
+                cuando = pedir_cambios(workspace, nombre, cuerpo.get("comentario", ""))
+                return self._json(200, {"unidad": nombre, "anotado": cuando})
+            except FileNotFoundError:
+                return self._json(404, {"error": "no hay contrato de " + nombre})
+            except (ValueError, OSError) as exc:
+                return self._json(400, {"error": str(exc)})
 
         def do_HEAD(self):
             estado["ultimo"] = time.time()
