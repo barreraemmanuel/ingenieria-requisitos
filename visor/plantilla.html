@@ -24,11 +24,6 @@
      en `visor/base.css`, que este mismo servidor sirve en `/base.css` y que
      comparten las cuatro webs. Abajo queda sólo lo propio de los flujos. */
 
-  nav.pestanas { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; overflow-x: auto; padding: var(--hueco) 0 var(--hueco-chico); margin-top: var(--hueco-grande); background: var(--paper); box-shadow: 0 1px 0 var(--line); }
-  nav.pestanas button { white-space: nowrap; font: bold 13px var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
-  nav.pestanas button:hover { border-color: var(--warn); color: var(--ink); }
-  nav.pestanas button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
-  nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 
   .seccion { display: none; margin-top: var(--aire-seccion); }
   .seccion.activa { display: block; }

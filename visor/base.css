@@ -208,6 +208,60 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta.
    Delante, un glifo de punto — la firma de la referencia: el estado se ve
    antes de leerse, y no hace falta un color para distinguirlo. */
+/* ---------- componentes compartidos (27-08): una sola definición para las cuatro webs ----------
+   Cifras (.tira/.dato), cabecera de sección (h2.seccion + .seccion-nota), subtítulo
+   (.subtitulo), tarjetas (.tarjetas/.tarjeta), lista plana, pestañas (nav.pestanas),
+   botones (.boton) y barra de progreso (.barra). Las plantillas sólo las usan. */
+.tira { display: flex; flex-wrap: wrap; gap: var(--hueco-chico); margin-top: var(--e-bloque); }
+.dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
+.dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.dato .valor { font-size: var(--t-h2); line-height: 1.35; letter-spacing: -.01em; }
+.dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
+.dato.roto { border-color: var(--fail); background: var(--fail-bg); }
+.dato.roto .valor { color: var(--fail); font-size: 13.5px; }
+h2.seccion { margin: var(--aire-seccion) 0 var(--hueco-chico); }
+h2.seccion:first-child { margin-top: 0; }
+.seccion-nota { color: var(--faint); font-size: 12.5px; }
+.subtitulo, .dia { font-size: var(--t-nota); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--hueco); margin-top: var(--e-bloque); }
+.tarjeta { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
+.tarjeta.viva { border-color: var(--ok); }
+.tarjeta.quieta { color: var(--muted); }
+.tarjeta.bloqueada { border-color: var(--fail); }
+.tarjeta h3 { margin-bottom: var(--hueco-chico); }
+.tarjeta .linea { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: 6px; }
+.tarjeta .rutas { font-size: var(--t-nota); line-height: 1.6; color: var(--faint); margin-top: var(--hueco-chico); word-break: break-all; }
+.tarjeta a { color: var(--accent); }
+.tarjeta h3 a { text-decoration: none; }
+.tarjeta h3 a:hover { text-decoration: underline; }
+.tarjeta .acciones { margin-top: var(--hueco); }
+.lista-plana { list-style: none; margin-top: var(--e-bloque); }
+.lista-plana li { border-bottom: 1px solid var(--line-soft); padding: 14px 2px; font-size: 14px; line-height: 1.5; display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.lista-plana li:last-child { border-bottom: 0; }
+.lista-plana .espera { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+.lista-plana a { color: var(--accent); text-decoration: none; }
+.lista-plana a:hover { text-decoration: underline; }
+.vacio-corto { color: var(--faint); font-size: 13px; padding: 8px 2px; }
+.aviso-fuente { border: 1px solid var(--warn); border-radius: var(--radio); background: var(--warn-bg); padding: var(--hueco) var(--hueco-grande); font-size: var(--t-menor); margin-top: var(--e-bloque); color: var(--warn); }
+.barra { height: 8px; border-radius: var(--pildora); background-color: var(--line-soft); background-image: var(--textura-rayado); margin-top: var(--hueco-chico); overflow: hidden; }
+.barra span { display: block; height: 100%; background: var(--ink); }
+nav.pestanas { display: flex; gap: 8px; overflow-x: auto; margin: var(--e-bloque) 0 var(--hueco-grande); padding-bottom: var(--hueco-chico); border-bottom: 1px solid var(--line); }
+nav.pestanas button { white-space: nowrap; font: bold var(--t-menor) var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
+nav.pestanas button:hover { border-color: var(--muted); color: var(--ink); }
+nav.pestanas button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.boton { display: inline-block; font: bold var(--t-menor) var(--sans); letter-spacing: .02em; padding: 9px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: transparent; color: var(--ink); cursor: pointer; text-decoration: none; }
+.boton:hover { border-color: var(--muted); background: var(--panel); }
+.boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.boton-ok { border-color: var(--ok); color: var(--ok); }
+.boton-ok:hover { background: var(--ok-bg); }
+.boton-primario { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.boton[disabled] { opacity: .5; cursor: default; }
+.acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.acciones .caja-cambios { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
+.acciones textarea { font: inherit; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: var(--radio); padding: 10px; }
+.acciones .resultado { flex-basis: 100%; color: var(--faint); }
+
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
    Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
    presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y
