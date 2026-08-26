@@ -100,7 +100,7 @@
   --t-h2: 20px;
   --t-h1: 25px;
   --t-cifra: 28px;
-  --lh-lectura: 1.55;
+  --lh-lectura: 1.6;
 
   /* ---------- aire (R2) ----------
      Entre párrafos, --e-parrafo. Entre BLOQUES (tabla, tarjeta, plegable,
@@ -163,20 +163,20 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
-body { line-height: 1.6; background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+body { background: var(--paper); color: var(--ink); font: 16px/1.6 var(--sans); }
 .pagina { max-width: var(--ancho-pagina); margin: 0 auto; padding: 44px 32px 120px; }
 
 /* ---------- escala de títulos ----------
    Tres escalones que se distinguen de un vistazo (25 / 20 / 17) y valen igual
    para la interfaz y para el markdown renderizado dentro de `.md`. Misma
    familia que el cuerpo: en este sistema un título se nota por tamaño y peso. */
-h1 { font-size: var(--t-h1); line-height: 1.25; margin: 12px 0 6px; letter-spacing: -.015em; }
-h2 { font-size: var(--t-h2); line-height: 1.3; letter-spacing: -.01em; }
+h1 { font-size: var(--t-h1); line-height: 1.25; margin: 12px 0 6px; }
+h2 { font-size: var(--t-h2); line-height: 1.3; }
 h3 { font-size: var(--t-h3); line-height: 1.35; }
 
 /* ---------- cabecera e interruptor de tema ---------- */
 header { position: relative; padding-right: 44px; }
-header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .18em; text-transform: none; color: var(--faint); }
+header .marca { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); }
 .boton-tema { position: absolute; top: -2px; right: 0; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
 .boton-tema:hover { border-color: var(--accent); color: var(--ink); }
 .boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -187,7 +187,7 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    actual va marcado con `.actual` + aria-current. Píldoras con borde de 1px,
    como los controles de la referencia. */
 .barra-webs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--hueco-grande); }
-.barra-webs a { font: bold var(--t-etiqueta) var(--sans); letter-spacing: .02em; text-transform: none; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); }
+.barra-webs a { font: bold var(--t-etiqueta) var(--sans); text-transform: none; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); }
 .barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
 .barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -214,16 +214,16 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    botones (.boton) y barra de progreso (.barra). Las plantillas sólo las usan. */
 .tira { display: flex; flex-wrap: wrap; gap: var(--hueco-chico); margin-top: var(--e-bloque); }
 .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
-.dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
-.dato .valor { font-size: var(--t-h2); line-height: 1.35; letter-spacing: -.01em; }
+.dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.dato .valor { font-size: var(--t-h2); line-height: 1.35; }
 .dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
-.dato .valor .detalle { font-size: var(--t-nota); line-height: 1.6; color: var(--muted); letter-spacing: 0; margin-top: 6px; }
+.dato .valor .detalle { font-size: var(--t-nota); line-height: 1.6; color: var(--muted); margin-top: 6px; }
 .dato.roto { border-color: var(--fail); background: var(--fail-bg); }
 .dato.roto .valor { color: var(--fail); font-size: 13.5px; }
 h2.seccion { margin: var(--aire-seccion) 0 var(--hueco-chico); }
 h2.seccion:first-child { margin-top: 0; }
 .seccion-nota { color: var(--faint); font-size: 12.5px; }
-.subtitulo, .dia { font-size: var(--t-nota); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.subtitulo, .dia { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
 .tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--hueco); margin-top: var(--e-bloque); }
 .tarjeta { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
 .tarjeta.viva { border-color: var(--ok); }
@@ -247,11 +247,11 @@ h2.seccion:first-child { margin-top: 0; }
 .barra { height: 8px; border-radius: var(--pildora); background-color: var(--line-soft); background-image: var(--textura-rayado); margin-top: var(--hueco-chico); overflow: hidden; }
 .barra span { display: block; height: 100%; background: var(--ink); }
 nav.pestanas { display: flex; gap: 8px; overflow-x: auto; margin: var(--e-bloque) 0 var(--hueco-grande); padding-bottom: var(--hueco-chico); border-bottom: 1px solid var(--line); }
-nav.pestanas button { white-space: nowrap; font: bold var(--t-menor) var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
+nav.pestanas button { white-space: nowrap; font: bold var(--t-menor) var(--sans); color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
 nav.pestanas button:hover { border-color: var(--muted); color: var(--ink); }
 nav.pestanas button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-.boton { display: inline-block; font: bold var(--t-menor) var(--sans); letter-spacing: .02em; padding: 9px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: transparent; color: var(--ink); cursor: pointer; text-decoration: none; }
+.boton { display: inline-block; font: bold var(--t-menor) var(--sans); padding: 9px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: transparent; color: var(--ink); cursor: pointer; text-decoration: none; }
 .boton:hover { border-color: var(--muted); background: var(--panel); }
 .boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .boton-ok { border-color: var(--ok); color: var(--ok); }
@@ -268,15 +268,15 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
    presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y
    entradas. Ninguna plantilla redefine nada de esto: sólo pone las clases. */
 .menu-lateral, .menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco); }
-.menu-lateral .titulo-menu, .titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.menu-lateral .titulo-menu, .titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
 .menu-lateral input[type="search"], .menu-lateral select, .menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 9px 12px; margin-bottom: var(--hueco-chico); }
 .menu-lateral select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%), linear-gradient(135deg, var(--faint) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
 .menu-lateral input:focus, .menu-lateral select:focus { outline: none; border-color: var(--ink); }
 .menu-lateral .menu-filtros { display: grid; gap: 8px; margin-bottom: var(--hueco-chico); }
 .menu-lateral .menu-filtros > * { margin-bottom: 0; }
-.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); padding: 8px 4px 8px; margin: var(--hueco-grande) 0 8px; border-bottom: 1px solid var(--line); }
+.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); padding: 8px 4px 8px; margin: var(--hueco-grande) 0 8px; border-bottom: 1px solid var(--line); }
 .menu-lateral .menu-grupo:first-of-type, .menu-lateral .menu-filtros + .menu-grupo, .menu-lateral input + .menu-grupo { margin-top: var(--hueco); }
-.menu-lateral .menu-grupo .cuenta { color: var(--ink); letter-spacing: 0; }
+.menu-lateral .menu-grupo .cuenta { color: var(--ink); }
 .menu-lateral details.menu-grupo { display: block; border-bottom: 0; padding: 0; }
 .menu-lateral details.menu-grupo { margin: var(--hueco-grande) 0 0; }
 .menu-lateral details.menu-grupo:first-of-type { margin-top: var(--hueco); }
@@ -294,14 +294,14 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .menu-lateral .menu-item.activa .cuenta { color: var(--ink); }
 .menu-lateral .menu-item .pm { flex: none; }
 .menu-lateral .vacio, .menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
-.menu-lateral .chip, .menu-unidades .chip { margin: 6px 6px 0 0; padding: 4px 10px; letter-spacing: .02em; }
+.menu-lateral .chip, .menu-unidades .chip { margin: 6px 6px 0 0; padding: 4px 10px; }
 .menu-lateral .chip::before, .menu-unidades .chip::before { margin-right: 5px; }
 /* punto de estado de una entrada (antes sólo en flujos) */
 .pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
 .pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
 .pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
 
-.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .02em; text-transform: none; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
 /* El glifo NO es texto: es la marca de estado. Se mide en `em` para que
    crezca con su etiqueta y no compita con el suelo de la letra (R2/076). */
 .chip::before { content: "◼"; margin-right: 6px; font-size: .72em; vertical-align: 1px; }
@@ -321,7 +321,7 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 /* ---------- cifra grande, con su variación al lado ----------
    Como en la referencia: el número manda y el cambio va pequeño a su vera,
    menta si sube, rojo si baja. */
-.cifra { font-size: var(--t-cifra); font-weight: bold; line-height: 1.1; letter-spacing: -.02em; }
+.cifra { font-size: var(--t-cifra); font-weight: bold; line-height: 1.1; }
 .variacion { font-size: var(--t-nota); font-weight: bold; color: var(--muted); margin-left: 6px; }
 .variacion.sube { color: var(--ok); }
 .variacion.baja { color: var(--fail); }
@@ -346,10 +346,10 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
 /* La cabecera de sección de la referencia: etiqueta pequeña en mayúsculas,
    gris, separada de su contenido por una línea de pelo. */
-.bluf > h3 { font-size: var(--t-menor); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
+.bluf > h3 { font-size: var(--t-menor); font-weight: bold; text-transform: none; color: var(--faint); padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
 .bluf + .bluf { margin-top: var(--e-bloque); }
 .plegable { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
-.plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-menor); letter-spacing: .02em; text-transform: none; color: var(--faint); padding: 4px 0; }
+.plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-menor); text-transform: none; color: var(--faint); padding: 4px 0; }
 .plegable > summary:hover { color: var(--ink); }
 .plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
 .plegable[open] > summary { padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
@@ -357,7 +357,7 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 /* ---------- texto de lectura (markdown renderizado) ----------
    Al tamaño del cuerpo y con más interlineado: es lo que de verdad se LEE.
    El ancho se mide en `ch` — 78 caracteres, la medida de Butterick. */
-.md { font-size: var(--t-lectura); line-height: 1.55; max-width: 78ch; }
+.md { font-size: var(--t-lectura); line-height: var(--lh-lectura); max-width: 78ch; }
 .md h4 { font-size: var(--t-cuerpo); margin: var(--e-bloque) 0 var(--hueco-chico); }
 .md h5 { font-size: var(--t-menor); color: var(--muted); margin: var(--e-parrafo) 0 6px; }
 .md h2, .md h3 { margin: var(--e-bloque) 0 var(--hueco-chico); }
@@ -375,7 +375,7 @@ dl.vocab dd:last-child { border-bottom: 0; }
 /* lista de pasos (validación guiada, evidencia): una fila por paso, numerada, con aire */
 .lista-pasos { list-style: none; counter-reset: paso; margin: 0 0 var(--e-bloque); }
 .lista-pasos li { counter-increment: paso; display: flex; gap: 14px; align-items: flex-start; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); font-size: var(--t-lectura); line-height: 1.6; }
-.lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); letter-spacing: .02em; padding-top: 3px; }
+.lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); padding-top: 3px; }
 .lista-pasos li:last-child { border-bottom: 0; }
 /* lista de criterios (éxito, aceptación): una fila por criterio con casilla */
 .lista-criterios { list-style: none; margin: 0; }
@@ -401,7 +401,7 @@ dl.vocab dd:last-child { border-bottom: 0; }
    celda. Los cuatro bordes de la 076 apelmazaban el contrato entero. */
 .md table { border-collapse: collapse; margin: var(--e-bloque) 0; font-size: var(--t-menor); width: 100%; }
 .md th, .md td { border: 0; border-bottom: 1px solid var(--line-soft); padding: 12px 16px 12px 0; text-align: left; vertical-align: top; line-height: 1.5; }
-.md th { font-size: var(--t-nota); font-weight: bold; letter-spacing: .02em; text-transform: none; color: var(--faint); border-bottom: 1px solid var(--line); padding-bottom: var(--hueco-chico); }
+.md th { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); border-bottom: 1px solid var(--line); padding-bottom: var(--hueco-chico); }
 .md tr:last-child td { border-bottom: 0; }
 .md a { color: var(--ink); text-decoration-color: var(--faint); text-underline-offset: 3px; }
 
