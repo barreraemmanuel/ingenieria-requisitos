@@ -1,37 +1,89 @@
 /* =========================================================================
-   base.css — la hoja común de las CUATRO webs locales (unidad 076)
+   base.css — la hoja común de la web del método (unidades 076, 081 y 082)
 
    Hasta la 076 este bloque estaba COPIADO LITERAL en las cuatro plantillas y
    un test lo comparaba línea a línea: la copia se sostenía a mano y desentonó
-   sola (letra secundaria minúscula, títulos sin escalones, párrafos pegados).
-   Ahora vive aquí, y las cuatro webs — flujos (:8765), contratos (:8766),
-   tablero (:8768) y presentaciones (:9043) — la enlazan como `/base.css`, que
-   cada `servir.py` sirve LEÍDA de este fichero. Una sola copia viva.
+   sola. Desde la 081 las cuatro webs son UNA sola, con cuatro apartados
+   —tablero, contratos, presentaciones y flujos— servidos en un puerto, y esta
+   hoja llega a todos como `/base.css`. Una sola copia viva.
+
+   Desde la 082 esto no es una paleta: es un SISTEMA DE DISEÑO. Panel de
+   control oscuro, sobrio y técnico, tipo Nothing (la referencia está en
+   `.runtime/referencias/estetica-860170b9.jpg`):
+
+   - casi negro de fondo, tarjetas apenas más claras, borde de 1px y radio 12;
+   - monoespaciada en TODO —títulos y cifras incluidos—: la jerarquía la hacen
+     el tamaño y el peso, nunca un cambio de familia;
+   - un solo acento: verde menta para lo que va bien, rojo para lo que va mal.
+     Todo lo demás es gris. Lo pendiente no tiene color: tiene TEXTURA;
+   - dos texturas en CSS puro, sin una sola imagen: matriz de puntos para el
+     progreso y la ocupación, rayado a 45° para lo parcial o pendiente.
 
    Reglas de la casa:
-   - Aquí va lo COMÚN: paleta y tema, esqueleto (cabecera, marca, barra de las
-     cuatro webs, menú lateral, panel, plegables, interruptor ☾/☀), y la escala
-     tipográfica y de espaciado. Lo propio de cada web se queda en su plantilla.
+   - Aquí va lo COMÚN: tokens, esqueleto (cabecera, marca, barra de apartados,
+     menú lateral, panel, plegables, interruptor ☾/☀), escala tipográfica, de
+     espaciado y los componentes compartidos. Lo propio de cada apartado se
+     queda en su plantilla.
    - Una plantilla NO repite un selector de aquí ni redefine una variable de
      aquí: `visor/tests/test_base_css.py` lo comprueba en las cuatro.
-   - Ni una URL externa: las webs funcionan con la red apagada.
+   - Ni un color a mano fuera de los tokens, ni una URL externa: la web
+     funciona con la red apagada. `web/tests/test_estetica.py` lo comprueba.
    ========================================================================= */
 
-/* ---------- paleta (misma que manual-ingenieria-requisitos.html) ----------
-   Claro por defecto, oscuro automático según el sistema, y data-theme para forzarlo.
-   Los papeles semánticos se conservan para daltonismo: persona = cálido (warn),
-   automático·código = azul (accent), automático·IA = verde (ok). */
+/* ---------- tokens (R1 de la 082) ----------
+   OSCURO POR DEFECTO: el tema base es el de la referencia y `[data-theme]`
+   sólo sirve para que el usuario lo fuerce. El tema claro se deriva de estos
+   mismos papeles, invertidos; no hay una segunda paleta con otra lógica.
+
+   Los nombres vienen de la 076 y NO cambian: los apartados los usan tal cual.
+   Lo que cambia es el papel de tres de ellos — `--warn`, `--alt` y `--accent`
+   ya no son ámbar, morado y azul, sino grises: la referencia tiene UN acento
+   positivo y UNO negativo, y nada más. */
 :root {
-  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
-  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
-  --line: #CDD5CE; --line-soft: #E1E7E0;
-  --accent: #1F5673; --accent-bg: #E4EDF2;
-  --ok: #3D6B4C; --ok-bg: #E3EDE4;
-  --warn: #8E6410; --warn-bg: #F2EBDA;
-  --fail: #A03127; --fail-bg: #F4E4E1;
-  --alt: #5B4A78; --alt-bg: #ECE8F3;
-  --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color-scheme: dark;
+
+  /* superficies: fondo casi negro, tarjeta apenas más clara, borde fino */
+  --paper: #0B0B0B; --sheet: #141414; --panel: #181818;
+  --line: #262626; --line-soft: #1C1C1C;
+
+  /* tinta: blanco roto y dos grises. Nada informativo baja de --faint. */
+  --ink: #EDEDED; --muted: #B4B4B4; --faint: #8A8A8A;
+
+  /* interfaz (activo, seleccionado, foco): no es color, es LUZ */
+  --accent: #EDEDED; --accent-bg: #202020;
+  /* espera, parcial, pendiente: gris + textura, nunca un tercer acento */
+  --warn: #B4B4B4; --warn-bg: #1C1C1C;
+  --alt: #8A8A8A; --alt-bg: #1C1C1C;
+
+  /* LOS DOS ÚNICOS COLORES DE TODA LA WEB */
+  --ok: #9FE1B7; --ok-bg: #121C16;      /* positivo · en marcha · aprobado */
+  --fail: #FF5C5C; --fail-bg: #1F1313;  /* negativo · bloqueado · problema */
+
+  /* ---------- forma ----------
+     Un solo radio para tarjetas y bloques, uno chico para lo pequeño y la
+     píldora para los controles. El borde SIEMPRE de 1px. */
+  --radio: 12px;
+  --radio-chico: 8px;
+  --pildora: 999px;
+  --borde: 1px solid var(--line);
+
+  /* ---------- tipografía ----------
+     Una sola pila, monoespaciada y del sistema. `--sans` se conserva porque
+     los apartados la nombran en sus reglas, pero ya NO es una pila aparte:
+     desde la 082 apunta a la misma mono. Ni una fuente descargada: la web es
+     local y a veces sin red. */
+  --mono: "SF Mono", SFMono-Regular, ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace;
+  --sans: var(--mono);
+
+  /* ---------- texturas (R4) ----------
+     CSS puro, sin una sola imagen. La matriz son cuadraditos de 5px con hueco
+     de 2; el rayado, hatching a 45°. Se aplican como `background-image`. */
+  --punto: #3A3A3A;
+  --punto-lleno: #EDEDED;
+  --raya: #4A4A4A;
+  --textura-matriz: radial-gradient(var(--punto) 1.1px, transparent 1.3px);
+  --textura-rayado: repeating-linear-gradient(45deg, var(--raya) 0 1.5px, transparent 1.5px 5px);
+  --paso-matriz: 5px 5px;
 
   /* ---------- escala tipográfica (R2 de la 076) ----------
      Un solo escalón entre cada tamaño y un SUELO: nada informativo baja de
@@ -47,6 +99,7 @@
   --t-h3: 17px;
   --t-h2: 20px;
   --t-h1: 25px;
+  --t-cifra: 28px;
   --lh-lectura: 1.55;
 
   /* ---------- aire (R2) ----------
@@ -59,37 +112,42 @@
      en `ch` (ver `.md`): 78 caracteres, la medida de Butterick. */
   --ancho-pagina: 1180px;
 }
+
+/* El sistema ya viene en oscuro: no hay nada que igualar, sólo declararlo
+   para que el navegador pinte en oscuro también lo suyo (barras, controles). */
 @media (prefers-color-scheme: dark) {
-  :root {
-    --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
-    --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
-    --line: #2B363E; --line-soft: #202A31;
-    --accent: #7FB4D4; --accent-bg: #16242E;
-    --ok: #77B189; --ok-bg: #17251C;
-    --warn: #CE9F45; --warn-bg: #251F12;
-    --fail: #E08578; --fail-bg: #2A1815;
-    --alt: #A99AC8; --alt-bg: #1E1A26;
-  }
+  :root { color-scheme: dark; }
 }
+
+/* Forzado a oscuro por el interruptor: los mismos valores que el defecto. */
 :root[data-theme="dark"] {
-  --paper: #0F1418; --sheet: #141B21; --panel: #141B21;
-  --ink: #DEE6E9; --muted: #9DAEB8; --faint: #6E7F8A;
-  --line: #2B363E; --line-soft: #202A31;
-  --accent: #7FB4D4; --accent-bg: #16242E;
-  --ok: #77B189; --ok-bg: #17251C;
-  --warn: #CE9F45; --warn-bg: #251F12;
-  --fail: #E08578; --fail-bg: #2A1815;
-  --alt: #A99AC8; --alt-bg: #1E1A26;
+  color-scheme: dark;
+  --paper: #0B0B0B; --sheet: #141414; --panel: #181818;
+  --line: #262626; --line-soft: #1C1C1C;
+  --ink: #EDEDED; --muted: #B4B4B4; --faint: #8A8A8A;
+  --accent: #EDEDED; --accent-bg: #202020;
+  --warn: #B4B4B4; --warn-bg: #1C1C1C;
+  --alt: #8A8A8A; --alt-bg: #1C1C1C;
+  --ok: #9FE1B7; --ok-bg: #121C16;
+  --fail: #FF5C5C; --fail-bg: #1F1313;
+  --punto: #3A3A3A; --punto-lleno: #EDEDED; --raya: #4A4A4A;
 }
+
+/* ---------- el mismo sistema, invertido ----------
+   No es otra paleta: son los mismos papeles con la luz al revés. El acento de
+   interfaz sigue siendo tinta, la espera sigue siendo gris, y los dos únicos
+   colores se oscurecen lo justo para seguir leyéndose sobre el papel claro. */
 :root[data-theme="light"] {
-  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FBFCFA;
-  --ink: #16202A; --muted: #4A5A66; --faint: #7C8C96;
-  --line: #CDD5CE; --line-soft: #E1E7E0;
-  --accent: #1F5673; --accent-bg: #E4EDF2;
-  --ok: #3D6B4C; --ok-bg: #E3EDE4;
-  --warn: #8E6410; --warn-bg: #F2EBDA;
-  --fail: #A03127; --fail-bg: #F4E4E1;
-  --alt: #5B4A78; --alt-bg: #ECE8F3;
+  color-scheme: light;
+  --paper: #F3F5F1; --sheet: #FBFCFA; --panel: #FFFFFF;
+  --line: #D2D2D2; --line-soft: #E6E6E6;
+  --ink: #141414; --muted: #4A4A4A; --faint: #616161;
+  --accent: #141414; --accent-bg: #E8E8E8;
+  --warn: #4A4A4A; --warn-bg: #EDEDED;
+  --alt: #616161; --alt-bg: #EDEDED;
+  --ok: #1B6B3A; --ok-bg: #E4EFE7;
+  --fail: #B12A22; --fail-bg: #F5E5E4;
+  --punto: #C8C8C8; --punto-lleno: #141414; --raya: #B4B4B4;
 }
 
 /* ---------- cimientos ---------- */
@@ -101,38 +159,42 @@ body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); 
 
 /* ---------- escala de títulos ----------
    Tres escalones que se distinguen de un vistazo (25 / 20 / 17) y valen igual
-   para la interfaz y para el markdown renderizado dentro de `.md`. */
-h1 { font-size: var(--t-h1); line-height: 1.2; margin: 6px 0 2px; }
-h2 { font-size: var(--t-h2); line-height: 1.25; }
+   para la interfaz y para el markdown renderizado dentro de `.md`. Misma
+   familia que el cuerpo: en este sistema un título se nota por tamaño y peso. */
+h1 { font-size: var(--t-h1); line-height: 1.2; margin: 6px 0 2px; letter-spacing: -.01em; }
+h2 { font-size: var(--t-h2); line-height: 1.25; letter-spacing: -.01em; }
 h3 { font-size: var(--t-h3); line-height: 1.3; }
 
 /* ---------- cabecera e interruptor de tema ---------- */
 header { position: relative; padding-right: 44px; }
-header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--warn); }
+header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); }
 .boton-tema { position: absolute; top: -2px; right: 0; width: 34px; height: 34px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
 .boton-tema:hover { border-color: var(--accent); color: var(--ink); }
 .boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .sub { color: var(--muted); font-size: var(--t-menor); }
 
-/* ---------- barra común de las cuatro webs (bug 067) ----------
-   Una web, una función, y desde cualquiera se llega a las otras tres. La
-   actual va marcada con `.actual` + aria-current. */
+/* ---------- barra de los cuatro apartados (bug 067, unidad 081) ----------
+   Una web, cuatro apartados, y desde cualquiera se llega a los otros tres. El
+   actual va marcado con `.actual` + aria-current. Píldoras con borde de 1px,
+   como los controles de la referencia. */
 .barra-webs { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
-.barra-webs a { font: bold var(--t-etiqueta) var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 12px; background: var(--sheet); }
+.barra-webs a { font: bold var(--t-etiqueta) var(--sans); letter-spacing: .1em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: var(--pildora); padding: 5px 12px; background: var(--sheet); }
 .barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
 .barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 
-.aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 2px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: var(--t-menor); box-shadow: 0 4px 16px rgba(11, 11, 11, .18); }
+/* El aviso no es un color nuevo: es gris rayado — lo mismo que dice «parcial»
+   en el resto de la web (R3 + R4). */
+.aviso-flotante { display: none; position: fixed; left: 50%; transform: translateX(-50%); bottom: 18px; z-index: 20; width: calc(100% - 40px); max-width: 680px; border: 1px solid var(--warn); border-radius: var(--radio); background-color: var(--warn-bg); background-image: var(--textura-rayado); color: var(--ink); padding: 10px 14px; font-size: var(--t-menor); }
 .aviso-flotante.visible { display: block; }
 
 /* ---------- esqueleto: menú lateral + panel ---------- */
 .cuerpo { display: flex; gap: 26px; align-items: flex-start; margin-top: 22px; }
 
-.menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px; }
+.menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: 12px; }
 .titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); margin-bottom: 8px; }
-.menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: 6px; padding: 7px 8px; margin-bottom: 10px; }
-.menu-unidades button { display: block; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 3px 0; cursor: pointer; }
+.menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 7px 8px; margin-bottom: 10px; }
+.menu-unidades button { display: block; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 8px 10px; margin: 3px 0; cursor: pointer; }
 .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
 .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
@@ -140,22 +202,52 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
 
 .panel { flex: 1 1 auto; min-width: 0; }
-.panel .vacio { border: 1px dashed var(--line); border-radius: 10px; padding: 24px; color: var(--muted); font-size: var(--t-medio); background: var(--sheet); }
+.panel .vacio { border: 1px dashed var(--line); border-radius: var(--radio); padding: 24px; color: var(--muted); font-size: var(--t-medio); background: var(--sheet); }
 
 /* ---------- etiquetas ----------
-   Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta. */
-.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .08em; text-transform: uppercase; border-radius: 999px; padding: 3px 10px; margin: 4px 4px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+   Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta.
+   Delante, un glifo de punto — la firma de la referencia: el estado se ve
+   antes de leerse, y no hace falta un color para distinguirlo. */
+.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .08em; text-transform: uppercase; border-radius: var(--pildora); padding: 3px 10px; margin: 4px 4px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+/* El glifo NO es texto: es la marca de estado. Se mide en `em` para que
+   crezca con su etiqueta y no compita con el suelo de la letra (R2/076). */
+.chip::before { content: "◼"; margin-right: 6px; font-size: .72em; vertical-align: 1px; }
 .chip-pendiente { background: var(--warn-bg); border-color: var(--warn); color: var(--warn); }
 .chip-aprobado { background: var(--ok-bg); border-color: var(--ok); color: var(--ok); }
+.chip-pendiente::before { content: "◌"; }
+.chip-aprobado::before { content: "●"; }
+
+/* ---------- texturas, sueltas (R4) ----------
+   Dos utilidades y ninguna imagen: cualquier bloque puede decir «esto va por
+   la mitad» (rayado) o «esto se cuenta» (matriz de puntos). */
+.matriz-puntos { background-image: var(--textura-matriz); background-size: var(--paso-matriz); }
+.rayado { background-image: var(--textura-rayado); }
+
+/* ---------- cifra grande, con su variación al lado ----------
+   Como en la referencia: el número manda y el cambio va pequeño a su vera,
+   menta si sube, rojo si baja. */
+.cifra { font-size: var(--t-cifra); font-weight: bold; line-height: 1.1; letter-spacing: -.02em; }
+.variacion { font-size: var(--t-nota); font-weight: bold; color: var(--muted); margin-left: 6px; }
+.variacion.sube { color: var(--ok); }
+.variacion.baja { color: var(--fail); }
+
+/* ---------- progreso de un plan (R4) ----------
+   Una celda por casilla del plan de trabajo: llena la hecha, rayada la que
+   falta. Es la rejilla de cuadraditos de la referencia, y se lee de un
+   vistazo sin contar líneas. Lo pinta `visor_contratos/render.js`. */
+.plan-progreso { display: flex; flex-wrap: wrap; gap: 3px; margin: var(--e-parrafo) 0; }
+.plan-celda { display: block; width: 10px; height: 10px; border: 1px solid var(--line); border-radius: 2px; background-color: var(--paper); background-image: var(--textura-rayado); }
+.plan-celda.hecha { background-color: var(--punto-lleno); background-image: none; border-color: var(--punto-lleno); }
 
 /* ---------- bloques de lectura ----------
-   Todos separados por --e-bloque: entre dos tarjetas cabe una línea de aire. */
-.cabecera-contrato { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: 10px; background: var(--sheet); padding: 16px 18px; }
+   Todos separados por --e-bloque: entre dos tarjetas cabe una línea de aire.
+   Borde fino y radio 12: la tarjeta de la referencia. */
+.cabecera-contrato { border: 1px solid var(--line); border-left: 4px solid var(--warn); border-radius: var(--radio); background: var(--sheet); padding: 16px 18px; }
 .cabecera-contrato .ruta { font-size: var(--t-nota); color: var(--faint); margin-top: 5px; word-break: break-all; }
-.bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: 10px; background: var(--sheet); padding: 16px 18px; }
+.bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-left: 4px solid var(--accent); border-radius: var(--radio); background: var(--sheet); padding: 16px 18px; }
 .bluf > h3 { margin-bottom: 8px; }
 .bluf + .bluf { margin-top: var(--e-bloque); }
-.plegable { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px 18px; }
+.plegable { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: 12px 18px; }
 .plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-medio); color: var(--muted); }
 .plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
 .plegable[open] > summary { margin-bottom: 10px; }
@@ -171,16 +263,19 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .md ul, .md ol { margin: var(--e-parrafo) 0 var(--e-parrafo) 22px; }
 .md li { margin: 4px 0; }
 .md li.tarea { list-style: none; margin-left: -18px; }
-.md li.tarea .caja { color: var(--muted); margin-right: 6px; }
+/* La casilla del plan es la misma celda de la matriz, en línea con el texto:
+   llena si está hecha, rayada si falta. */
+.md li.tarea .caja { display: inline-block; width: 10px; height: 10px; margin-right: 8px; border: 1px solid var(--line); border-radius: 2px; background-color: var(--paper); background-image: var(--textura-rayado); overflow: hidden; text-indent: -99px; vertical-align: -1px; }
 .md li.tarea.hecha { color: var(--muted); }
+.md li.tarea.hecha .caja { background-color: var(--punto-lleno); background-image: none; border-color: var(--punto-lleno); }
 .md code { font-family: var(--mono); font-size: var(--t-menor); background: var(--line-soft); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
-.md pre { margin: var(--e-bloque) 0; padding: 12px 14px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; }
+.md pre { margin: var(--e-bloque) 0; padding: 12px 14px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); }
 .md pre code { border: 0; background: none; padding: 0; }
 .md blockquote { margin: var(--e-bloque) 0; padding: 8px 16px; border-left: 3px solid var(--line); color: var(--muted); font-size: var(--t-medio); }
 .md table { border-collapse: collapse; margin: var(--e-bloque) 0; font-size: var(--t-menor); width: 100%; }
 .md th, .md td { border: 1px solid var(--line); padding: 8px 10px; text-align: left; vertical-align: top; }
-.md th { background: var(--line-soft); }
-.md a { color: var(--accent); }
+.md th { background: var(--line-soft); font-weight: bold; letter-spacing: .04em; }
+.md a { color: var(--ink); text-decoration-color: var(--faint); text-underline-offset: 3px; }
 
 @media (max-width: 860px) {
   .cuerpo { display: block; }

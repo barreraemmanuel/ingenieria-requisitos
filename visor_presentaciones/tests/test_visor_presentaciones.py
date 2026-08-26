@@ -210,7 +210,7 @@ class PruebasServidor(unittest.TestCase):
         self.assertIn("text/css", cabeceras["Content-Type"])
         hoja = cuerpo.decode("utf-8")
         for esperado in (
-            "--paper: #F3F5F1", "--sans: -apple-system",
+            "--paper: #F3F5F1", "--sans: var(--mono)",
             ":root[data-theme=\"dark\"]", ".boton-tema",
             "outline: 2px solid var(--warn)", "--ancho-pagina: 1180px",
         ):
