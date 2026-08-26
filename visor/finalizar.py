@@ -110,25 +110,44 @@ def reescribir_enlaces_indice(texto):
     )
 
 
-def copiar_documentacion(workspace, salida):
+def copiar_documentacion(workspace, salida, mapa):
+    """Vuelca al workspace la documentación compilada: manifiesto, índice y un .md por
+    actividad.
+
+    El aplanado (un `<actividad>.md` hermano del índice) NO se hace aquí: lo escribe
+    `compilar.py --formato plano`, que desde el bug 092 conoce ese formato. Tener dos
+    copias del mismo aplanado era el agujero que dejaba abierto aquel arreglo: si una
+    cambiaba, la otra no se enteraba. Aquí queda solo lo que compilar.py no debe tocar
+    en ese formato — la constitución y el INDICE.md con sus enlaces reescritos.
+    """
     constitucion = salida / "01-constitution" / "constitution.md"
-    flows = salida / "02-flows"
     if not constitucion.is_file():
         morir("la compilación no produjo constitution.md")
-    destino_constitucion = workspace / "docs" / "01-constitucion" / "manifiesto.md"
-    shutil.copyfile(constitucion, destino_constitucion)
+    indice = salida / "README.md"
+    if not indice.is_file():
+        morir("la compilación no produjo README.md")
+    texto_indice = reescribir_enlaces_indice(indice.read_text(encoding="utf-8"))
 
     destino_flows = workspace / "docs" / "02-flujos"
-    for anterior in destino_flows.glob("*.md"):
-        anterior.unlink()
-    indice = salida / "README.md"
-    texto_indice = reescribir_enlaces_indice(indice.read_text(encoding="utf-8"))
-    (destino_flows / "INDICE.md").write_text(texto_indice, encoding="utf-8")
-    for documento in sorted(flows.rglob("*.md")):
-        nombre = documento.stem + ".md"
-        if (destino_flows / nombre).exists():
-            morir("dos actividades compiladas tienen el mismo id: %s" % documento.stem)
-        shutil.copyfile(documento, destino_flows / nombre)
+    # Se compila a una carpeta temporal ANTES de borrar nada: si compilar.py se planta
+    # (p. ej. pide --formato), su rechazo sale tal cual por `exigir_verde` y el
+    # workspace se queda con la documentación anterior entera, no a medias.
+    with tempfile.TemporaryDirectory(prefix="finalizar-plano-") as temporal:
+        exigir_verde(
+            [sys.executable, str(BASE / "compilar.py"), "--mapa", str(mapa),
+             "--salida", temporal, "--formato", "plano"],
+            "compilación en formato plano",
+        )
+        documentos = sorted(Path(temporal).glob("*.md"))
+        if not documentos:
+            morir("compilar.py --formato plano no produjo ningún documento")
+
+        shutil.copyfile(constitucion, workspace / "docs" / "01-constitucion" / "manifiesto.md")
+        for anterior in destino_flows.glob("*.md"):
+            anterior.unlink()
+        (destino_flows / "INDICE.md").write_text(texto_indice, encoding="utf-8")
+        for documento in documentos:
+            shutil.copyfile(documento, destino_flows / documento.name)
 
 
 def escribir_estado_congelado(workspace):
@@ -289,7 +308,7 @@ def main():
              "--salida", str(salida)],
             "compilación",
         )
-        copiar_documentacion(workspace, salida)
+        copiar_documentacion(workspace, salida, mapa)
 
     # Rutas explícitas: `git add docs` entero arrastraba trabajo del usuario sin
     # commitear, contradiciendo la regla 3 del propio método.
