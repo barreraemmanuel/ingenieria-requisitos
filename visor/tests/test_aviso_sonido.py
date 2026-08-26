@@ -343,3 +343,29 @@ class LoQueSeCuentaTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HooksAncladosAlProyectoTest(unittest.TestCase):
+    """27-08: los hooks corren con el cwd del último `cd` del agente (un worktree) y ahí no
+    hay `docs/00-metodo/`. Toda orden sembrada va anclada a `$CLAUDE_PROJECT_DIR`, y las ya
+    sembradas sin ancla se reanclan al volver a sembrar (Modo D)."""
+
+    def test_toda_orden_sembrada_va_anclada_y_las_viejas_se_reanclan(self):
+        import json, tempfile
+        from pathlib import Path
+        destino = Path(tempfile.mkdtemp())
+        (destino / ".claude").mkdir()
+        (destino / ".claude/settings.json").write_text(json.dumps({"hooks": {"Stop": [
+            {"hooks": [{"type": "command",
+                        "command": "python3 docs/00-metodo/scripts/canario.py hook-stop"}]}],
+            "Notification": [{"hooks": [{"type": "command", "command": "echo mio"}]}]}}),
+            encoding="utf-8")
+        bootstrap.sembrar_hook_canario(destino)
+        bootstrap.sembrar_hook_aviso(destino)
+        cfg = json.loads((destino / ".claude/settings.json").read_text(encoding="utf-8"))
+        ordenes = [g["command"] for v in cfg["hooks"].values() for e in v for g in e["hooks"]]
+        del_metodo = [o for o in ordenes if "docs/00-metodo/scripts/" in o]
+        self.assertEqual(len(del_metodo), 4)
+        for orden in del_metodo:
+            self.assertTrue(orden.startswith(bootstrap.ANCLA_PROYECTO), orden)
+        self.assertIn("echo mio", ordenes)  # los hooks propios del dueño no se tocan

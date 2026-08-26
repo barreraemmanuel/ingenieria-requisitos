@@ -262,8 +262,35 @@ def manifiesto_metodo():
     return ["docs/00-metodo/" + relativo for relativo in ARCHIVOS_METODO]
 
 
-ORDEN_CANARIO = "python3 docs/00-metodo/scripts/canario.py hook"
-ORDEN_CANARIO_STOP = "python3 docs/00-metodo/scripts/canario.py hook-stop"
+# Los hooks corren con el cwd del ÚLTIMO `cd` del agente, que en una sesión con worktrees
+# acaba dentro de `worktrees/NNN-slug/`: ahí no hay `docs/00-metodo/` y el hook fallaba con
+# «can't open file … aviso.py» en cada turno (Nate, 27-08). Se anclan al directorio del
+# proyecto, que Claude Code expone en `$CLAUDE_PROJECT_DIR`; si no existe, `cd ""` falla y
+# el hook no hace nada raro fuera del workspace.
+ANCLA_PROYECTO = 'cd "$CLAUDE_PROJECT_DIR" && '
+ORDEN_CANARIO = ANCLA_PROYECTO + "python3 docs/00-metodo/scripts/canario.py hook"
+ORDEN_CANARIO_STOP = ANCLA_PROYECTO + "python3 docs/00-metodo/scripts/canario.py hook-stop"
+
+
+def anclar_ordenes(hooks):
+    """Reescribe in situ las órdenes ya sembradas sin ancla (workspaces anteriores al 27-08).
+
+    Devuelve True si cambió alguna. Solo toca órdenes que llaman a scripts del método
+    (`docs/00-metodo/scripts/…`) y que aún no empiezan por el ancla: los hooks propios del
+    dueño se respetan tal cual.
+    """
+    cambiado = False
+    for entradas in hooks.values():
+        if not isinstance(entradas, list):
+            continue
+        for entrada in entradas:
+            for gancho in (entrada.get("hooks") or []) if isinstance(entrada, dict) else []:
+                orden = gancho.get("command", "") if isinstance(gancho, dict) else ""
+                if (orden.startswith("python3 docs/00-metodo/scripts/")
+                        and not orden.startswith(ANCLA_PROYECTO)):
+                    gancho["command"] = ANCLA_PROYECTO + orden
+                    cambiado = True
+    return cambiado
 
 
 def _ya_hay_orden(ganchos, sufijo):
@@ -304,7 +331,7 @@ def sembrar_hook_canario(destino):
     hooks = datos.setdefault("hooks", {}) if isinstance(datos.get("hooks", {}), dict) else {}
     datos["hooks"] = hooks
 
-    escrito = False
+    escrito = anclar_ordenes(hooks)
     precompact = hooks.get("PreCompact")
     if not isinstance(precompact, list):
         precompact = []
@@ -332,7 +359,7 @@ def sembrar_hook_canario(destino):
     return True
 
 
-ORDEN_AVISO = "python3 docs/00-metodo/scripts/aviso.py"
+ORDEN_AVISO = ANCLA_PROYECTO + "python3 docs/00-metodo/scripts/aviso.py"
 # Un segundo de margen sobraría —el reproductor se suelta y no se espera—, pero el hook
 # corre en el camino crítico del turno: cinco segundos es el tope por si la máquina está
 # atascada, no el tiempo que se espera.
@@ -385,7 +412,7 @@ def _sembrar_ganchos(destino, entradas):
     hooks = datos.setdefault("hooks", {}) if isinstance(datos.get("hooks", {}), dict) else {}
     datos["hooks"] = hooks
 
-    escrito = False
+    escrito = anclar_ordenes(hooks)
     for gancho, entrada, sufijo in entradas:
         actuales = hooks.get(gancho)
         if not isinstance(actuales, list):
