@@ -539,6 +539,66 @@ def origen_workspace(workspace):
     return url.strip() if isinstance(url, str) and url.strip() else None
 
 
+def registro_metodo(workspace):
+    """El METODO.json que este workspace DEBERÍA declarar.
+
+    Fuente única: `bootstrap` (huella, versión y manifiesto). Se usa para escribirlo
+    y para comparar, que es lo que evita que las dos cosas se separen.
+
+    `origen` es lo que hace autosuficiente al workspace: con esa URL su
+    herramienta.py comprueba y descarga el método sin depender de ninguna carpeta
+    local. Se conserva la que ya tuviera (es SUYA, no de esta copia) y solo se repone
+    cuando falta: los workspaces nacidos antes de que existiera el campo se vuelven
+    autosuficientes en su primera actualización.
+    """
+    datos = {"formato": 1, "huella": bootstrap.huella_plantilla(),
+             "actualizado": HOY, "version": bootstrap.version_metodo(),
+             "archivos": bootstrap.manifiesto_metodo()}
+    url_origen = origen_workspace(workspace) or bootstrap.origen_herramienta()
+    if url_origen:
+        datos["origen"] = url_origen
+    return datos
+
+
+def texto_registro_metodo(workspace):
+    return json.dumps(
+        registro_metodo(workspace), ensure_ascii=False, indent=2, sort_keys=True,
+    ) + "\n"
+
+
+def registro_desfasado(workspace):
+    """¿El METODO.json del workspace miente sobre qué método tiene? (bug 094)
+
+    Hasta el 094 el trabajo pendiente se calculaba SOLO por diferencia de ficheros:
+    si alguien copiaba los ficheros del método a mano y luego actualizaba, no había
+    ninguno distinto, METODO.json no se tocaba y el registro se quedaba en la versión
+    vieja — con lo que el aviso de arranque salía en cada sesión, para siempre.
+
+    `actualizado` queda FUERA de la comparación a propósito: es una fecha, cambia
+    cada día y compararla reescribiría METODO.json en cada `aplicar`, ensuciando el
+    árbol y bloqueando al propio Modo D (bug 088). `origen` también: es del workspace.
+    """
+    try:
+        datos = json.loads((Path(workspace) / "METODO.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return True
+    if not isinstance(datos, dict):
+        return True
+    return (datos.get("version") != bootstrap.version_metodo()
+            or datos.get("huella") != bootstrap.huella_plantilla()
+            or datos.get("archivos") != bootstrap.manifiesto_metodo())
+
+
+def linea_registro(workspace):
+    """Lo que hay que decirle al usuario cuando lo único pendiente es el registro."""
+    if not registro_desfasado(workspace):
+        return ""
+    actual, nueva = version_workspace(workspace), bootstrap.version_metodo()
+    if actual != nueva:
+        return f"registro de versión: {actual} → {nueva}"
+    return f"registro de versión: se rehacen la huella y el manifiesto de {nueva}"
+
+
 def linea_version(workspace):
     actual, nueva = version_workspace(workspace), bootstrap.version_metodo()
     if actual == nueva:
@@ -546,13 +606,15 @@ def linea_version(workspace):
     return f"método {actual} → {nueva}"
 
 
-def informe(ruta, titulo, cambios, retirados, sobrantes, avisos):
+def informe(ruta, titulo, cambios, retirados, sobrantes, avisos, registro=""):
     print(f"\n=== {titulo} ===\n    {ruta}")
     print(f"    {linea_version(ruta)}")
     if cambios:
         print(f"    {len(cambios)} fichero(s) del método cambian:")
         for f in cambios:
             print(f"          {f}")
+    elif registro:
+        print(f"    {registro}")
     else:
         print("    Al día: nada que actualizar.")
     if retirados:
@@ -587,7 +649,9 @@ def contenido_historial(workspace, sha, cambios):
               "",
               f"Estado anterior: `{sha[:8]}` — ahí está lo que hubiera aquí antes "
               f"(`git checkout {sha[:8]}`).",
-              f"{len(cambios)} fichero(s) sobrescritos:",
+              (f"{len(cambios)} fichero(s) sobrescritos:" if cambios else
+               "Ningún fichero del método cambia: solo se rehace el registro de "
+               "`METODO.json`."),
               ""]
     bloque += [f"- `{c}`" for c in cambios]
     return (previo.rstrip("\n") + "\n\n" + "\n".join(bloque) + "\n").encode("utf-8")
@@ -1018,21 +1082,7 @@ def preparar_publicado(workspace, cambios, retirados, esperado, snapshot, sha, o
             )
             publicado[relativo] = (esperado[relativo].encode("utf-8"), modo)
         elif relativo == "METODO.json":
-            datos = {"formato": 1, "huella": bootstrap.huella_plantilla(),
-                     "actualizado": HOY, "version": bootstrap.version_metodo(),
-                     "archivos": bootstrap.manifiesto_metodo()}
-            # `origen` es lo que hace autosuficiente al workspace: con esa URL su
-            # herramienta.py comprueba y descarga el método sin depender de ninguna
-            # carpeta local. Se conserva la que ya tuviera (es SUYA, no de esta copia)
-            # y solo se repone cuando falta: los workspaces nacidos antes de que
-            # existiera el campo se vuelven autosuficientes en su primera actualización.
-            url_origen = origen_workspace(workspace) or bootstrap.origen_herramienta()
-            if url_origen:
-                datos["origen"] = url_origen
-            metodo = json.dumps(
-                datos, ensure_ascii=False, indent=2, sort_keys=True,
-            ) + "\n"
-            publicado[relativo] = (metodo.encode("utf-8"), 0o644)
+            publicado[relativo] = (texto_registro_metodo(workspace).encode("utf-8"), 0o644)
         elif relativo == HISTORIAL:
             publicado[relativo] = (contenido_historial(workspace, sha, operaciones), 0o644)
         else:  # pragma: no cover - rutas_tocadas se construye de manera cerrada
@@ -1068,8 +1118,9 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad, confirmar_metodo=False):
         return 1
     esperado, avisos = contenido_esperado(workspace)
     cambios, retirados, sobrantes = diferencias(workspace, esperado)
-    informe(workspace, titulo, cambios, retirados, sobrantes, avisos)
-    if not cambios and not retirados:
+    registro = linea_registro(workspace)
+    informe(workspace, titulo, cambios, retirados, sobrantes, avisos, registro)
+    if not cambios and not retirados and not registro:
         return 0
 
     fallos_previos = fallos_del_linter(workspace, esperado)
@@ -1196,8 +1247,12 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad, confirmar_metodo=False):
               f"absorbo trabajo ajeno: tu índice queda como estaba; commitéalo o "
               f"quítalo del índice y reintenta.")
         return 1
-    codigo, salida = git(workspace, "commit", "-m",
-                         f"Método actualizado desde la herramienta ({len(operaciones)} ficheros)",
+    titular = (
+        f"Método actualizado desde la herramienta ({len(operaciones)} ficheros)"
+        if operaciones else
+        "Registro del método actualizado desde la herramienta (METODO.json)"
+    )
+    codigo, salida = git(workspace, "commit", "-m", titular,
                          "-m", f"Modo-D-Operation: {identificador}")
     if codigo:
         limpiar_indice(workspace, sha, rutas_tocadas)
@@ -1213,8 +1268,12 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad, confirmar_metodo=False):
         identificador=identificador, arbol_publicado=arbol_publicado, commit=commit,
     )
     (workspace / JOURNAL).unlink(missing_ok=True)
-    print(f"\n    {len(cambios)} fichero(s) sobrescritos y {len(retirados)} retirado(s)"
-          " y commiteados.")
+    if operaciones:
+        print(f"\n    {len(cambios)} fichero(s) sobrescritos y {len(retirados)} retirado(s)"
+              " y commiteados.")
+    else:
+        print(f"\n    Ningún fichero del método cambiaba: reescrito y commiteado el "
+              f"registro de METODO.json ({bootstrap.version_metodo()}).")
     print(f"    Para volver atrás:  git -C {workspace} checkout {sha[:8]}")
     print(f"    Queda anotado en:   {HISTORIAL}")
     return 0
@@ -1536,8 +1595,9 @@ def main():
                 repo_config.repo_code(ruta)
                 esperado, avisos = contenido_esperado(ruta)
                 cambios, retirados, sobrantes = diferencias(ruta, esperado)
-                informe(ruta, titulo, cambios, retirados, sobrantes, avisos)
-                pendientes += 1 if cambios or retirados else 0
+                registro = linea_registro(ruta)
+                informe(ruta, titulo, cambios, retirados, sobrantes, avisos, registro)
+                pendientes += 1 if cambios or retirados or registro else 0
             else:
                 salida |= aplicar(
                     ruta, titulo,
