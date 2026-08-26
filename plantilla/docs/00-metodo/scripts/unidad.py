@@ -26,6 +26,7 @@ Solo stdlib. Nada destructivo: este script crea y avisa, jamás borra ni pisa lo
 Exit 0 si todo bien; exit 1 con mensaje claro si una precondición bloquea.
 """
 import argparse
+import collections
 import contextlib
 import datetime
 import hashlib
@@ -1900,6 +1901,23 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         if motivo_tests and declaradas:
             ok("la carpeta de tests que van a crecer está declarada en 'ficheros:'")
 
+    # --- Precondición 5quáter (070): un directo que toca algo delicado no era directo ------
+    # Solo en carril DIRECTO, y solo cuando hay señal: sin ella el despacho es el de siempre,
+    # línea por línea. Aquí todavía no hay rama, así que lo único que se puede mirar es el
+    # `ficheros:` declarado — el contenido lo miran el revisor (ejecucion.py) y el cierre,
+    # que sí tienen diff.
+    if not args.documental and (fm.get("carril") or "").strip().lower() == "directo":
+        detecciones = senales_del_diff(ficheros=[r for r, _ in rutas_declaradas(fm)])
+        for informativa in [d for d in detecciones if d.nivel != "alta"]:
+            print(f"  INFO señal «{informativa.nombre}» en {donde_de(informativa)}: está en "
+                  f"pruebas o en un fixture, así que cuenta como informativa y no cierra el "
+                  f"carril")
+        if any(d.nivel == "alta" for d in detecciones):
+            fail(mensaje_senales_altas(nombre, detecciones))
+            return 1
+        if detecciones:
+            ok("ninguna señal ALTA en los ficheros declarados: el carril directo sigue en pie")
+
     # --- Guía (ADR-026): en un brownfield, la ADOPCIÓN va primero ---------------------------
     # La puerta de adopcion.md era prosa que nadie ejecutaba: los despachos de código
     # salían sin gap-map y la fase 3 se comía el repo entero (caso de campo 08-08). Avisa,
@@ -2543,6 +2561,161 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera, contra=""):
         f"--motivo \"<por qué se pasó>\"`; después se cierra por el ritual de "
         f"`runbooks/feature.md`, con sus puertas. Si el cambio sí cabía en directo, la otra "
         f"salida es dejarlo dentro de los topes y volver a cerrar"
+    )
+
+
+# ------------------------------------------- unidad 070: el riesgo de lo que se TOCA
+#
+# Los tres límites de arriba miden COMPOSICIÓN: cuántos ficheros, cuántas líneas. No dicen
+# nada de qué se toca, y ahí está el riesgo de verdad: cinco líneas en la autorización pesan
+# más que un rename mecánico de cinco mil. Los hotspots del carril (migraciones, rutas,
+# modelos compartidos, lockfiles) estaban LISTADOS en `runbooks/directo.md` y nadie los
+# medía: los recordaba quien redactaba la ficha. `senales-de-riesgo.json` los pone donde sí
+# se leen, junto al resto de lo delicado, y les da dos consumidores — la puerta del despacho
+# (aquí) y el foco del revisor (`ejecucion.py`).
+#
+# El tope de 250 líneas NO se sustituye: se queda, porque es barato y mide otra cosa.
+
+RUTA_SENALES = RAIZ / "docs/00-metodo/senales-de-riesgo.json"
+
+Senal = collections.namedtuple("Senal", "id nombre nivel porque rutas contenido")
+Deteccion = collections.namedtuple("Deteccion", "id nombre nivel ruta linea")
+
+# Lo que vive en pruebas o en un fixture NO cierra el carril: un `test_login.py` habla de
+# acceso sin tocarlo, y un guardián que confunde las dos cosas se desactiva a la tercera
+# vez que estorba. Se listan como informativas, que es exactamente lo que son.
+RE_PRUEBAS = re.compile(
+    r"(?:^|/)(?:tests?|pruebas?|specs?|__tests__|__mocks__|fixtures?|factories|mocks?|"
+    r"stubs?|conftest\.py|[^/]*\.(?:test|spec)\.[^/]+)(?:/|$)", re.I)
+
+
+def es_de_pruebas(ruta):
+    return bool(RE_PRUEBAS.search(normalizar_ruta(ruta)))
+
+
+def normalizar_ruta(ruta):
+    return posixpath.normpath(str(ruta).replace("\\", "/"))
+
+
+def cargar_senales(ruta=None):
+    """La tabla de señales, compilada. Lista vacía si el fichero no está o no se puede leer.
+
+    Degradar en silencio es DELIBERADO en este único punto: la tabla es una capa de aviso
+    sobre puertas que ya existen, y una tabla ausente o con una regex rota no puede dejar el
+    despacho entero sin arrancar. Que el fichero real esté bien formado lo comprueba su test
+    (R1), que es donde ese fallo sí tiene que doler.
+    """
+    ruta = Path(ruta) if ruta else RUTA_SENALES
+    try:
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    tabla = []
+    for cruda in (datos.get("senales") if isinstance(datos, dict) else None) or []:
+        try:
+            rutas = [re.compile(patron, re.I) for patron in cruda.get("rutas") or []]
+            contenido = [re.compile(patron, re.I) for patron in cruda.get("contenido") or []]
+        except (re.error, TypeError):
+            continue
+        nivel = str(cruda.get("nivel") or "alta").strip().lower()
+        tabla.append(Senal(
+            str(cruda.get("id") or "").strip(),
+            str(cruda.get("nombre") or "").strip(),
+            nivel if nivel in ("alta", "informativa") else "alta",
+            str(cruda.get("porque") or "").strip(),
+            rutas, contenido,
+        ))
+    return [senal for senal in tabla if senal.id]
+
+
+def cambio_del_diff(repo, base, punta):
+    """(rutas tocadas, [(ruta, nº de línea, texto)]) de las líneas AÑADIDAS entre dos puntas.
+
+    `-U0` para que cada trozo empiece justo en la línea añadida: el número que se le enseña
+    al revisor tiene que llevarle al sitio, no a tres líneas de contexto más arriba.
+    """
+    codigo, salida = git(repo, "diff", "--unified=0", "--no-renames", base, punta,
+                         silencioso=True)
+    if codigo != 0:
+        return [], []
+    rutas, anadidas, actual, numero = [], [], None, 0
+    for fila in salida.splitlines():
+        if fila.startswith("diff --git "):
+            actual, numero = None, 0
+            continue
+        if fila.startswith("+++ "):
+            destino = fila[4:].strip()
+            actual = None if destino == "/dev/null" else re.sub(r"^b/", "", destino)
+            if actual:
+                rutas.append(actual)
+            continue
+        if fila.startswith("@@"):
+            marca = re.search(r"\+(\d+)", fila)
+            numero = int(marca.group(1)) if marca else 0
+            continue
+        if actual and fila.startswith("+"):
+            anadidas.append((actual, numero, fila[1:]))
+            numero += 1
+    return rutas, anadidas
+
+
+def senales_del_diff(base=None, punta=None, ficheros=(), repo=None, senales=None):
+    """Las señales que casan con lo que este cambio toca, por RUTA y por CONTENIDO.
+
+    Sirve a los dos consumidores con la misma tabla: al despacho, que todavía no tiene diff
+    y solo puede mirar el `ficheros:` declarado; y al revisor y al cierre, que sí lo tienen.
+    Una señal aparece UNA vez por (id, fichero), con la línea si la hay.
+    """
+    senales = cargar_senales() if senales is None else senales
+    if not senales:
+        return []
+    detectadas = {}
+
+    def anotar(senal, ruta, linea):
+        ruta = normalizar_ruta(ruta)
+        nivel = "informativa" if es_de_pruebas(ruta) else senal.nivel
+        clave = (senal.id, ruta)
+        previa = detectadas.get(clave)
+        if previa is not None and (previa.linea is not None or linea is None):
+            return
+        detectadas[clave] = Deteccion(senal.id, senal.nombre, nivel, ruta, linea)
+
+    rutas_del_diff, anadidas = ([], [])
+    if repo and base and punta:
+        rutas_del_diff, anadidas = cambio_del_diff(repo, base, punta)
+    for ruta in list(ficheros) + list(rutas_del_diff):
+        normal = normalizar_ruta(ruta)
+        for senal in senales:
+            if any(patron.search(normal) for patron in senal.rutas):
+                anotar(senal, normal, None)
+    for ruta, numero, texto in anadidas:
+        for senal in senales:
+            if any(patron.search(texto) for patron in senal.contenido):
+                anotar(senal, ruta, numero)
+    return sorted(detectadas.values(), key=lambda d: (d.ruta, d.id, d.linea or 0))
+
+
+def donde_de(deteccion):
+    """`fichero:línea` cuando la señal salió del contenido; solo `fichero` cuando de la ruta."""
+    if deteccion.linea is None:
+        return deteccion.ruta
+    return f"{deteccion.ruta}:{deteccion.linea}"
+
+
+def mensaje_senales_altas(nombre, detecciones):
+    """El rechazo del despacho: qué señal, en qué fichero, y por dónde se sale."""
+    altas = [d for d in detecciones if d.nivel == "alta"]
+    puntos = "; ".join(f"«{d.nombre}» en {donde_de(d)}" for d in altas)
+    return (
+        f"{nombre} sale por el carril DIRECTO y lo que toca es delicado: {puntos}. El "
+        f"directo promete un cambio que encaja donde ya vive y se deshace revirtiendo; "
+        f"esto no lo es, y el tamaño no lo dice — cinco líneas en el acceso pesan más que "
+        f"un rename de cinco mil. {SALIDA} súbelo a normal antes de que exista una rama: "
+        f"pon `carril: normal` en la ficha de {nombre} y complétala con "
+        f"`plantillas/especificacion.md` (runbooks/feature.md); después:\n"
+        f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}\n"
+        f"  Si la señal es un falso positivo, acótala en "
+        f"docs/00-metodo/senales-de-riesgo.json y vuelve a despachar"
     )
 
 

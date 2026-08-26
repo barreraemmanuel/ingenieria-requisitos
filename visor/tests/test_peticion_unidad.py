@@ -1159,7 +1159,8 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 1, salida)
         self.assertIn("acceso y autenticación", salida)
         self.assertIn("app/auth/login.py", salida)
-        self.assertIn(f"unidad.py reencuadrar {nombre} --carril normal", salida)
+        self.assertIn("carril: normal", salida)
+        self.assertIn(f"unidad.py despachar {nombre}", salida)
         self.assertFalse((self.ws / "worktrees" / nombre).exists())
 
     def test_directo_sin_senales_se_despacha_sin_una_palabra_nueva(self):
@@ -2676,7 +2677,8 @@ class SenalesDeRiesgoTest(unittest.TestCase):
 
         self.assertIn("acceso y autenticación", mensaje)
         self.assertIn("main/app/auth/login.py", mensaje)
-        self.assertIn("unidad.py reencuadrar 001-x --carril normal", mensaje)
+        self.assertIn("unidad.py despachar 001-x", mensaje)
+        self.assertIn("senales-de-riesgo.json", mensaje)
 
     # --------------------------------------------------- R4 · sin señales, nada cambia
     def test_sin_senales_no_hay_deteccion_alguna(self):
@@ -2695,7 +2697,11 @@ class SenalesDeRiesgoTest(unittest.TestCase):
             ficheros=["main/tests/test_login.py", "main/app/fixtures/pagos.json"],
             senales=self.tabla)
 
-        self.assertTrue(detectadas)
+        self.assertEqual(
+            {(d.id, d.ruta) for d in detectadas},
+            {("acceso", "main/tests/test_login.py"),
+             ("dinero", "main/app/fixtures/pagos.json")},
+        )
         self.assertEqual({d.nivel for d in detectadas}, {"informativa"})
 
     # --------------------------------------- R3 · el encargo del revisor lleva el foco

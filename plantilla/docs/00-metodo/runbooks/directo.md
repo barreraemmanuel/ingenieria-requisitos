@@ -16,8 +16,17 @@ la app corriendo.
 |---|---|
 | **Encaja** | cabe dentro de una actividad que YA está en el mapa |
 | **No mueve el mapa** | no añade, no quita y no contradice ningún flujo (si lo mueve → `feature.md`) |
-| **Cabe** | 1-3 ficheros del repo de código, ninguno de ellos un hotspot (migraciones, rutas, modelos compartidos, lockfiles) |
+| **Cabe** | 1-3 ficheros del repo de código, y ninguno con una señal ALTA de `docs/00-metodo/senales-de-riesgo.json` (ahí viven los hotspots y el resto de lo delicado; ya no hay lista que recordar: `unidad.py despachar` la mide) |
 | **Se deshace** | revertir el commit lo deja como estaba: no migra datos ni toca dinero |
+
+**Qué es "delicado" no se recuerda: está escrito y se mide.** La lista de hotspots que
+antes vivía en este runbook —migraciones, rutas, modelos compartidos, lockfiles— es ahora
+`docs/00-metodo/senales-de-riesgo.json`, junto al resto de lo que pesa aunque ocupe cinco
+líneas: acceso y autenticación, dinero, borrado de datos, secretos y comandos de sistema.
+Cada señal lleva su nombre humano y sus patrones. `unidad.py despachar` cierra el carril
+directo cuando el `ficheros:` declarado casa con una señal ALTA (y nombra cuál, dónde y cómo
+subir de carril), y `ejecucion.py` se las pasa al revisor como foco. Una señal que solo
+aparece dentro de `tests/` o de un fixture se lista como informativa y no cierra nada.
 
 **Ante la duda, no es directo: es normal.** La duda ya es la prueba de que el
 cambio es más grande de lo que parece.
@@ -70,5 +79,6 @@ la revisión firmada por alguien que no construyó, y tu OK sobre la app corrien
 ## Escalada
 
 Si a mitad de obra el cambio **crece más allá de los ficheros declarados**,
-**toca un hotspot** o **hay que mover el mapa**: PARA y devuelve la tarea. La unidad se re-abre
+**toca una señal alta de `senales-de-riesgo.json`** o **hay que mover el mapa**: PARA y
+devuelve la tarea. La unidad se re-abre
 por `feature.md` con su contrato completo; el trabajo hecho no se tira, se re-encuadra.

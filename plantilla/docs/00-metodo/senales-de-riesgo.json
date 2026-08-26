@@ -8,7 +8,7 @@
    "nivel": "alta",
    "porque": "quien entra y qué puede hacer: el fallo aquí no se ve en la pantalla, se ve en el registro de accesos de otro",
    "rutas": [
-    "(^|/)(auth|autenticacion|autorizacion|login|logout|signin|signup|sesion|session|sessions|permisos|permissions|roles|rbac|oauth|jwt|guard|guards|middleware)([/._-]|$)"
+    "(^|[/._-])(auth|autenticacion|autorizacion|login|logout|signin|signup|sesion|session|sessions|permisos|permissions|roles|rbac|oauth|jwt|guard|guards|middleware)([/._-]|$)"
    ],
    "contenido": [
     "\\b(check_password|verify_password|set_password|hash_password|is_admin|is_superuser|require_(?:auth|login|role|permission)|has_perm|check_permission|authoriz\\w*|autoriz\\w*|login_required|set_cookie|session\\[)"
@@ -20,7 +20,7 @@
    "nivel": "alta",
    "porque": "un cambio que se deshace revirtiendo no deshace un cargo ya emitido",
    "rutas": [
-    "(^|/)(pagos?|payments?|cobros?|billing|facturas?|invoices?|checkout|carrito|cart|precios?|pricing|stripe|paypal|suscripciones?|subscriptions?)([/._-]|$)"
+    "(^|[/._-])(pagos?|payments?|cobros?|billing|facturas?|invoices?|checkout|carrito|cart|precios?|pricing|stripe|paypal|suscripciones?|subscriptions?)([/._-]|$)"
    ],
    "contenido": [
     "\\b(stripe|paypal|charge_amount|create_charge|payment_intent|refund|importe_total|cobrar|reembolso)\\b"
@@ -46,7 +46,7 @@
    "porque": "lo que se filtra aquí ya no se puede recoger; y el método prohíbe que un secreto salga de `.private/`",
    "rutas": [
     "(^|/)(\\.env(?:\\.\\w+)?|secrets?|credenciales|credentials|\\.netrc|id_rsa|.*\\.pem|.*\\.key)$",
-    "(^|/)(secretos?|secrets?|credenciales|credentials|keys?)([/._-]|$)"
+    "(^|[/._-])(secretos?|secrets?|credenciales|credentials|keys?)([/._-]|$)"
    ],
    "contenido": [
     "\\b(API_KEY|SECRET_KEY|CLIENT_SECRET|ACCESS_TOKEN|PRIVATE_KEY|PASSWORD)\\b",
@@ -74,7 +74,7 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: una migración no se deshace revirtiendo el commit",
    "rutas": [
-    "(^|/)(migrations?|migraciones|alembic|db/migrate|schema_migrations)([/._-]|$)"
+    "(^|[/._-])(migrations?|migraciones|alembic|db/migrate|schema_migrations)([/._-]|$)"
    ],
    "contenido": [
     "\\b(?:ALTER\\s+TABLE|CREATE\\s+TABLE)\\b",
@@ -87,7 +87,7 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: es el fichero que TODAS las unidades en vuelo tocan a la vez",
    "rutas": [
-    "(^|/)(routes?|rutas?|router|routers|urls?|urlconf|endpoints?|controllers?|api)([/._-]|$)"
+    "(^|[/._-])(routes?|rutas?|router|routers|urls?|urlconf|endpoints?|controllers?|api)([/._-]|$)"
    ],
    "contenido": []
   },
@@ -97,7 +97,7 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: lo que cambia aquí cambia debajo de todo el que lee ese modelo",
    "rutas": [
-    "(^|/)(models?|modelos?|schemas?|esquemas?|entities|entidades|dominio|domain)([/._-]|$)"
+    "(^|[/._-])(models?|modelos?|schemas?|esquemas?|entities|entidades|dominio|domain)([/._-]|$)"
    ],
    "contenido": []
   },
