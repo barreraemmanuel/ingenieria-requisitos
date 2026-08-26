@@ -39,6 +39,12 @@ añade cosas que hay que mantener. Subir de etapa después es una unidad tipo `m
 fuera y copia diaria de la base de datos, guiada paso a paso y con sus precios fechados. Se
 le ofrece antes que nada: tener un camino por defecto es lo que evita que cada proyecto
 improvise el suyo. No es obligatoria.
+>
+> Esa receta necesita **Docker en el ordenador del usuario** (la imagen se construye aquí y
+> se manda hecha). Si `doctor.py` lo da por ausente, no se para el runbook ni se le suelta un
+> error: se le ofrece `python3 docs/00-metodo/scripts/doctor.py instalar docker`, que le enseña
+> qué se instala, de dónde, cuánto ocupa y cómo se quita, y **no toca nada sin su «sí»**. En
+> Windows, si además falta WSL, el mismo comando con `wsl`.
 
 **Si no le encaja, se investiga.** El método **no trae más proveedor ni precio que los
 fechados de esa receta**: envejecen. Se abre una unidad tipo
