@@ -831,7 +831,10 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertIn("revisi", resultado.stderr.lower())
         self.assertIn("orden usa", resultado.stderr.lower())
 
-    def test_despacho_normal_entrega_el_launcher_canonico(self):
+    def test_despacho_normal_entrega_el_encargo_del_subagente_del_padre(self):
+        # Hasta la 1.8.1 aquí se exigía `ejecucion.py lanzar … --rol constructor` (un
+        # `claude -p` aparte). Bug 084 / ADR-033: el constructor es un subagente del padre;
+        # el detalle del encargo lo fija test_constructor_subagente_del_padre.py.
         pid = self.capturar()
         self.evaluar(pid)
         creada = self.ejecutar(
@@ -843,14 +846,9 @@ class PeticionUnidadTest(unittest.TestCase):
         resultado = self.ejecutar(self.unidad, "despachar", "001-lanzamiento")
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        self.assertIn("ejecucion.py lanzar 001-lanzamiento", resultado.stdout)
-        self.assertIn(
-            str((self.ws / "docs/00-metodo/scripts/ejecucion.py").resolve()),
-            resultado.stdout,
-        )
-        self.assertIn("--harness claude", resultado.stdout)
-        self.assertIn("--harness codex", resultado.stdout)
-        self.assertIn("--rol constructor", resultado.stdout)
+        self.assertIn("SUBAGENTE DEL PADRE", resultado.stdout)
+        self.assertNotIn("--rol constructor", resultado.stdout)
+        self.assertIn("--rol revisor", resultado.stdout)
         self.assertIn("sin_hook", resultado.stdout)
         recibo = self.recibo_preparacion("001-lanzamiento")
         self.assertEqual(recibo["estado"], "sin_hook")
@@ -2124,7 +2122,7 @@ class ContratoTextualPeticionesTest(unittest.TestCase):
         self.assertIn("construye el padre", expres)
         self.assertIn("construye el padre", directo)
         self.assertIn("normal y completo", agents)
-        self.assertIn("subagente constructor", agents)
+        self.assertIn("subagente del propio padre", agents)  # bug 084 / ADR-033
 
     def test_hallazgo_aceptado_pasa_por_pid_antes_de_otra_unidad(self):
         hallazgos = self.texto("docs/00-metodo/plantillas/hallazgos.md")

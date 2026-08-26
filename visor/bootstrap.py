@@ -133,6 +133,7 @@ DECISIONES = (
     "030-el-test-portante-tiene-que-morder.md",
     "031-sanidad-repara-papeles-nunca-codigo.md",
     "032-receta-de-despliegue-de-serie.md",
+    "033-el-constructor-es-un-subagente-del-padre.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",

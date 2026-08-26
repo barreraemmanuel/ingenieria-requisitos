@@ -37,9 +37,12 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
 - **Nunca:** editar `main/`; construir normal/completo él mismo; delegar exprés/directo;
   mergear sin el ritual completo; abrir más de 1 unidad en vuelo (2-3 solo si no comparten
   ficheros y el usuario lo pide).
-- **Ejecución delegada:** normal/completo y todo revisor fresco se lanzan exclusivamente con
-  `docs/00-metodo/scripts/ejecucion.py`; un subagente abierto a mano no tiene rol válido.
-  El **modelo y el esfuerzo no se teclean**: los deriva el lanzador de la tabla de abajo.
+- **Ejecución delegada (ADR-033):** en normal/completo el constructor es un **subagente del
+  propio padre** —aislado en el worktree de la unidad, gestionado y visible—, con el encargo,
+  el modelo y el esfuerzo que imprime `unidad.py despachar` (tabla de abajo). Todo revisor
+  fresco se lanza con `docs/00-metodo/scripts/ejecucion.py` (su recibo acredita la firma);
+  ese lanzador queda como vía opcional para el constructor (Codex, sesión desatendida).
+  El **modelo y el esfuerzo no se teclean**: los deriva la tabla de abajo.
 - **Aprobación de un contrato:** pedirle el OK a un contrato (unidad o bug) exige abrir
   antes el apartado de contratos de la web en el mismo turno — `python3 main/web/abrir.py
   --workspace . --apartado contratos` — igual que ANALISTA DE FLUJOS abre el de flujos
@@ -53,8 +56,8 @@ La regla 10 de `AGENTS.md` fijaba el modelo por carril y no tenía quien la ejec
 lanzador traía `--modelo` opcional y ningún `--esfuerzo`, así que sin flag **todo** subagente
 salía con el modelo por defecto del harness, el más caro, y el acierto dependía de que quien
 despachara se acordara. La tabla vive ahora en `scripts/repo_config.py`
-(`plan_de_modelo(carril, rol)`) y `ejecucion.py lanzar` la aplica sola, leyendo el carril de
-la ficha:
+(`plan_de_modelo(carril, rol)`); `unidad.py despachar` la imprime en el encargo del subagente
+y `ejecucion.py lanzar` la aplica sola al revisor, leyendo el carril de la ficha:
 
 | carril | constructor | revisor | esfuerzo |
 |---|---|---|---|

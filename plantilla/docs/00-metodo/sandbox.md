@@ -1,6 +1,8 @@
-# Control plane obligatorio de ejecución
+# Control plane de ejecución
 
-`scripts/ejecucion.py` es la única entrada para lanzar constructores delegados y revisores.
+`scripts/ejecucion.py` es la entrada para lanzar el revisor fresco (y, opcionalmente, un
+constructor en Codex o en sesión desatendida; el constructor por defecto es un subagente del
+padre, ADR-033).
 Recibe el ID de unidad y deriva el worktree y la rama por código: nunca se le pasa un cwd ni
 un comando arbitrario, y nunca se invoca por `/bin/sh -c` (así se evitó el incidente que
 motivó este control plane: un shell equivocado interpolando mal una variable y saliéndose del

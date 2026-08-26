@@ -1888,23 +1888,42 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             f"(ADR-017).\n       Al terminar revisa un agente fresco que no construyó."
         )
     else:
-        launcher = str((RAIZ / "docs/00-metodo/scripts/ejecucion.py").resolve())
-        prompt = "Lee el contrato canónico y ejecuta solo su plan aprobado"
-        paso_obra = (
-            "    1. Lanza el constructor por el control plane canónico (elige un harness):\n"
-            f"       python3 {launcher} lanzar {nombre} --harness claude --rol constructor "
-            f"--prompt \"{prompt}\"\n"
-            f"       python3 {launcher} lanzar {nombre} --harness codex --rol constructor "
-            f"--prompt \"{prompt}\"\n"
-            f"       El launcher deriva y verifica {rel(destino)}; no pases cwd ni argv a mano.\n"
-            f"       Tarda lo que tarde la unidad: lánzalo en SEGUNDO PLANO y sigue su recibo\n"
-            f"       en .runtime/ejecucion/ — un shell con tope corto (p. ej. 10 min) lo\n"
-            f"       mataría a mitad y lo verías como «esperando una aprobación que no llega»."
-        )
+        paso_obra = encargo_subagente_del_padre(nombre, fm, destino, ruta)
     print(f"\n  Siguientes pasos:\n{paso_obra}\n"
           f"    2. Actualiza ESTADO.md con la unidad en obra (lo escribe el padre).\n"
           f"    3. python3 {rel(RAIZ / 'docs/00-metodo/scripts/lint_metodo.py')}")
     return 0
+
+
+def encargo_subagente_del_padre(nombre, fm, destino, ruta_ficha):
+    """El «siguiente paso» de normal/completo: un subagente DEL PADRE, no un `claude -p`.
+
+    Hasta la 1.8.1 aquí se imprimía `ejecucion.py lanzar … --rol constructor`: un proceso
+    aparte, mudo, que el padre solo podía vigilar por su recibo (bug 084, ADR-033). Ahora el
+    padre delega en un subagente propio —lo ve, le habla y lo corta— aislado en el worktree
+    de la unidad y con el modelo y el esfuerzo que la tabla de la regla 10 le da al carril
+    (`repo_config.plan_de_modelo`). El revisor NO cambia: sigue siendo un agente fresco
+    lanzado por `ejecucion.py`, porque su recibo es lo que acredita la firma en el cierre.
+    """
+    carril = (fm.get("carril") or "normal").strip() or "normal"
+    documental = bool(fm.get("documental"))
+    try:
+        plan = repo_config.plan_de_modelo(carril, "constructor", documental=documental)
+        modelo, esfuerzo = plan.modelo, plan.esfuerzo
+    except repo_config.RepoConfigError:
+        modelo, esfuerzo = "(el de la tabla de la regla 10)", "(el del carril)"
+    return (
+        f"    1. Delega en un SUBAGENTE DEL PADRE (ADR-033) — no en un `claude -p` aparte:\n"
+        f"       · cwd y frontera de escritura: {rel(destino)} (rama {nombre})\n"
+        f"       · modelo {modelo} · esfuerzo {esfuerzo} (tabla de la regla 10, carril {carril})\n"
+        f"       · encargo: «Lee {rel(ruta_ficha)} y ejecuta solo su plan aprobado; escribe\n"
+        f"         SOLO en tu worktree, en hallazgos.md y en las casillas del plan; termina con\n"
+        f"         el PR abierto y PARA»\n"
+        f"       Lo gestionas tú: parte de avance por casilla, tope de silencio de 5 min,\n"
+        f"       y lo cortas si se desvía del contrato (regla 8).\n"
+        f"       Al recibir el PR, el revisor sigue siendo fresco y por el lanzador (deja recibo):\n"
+        f"       {comando_revision(nombre)}"
+    )
 
 
 def cmd_despachar(args):
