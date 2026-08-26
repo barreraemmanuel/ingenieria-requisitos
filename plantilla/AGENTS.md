@@ -64,9 +64,9 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 
 1. **Quién construye lo dice el CARRIL (ADR-017).** En **exprés y directo construye el PADRE**,
    en el worktree de la unidad, a la vista del usuario: delegar trabajo pequeño cuesta la caché,
-   un salto de contexto y toda la visibilidad, y no devuelve casi nada. En **normal y completo**
-   lo hace un subagente constructor por `scripts/ejecucion.py` en `worktrees/NNN-slug/`. **El revisor es SIEMPRE un agente
-   fresco de solo lectura, distinto de quien construyó** — eso no lo relaja ningún carril.
+   un salto de contexto y toda la visibilidad, y no devuelve casi nada. En **normal y completo** lo hace un
+   **subagente del propio padre** (ADR-033) en `worktrees/NNN-slug/`, con el encargo, modelo y esfuerzo que imprime `unidad.py despachar`: el padre lo ve, le habla y lo corta — nunca un `claude -p` aparte y mudo. **El revisor es SIEMPRE un agente
+   fresco de solo lectura, distinto de quien construyó**, lanzado por `scripts/ejecucion.py` (deja recibo) — eso no lo relaja ningún carril.
 2. **Escritura.** Quien construye escribe en su worktree y en su unidad: `hallazgos.md` +
    casillas `[x]` del plan (bugs: `docs/bugs/NNN-slug.md`). Los ficheros compartidos —
    `ESTADO.md`, `INDICE.md`, `ROADMAP.md`, `conocimiento/`, `decisiones/`— los escribe SOLO el
@@ -109,7 +109,7 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 14. **Los flujos siguen vivos — la puerta la abre el DELTA, no el cambio.** Si el trabajo **añade, quita o contradice** algo del mapa, asume el rol ANALISTA DE FLUJOS y sigue `docs/00-metodo/requisitos/RUNBOOK.md`: modifica `docs/02-flujos/planos/`, enseña el visor web y obtén la aprobación ANTES de crear unidades de código (ADR-007). Si cabe dentro de un
     flujo ya escrito, esa puerta NO se abre: el delta, si lo hay, se escribe en el cierre con el trabajo ya visto funcionando (ADR-014).
 15. **Proceso nativo (ADR-021).** Diseño, plan, debugging, TDD, revisión y cierre son locales;
-    skills de proceso no, skills técnicas sí. Todo agente delegado pasa por `ejecucion.py` (ADR-022).
+    skills de proceso no, skills técnicas sí. El revisor pasa por `ejecucion.py` (ADR-022); el constructor es un subagente del padre (ADR-033), `ejecucion.py` le queda como vía opcional.
 16. **Nadie espera a ciegas** (§ más abajo): un rato largo callado es un fallo, no una espera.
 
 ## Reglas de oro (siempre)

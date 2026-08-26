@@ -164,9 +164,10 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
 - `auditoria-metodo.md`, `auditoria-calidad.md`, `auditoria-sanidad.md`, `auditoria-seguridad.md`,
   `seguridad-por-stack.md`, `sandbox.md` y `scripts/lint_deploy.py` — seguridad, aislamiento y
   gate de pre-despliegue.
-- `scripts/ejecucion.py` — **control plane obligatorio** de constructores delegados y revisores:
-  deriva unidad/worktree/rama, fija cwd/PWD, sanea entorno y skills, prueba el sandbox y deja
-  checkpoints en `.runtime/ejecuciones/` (ADR-022). Exprés/directo no lanzan otro LLM.
+- `scripts/ejecucion.py` — **lanzador del revisor fresco** (y vía opcional del constructor,
+  ADR-033): deriva unidad/worktree/rama, fija cwd/PWD, sanea entorno y skills y deja
+  checkpoints en `.runtime/ejecuciones/` (ADR-022). El constructor de normal/completo es un
+  subagente del padre; exprés/directo no lanzan otro LLM.
 - `scripts/unidad.py` — **el despachador**: `nnn` (siguiente número libre, mirando unidades,
   archivo, bugs y ramas) · `nueva <tipo> <slug> [--directo]` (crea la unidad desde su plantilla;
   con `--directo`, desde la ficha corta del carril directo) ·

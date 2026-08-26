@@ -4,6 +4,16 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.8.2 — 2026-08-26
+
+**El constructor vuelve a ser un subagente del agente que te habla (bug 084, hotfix, ADR-033).**
+Hasta ahora, en los carriles normal y completo, el agente lanzaba el constructor como un
+proceso aparte (`claude -p`) que ni tú ni él podíais ver ni interrumpir; solo quedaba su
+recibo. Desde ahora lo delega en un subagente suyo, aislado en el worktree de la unidad y con
+el modelo de la tabla: lo ves avanzar en la misma conversación y lo cortas cuando quieras.
+`unidad.py despachar` imprime ese encargo. El revisor sigue siendo un agente fresco lanzado
+por `ejecucion.py`, que es lo que deja el recibo que acredita su firma.
+
 ## 1.8.1 — 2026-08-26
 
 **El visor de contratos ya viaja a tu proyecto (bug 080).** La 1.8.0 exige que el agente te

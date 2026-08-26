@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Control plane fail-closed para lanzar Claude o Codex en una unidad real.
 
+Desde la 1.8.2 (ADR-033) es el lanzador del REVISOR fresco —su recibo acredita la firma— y
+una vía OPCIONAL para el constructor (Codex, sesiones desatendidas). El constructor de
+normal/completo es, por defecto, un subagente del propio padre: `unidad.py despachar` imprime
+su encargo.
+
 La unidad, el worktree y la rama se derivan; no se aceptan rutas ni argv arbitrarios.
 El proceso nace siempre con el cwd, la rama y el entorno fijados por código (nunca por
 shell intermedia) — es la garantía que evitó el incidente Aurora (ADR-022). No hay sandbox

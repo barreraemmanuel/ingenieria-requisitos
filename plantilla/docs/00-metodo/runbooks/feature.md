@@ -99,9 +99,9 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
    checkout en `worktrees/NNN-slug`, y **aplica las
    precondiciones** (contrato aprobado por el usuario, contrato con prosa real, tope de trabajo
    en vuelo, rama no reutilizada); el camino manual las salta todas. La rama es local hasta el
-   push del PR. Después el padre actualiza `ESTADO.md` y usa uno de los comandos canónicos que
-   imprime el despacho: `ejecucion.py` lanza el subagente con la especificación como punto de
-   entrada, worktree/rama/cwd verificados y sandbox probado (estado → `en_obra`, ADR-022). El constructor trabaja
+   push del PR. Después el padre actualiza `ESTADO.md` y abre un **subagente propio** con el
+   encargo que imprime el despacho: la especificación como punto de entrada, el worktree como
+   cwd y frontera de escritura, y el modelo/esfuerzo de la tabla (estado → `en_obra`, ADR-033). El constructor trabaja
    ÚNICAMENTE en esa rama/worktree, ejecutando el Plan de trabajo en orden y marcando `[x]`:
    PRIMERO crea los tests que demuestran que esto NO existe aún, y deben FALLAR (rojo);
    después implementa hasta que TODO esté verde, SIN tocar los tests; suite completa y

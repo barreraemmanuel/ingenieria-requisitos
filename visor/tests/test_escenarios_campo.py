@@ -172,15 +172,20 @@ class EscenariosCuelgues(Escenario):
         self.assertEqual(ayuda.returncode, 0, ayuda.stdout + ayuda.stderr)
         self.assertIn("--tope-minutos", ayuda.stdout)
 
-    def test_escenario_07_el_despacho_guia_a_segundo_plano(self):
+    def test_escenario_07_el_despacho_guia_al_subagente_del_padre(self):
+        # Hasta la 1.8.1 el despacho guiaba a lanzar `ejecucion.py` en SEGUNDO PLANO y a
+        # seguir su recibo: era un `claude -p` aparte. Bug 084 / ADR-033: el constructor es un
+        # subagente del padre; la guía es dónde escribe, con qué modelo y cómo se le vigila.
         fx = self.fixture(mod_unidad.PeticionUnidadTest)
         nombre = fx.preparar_feature_aprobada("guia-fondo")
 
         resultado = fx.ejecutar(fx.unidad, "despachar", nombre)
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        self.assertIn("SEGUNDO PLANO", resultado.stdout)
-        self.assertIn(".runtime/ejecucion", resultado.stdout)
+        self.assertIn("SUBAGENTE DEL PADRE", resultado.stdout)
+        self.assertIn("hallazgos.md", resultado.stdout)
+        self.assertIn("5 min", resultado.stdout)
+        self.assertNotIn("SEGUNDO PLANO", resultado.stdout)
 
 
 class EscenariosModoD(Escenario):
