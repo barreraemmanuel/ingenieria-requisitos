@@ -452,7 +452,7 @@
       bandeja = presentaciones.find(function (p) { return p.tipo === "bandeja"; }) || null;
       decididas = {};
       (recibos.recibos || []).forEach(function (r) { decididas[r.presentacion] = true; });
-      var pendientes = otras.filter(function (o) { return !o.decidida; }).length + (decididas.length ? 0 : 1);
+      var pendientes = otras.filter(function (o) { return !o.decidida; }).length + (Object.keys(decididas).length ? 0 : 1);
       sub.textContent = (otras.length + 1) + " entregas · " + pendientes + " esperan tu decisión";
       pintarListado();
       var h = hashActual();
