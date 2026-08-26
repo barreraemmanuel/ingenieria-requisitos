@@ -357,6 +357,19 @@ class TexturasTest(BaseTest):
             with self.subTest(textura=nombre):
                 self.assertNotIn("url(", valor, "la textura carga una imagen")
 
+    def test_la_ocupacion_del_tablero_es_carril_rayado_con_lo_hecho_solido(self):
+        """R4 en el tablero (decisión del padre, H1 de la revisión, 27-08): la ocupación se
+        pinta como carril RAYADO (lo pendiente) con lo hecho en tinta sólida; la matriz de
+        puntos queda para el progreso del plan. Sin este test nada miraba el tablero."""
+        css = sin_comentarios(style_propio(
+            (RAIZ / "visor_tablero" / "plantilla.html").read_text(encoding="utf-8")))
+        barra = re.search(r"\.barra\s*\{([^}]*)\}", css)
+        hecho = re.search(r"\.barra span\s*\{([^}]*)\}", css)
+        self.assertIsNotNone(barra, "el tablero no declara .barra")
+        self.assertIsNotNone(hecho, "el tablero no declara .barra span")
+        self.assertIn("var(--textura-rayado)", barra.group(1))
+        self.assertIn("var(--ink)", hecho.group(1))
+
     def test_la_hoja_ofrece_las_dos_utilidades(self):
         selectores = {s for s, _ in declaraciones(self.css)}
         self.assertIn(".matriz-puntos", selectores)
