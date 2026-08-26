@@ -240,6 +240,16 @@ class ValidadorTest(unittest.TestCase):
         self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
 
     # --- 071/R3: la plantilla vieja no se re-exige (ausencia ≠ sección vacía) ------------
+    def test_seccion_de_aprendizajes_en_prosa_sin_bloques_no_se_reexige(self):
+        """Hueco H1 del revisor: hay hallazgos.md archivados (059) con `## Aprendizajes`
+        escrito en prosa y sin bloques. La puerta se ancla en los BLOQUES, no en el título."""
+        self.escribir_parte(
+            self.parte_honesto(),
+            "## Aprendizajes\n\n**Lo que más costó.** Prosa larga, de la plantilla anterior,\n"
+            "sin ningún bloque cercado.\n")
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
     def test_hallazgos_sin_seccion_de_aprendizajes_no_se_reexige(self):
         self.escribir_parte(self.parte_honesto(), None)
         salida = self.validar()

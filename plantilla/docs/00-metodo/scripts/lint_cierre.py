@@ -21,8 +21,8 @@ Cuatro formas de mentir, y las cuatro se deniegan:
   4. Se cita una ruta de `.runtime/` que no existe, o un hash que no corresponde al fichero.
   5. Lo aprendido se rellena de memoria al cerrar, o no se rellena: la sección
      `## Aprendizajes` de `hallazgos.md` tiene que traer, de quien construyó y de quien
-     revisó, 1-5 frases o un `ninguno` explícito. Un hallazgos.md anterior a esa sección no
-     se re-exige.
+     revisó, 1-5 frases o un `ninguno` explícito. Un hallazgos.md sin esos bloques es
+     anterior a la 071 y no se re-exige.
 
 Ni una comprobación más: juzgar si los tests son BUENOS no es de aquí, y reescribir partes
 antiguos tampoco — la cabecera se exige a partir de la unidad que trajo este script.
@@ -60,8 +60,7 @@ CLAVES = ("veredicto", "tests_cmd", "tests_exit", "tests_output", "tests_sha256"
           "requisitos", "plan", "bloqueadores")
 # Unidad 071 — la sección `## Aprendizajes`: lo aprendido lo escribe quien lo aprendió, en el
 # momento. Se comprueba que esté RELLENA, no que sea buena: `ninguno` explícito vale, y una
-# unidad nacida con la plantilla anterior (sin sección) no se re-exige — ausencia ≠ vacío.
-APRENDIZAJES_SECCION = re.compile(r"^##\s+Aprendizajes\b", re.MULTILINE)
+# unidad nacida con la plantilla anterior (sin BLOQUES) no se re-exige — ausencia ≠ vacío.
 APRENDIZAJES_QUIENES = ("constructor", "revisor")
 
 # Los marcadores con que la plantilla llega: dejarlos tal cual es no haber rellenado nada.
@@ -131,13 +130,16 @@ def frases_de(bloque):
 def revisar_aprendizajes(nombre, texto):
     """Lista de (qué no cuadra, cómo se sale) sobre la sección `## Aprendizajes`.
 
-    Vacía si la sección no existe: los hallazgos.md nacidos antes de la 071 no se re-exigen
-    (mismo criterio que la 068 — ausencia de sección ≠ sección dejada vacía). Desde que la
-    sección está, tiene que estar RELLENA por los dos: el constructor y el revisor.
+    Vacía si no hay NINGÚN bloque ```aprendizajes-*```: los hallazgos.md nacidos antes de la
+    071 no se re-exigen, ni siquiera los que ya traían una sección `## Aprendizajes` en
+    prosa (mismo criterio que la 068 — ausencia ≠ sección dejada vacía). En cuanto aparece
+    un bloque, tienen que estar los dos y rellenos: el del constructor y el del revisor.
     """
     bloques = {q: bloque_aprendizajes(texto, q) for q in APRENDIZAJES_QUIENES}
-    if not APRENDIZAJES_SECCION.search(texto) and not any(b is not None
-                                                          for b in bloques.values()):
+    if not any(b is not None for b in bloques.values()):
+        # La puerta se ancla en los BLOQUES, no en el título: hay hallazgos.md antiguos con
+        # una sección `## Aprendizajes` escrita en prosa, sin bloques (p. ej. la 059), y
+        # exigírselos ahora es re-exigir la plantilla nueva a quien nació con la vieja.
         return []
     problemas = []
     for quien in APRENDIZAJES_QUIENES:
