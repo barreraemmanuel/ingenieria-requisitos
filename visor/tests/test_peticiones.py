@@ -1595,6 +1595,83 @@ else:
         self.assertIn("al menos dos", resultado.stderr.lower())
 
 
+    # ---- Unidad 087: una petición satisfecha por un merge que ya ocurrió fuera del método ----
+
+    def test_merge_externo_satisface_y_cierra_la_peticion_como_entregada(self):
+        """R1: varios merges externos (PR, URL y SHA) cierran la petición sin unidad ni rama."""
+        pid = self.capturar("Los PRs de terceros ya lo traen")
+        self.evaluar_ninguna(pid)
+
+        for ref in ("#36", "https://github.com/acme/app/pull/35", self.sha):
+            enlazada = self.ejecutar(
+                "enlazar", pid, "--tipo", "merge-externo", "--ref", ref,
+                "--relacion", "satisface",
+            )
+            self.assertEqual(enlazada.returncode, 0, enlazada.stderr)
+            self.assertIn("merge externo", enlazada.stdout)
+
+        procesos = [
+            p for p in self.datos(pid)["procesos"] if p.get("tipo") == "merge-externo"
+        ]
+        self.assertEqual(len(procesos), 3)
+        for proceso in procesos:
+            self.assertEqual(proceso["relacion"], "satisface")
+            self.assertEqual(proceso["estado"], "terminal")
+
+        # No se creó ninguna unidad ni ninguna rama para satisfacerla.
+        self.assertFalse((self.ws / "docs/05-trabajo/001-algo").exists())
+
+        cerrada = self.ejecutar(
+            "cerrar", pid,
+            "--resultado", "entregada",
+            "--evidencia", "PRs #31-#36 fusionados en main",
+            "--cobertura", "completa",
+        )
+        self.assertEqual(cerrada.returncode, 0, cerrada.stderr)
+        datos = self.datos(pid)
+        self.assertEqual(datos["estado"], "cerrada")
+        self.assertEqual(datos["resultado"], "entregada")
+
+        estado = self.ejecutar("estado", pid)
+        self.assertEqual(estado.returncode, 0, estado.stderr)
+        self.assertIn("merge externo", estado.stdout)
+        self.assertIn("#36", estado.stdout)
+        self.assertNotIn("unidad", estado.stdout)
+
+        listado = self.ejecutar("listar")
+        self.assertEqual(listado.returncode, 0, listado.stderr)
+        self.assertIn("merge externo", listado.stdout)
+
+    def test_merge_externo_con_sha_inexistente_se_rechaza_nombrando_la_salida(self):
+        """R2: un SHA que no está en el repo de código no vale como merge; y `entregada`
+        sigue exigiendo al menos un proceso que satisfaga."""
+        pid = self.capturar("Ya lo trae un merge de fuera")
+        self.evaluar_ninguna(pid)
+
+        rechazada = self.ejecutar(
+            "enlazar", pid, "--tipo", "merge-externo", "--ref", "d" * 40,
+            "--relacion", "satisface",
+        )
+        self.assertEqual(rechazada.returncode, 1, rechazada.stdout)
+        self.assertIn("SALIDA:", rechazada.stderr)
+        self.assertEqual(self.datos(pid)["procesos"], [])
+
+        basura = self.ejecutar(
+            "enlazar", pid, "--tipo", "merge-externo", "--ref", "el PR de ayer",
+        )
+        self.assertEqual(basura.returncode, 1, basura.stdout)
+        self.assertIn("SALIDA:", basura.stderr)
+
+        sin_enlaces = self.ejecutar(
+            "cerrar", pid,
+            "--resultado", "entregada",
+            "--evidencia", "nada que enseñar",
+            "--cobertura", "ninguna",
+        )
+        self.assertEqual(sin_enlaces.returncode, 1, sin_enlaces.stdout)
+        self.assertNotEqual(self.datos(pid)["estado"], "cerrada")
+
+
 class EvidenciaRamaFusionadaTest(unittest.TestCase):
     """Bug 021: el testigo del squash debe reconocer un merge REAL aunque la
     rama exprés ya no exista, no haya tip_sha guardado y el título del PR no

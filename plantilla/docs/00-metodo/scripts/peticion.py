@@ -57,6 +57,10 @@ TIPOS_PROCESO = {
     "auditoria",
     "flujos",
     "deploy",
+    # Unidad 087: lo que satisface la petición es un merge que YA ocurrió fuera del método
+    # (un PR de un tercero, una fusión a mano). No hay unidad ni rama que representen eso:
+    # fabricarlas para poder cerrar era inventar proceso. Nace terminal por definición.
+    "merge-externo",
 }
 CONTRATOS_TERMINALES = {
     "unidad": "unidad-mergeada-v1",
@@ -66,7 +70,16 @@ CONTRATOS_TERMINALES = {
     "auditoria": "unidad-auditoria-mergeada-v1",
     "flujos": "planos-aprobados-v1",
     "deploy": "despliegue-verificado-v1",
+    "merge-externo": "merge-externo-v1",
 }
+# Procesos que no tienen obra pendiente el día que se enlazan: el hecho ya pasó.
+TIPOS_TERMINALES_AL_ENLAZAR = {"merge-externo"}
+# Cómo se llama cada proceso en el chat (regla 16: sin jerga). Sin entrada, manda el tipo.
+ETIQUETAS_PROCESO = {"merge-externo": "merge externo"}
+
+
+def etiqueta_proceso(tipo):
+    return ETIQUETAS_PROCESO.get(tipo, tipo)
 RELACIONES_PROCESO = {"satisface", "origino", "sustituida_por"}
 RESULTADOS = {
     "entregada",
@@ -621,15 +634,19 @@ def enlazar_procesos(referencias, tipo, ref, relacion="satisface",
                 if existente:
                     resultados.append(False)
                     continue
+                terminal_ya = tipo in TIPOS_TERMINALES_AL_ENLAZAR
                 proceso_nuevo = {
                         "tipo": tipo,
                         "ref": ref,
                         "relacion": relacion,
                         "revision": datos["revision"],
-                        "estado": "pendiente",
+                        "estado": "terminal" if terminal_ya else "pendiente",
                         "contrato_terminal": contrato_esperado,
                         "fecha": ahora(),
                     }
+                if terminal_ya:
+                    proceso_nuevo["evidencia"] = f"{etiqueta_proceso(tipo)} {ref}"
+                    proceso_nuevo["fecha_terminal"] = proceso_nuevo["fecha"]
                 if metadata:
                     proceso_nuevo["metadata"] = dict(metadata)
                 datos["procesos"].append(proceso_nuevo)
@@ -757,7 +774,41 @@ def base_despacho(referencias, tipo, ref):
     return None
 
 
+RE_MERGE_PR = re.compile(r"#\d+")
+RE_MERGE_PR_URL = re.compile(r"https?://\S+/(?:pull|merge_requests)/\d+/?")
+RE_MERGE_SHA = re.compile(r"[0-9a-f]{7,40}")
+
+
+def validar_merge_externo(ref):
+    """Un merge externo se cita por PR (`#36`), por URL de PR o por SHA presente en el repo.
+
+    El SHA se comprueba contra el repo de código del workspace: si no está ahí, lo que se
+    está citando no es un merge de este producto (o todavía no se ha traído), y dejar pasar
+    la cita convertiría el cierre en una promesa sin testigo.
+    """
+    ref = (ref or "").strip()
+    if RE_MERGE_PR.fullmatch(ref) or RE_MERGE_PR_URL.fullmatch(ref):
+        return None
+    if RE_MERGE_SHA.fullmatch(ref):
+        repo, principal = repo_codigo()
+        if git(repo, "cat-file", "-e", f"{ref}^{{commit}}")[0] != 0:
+            raise ErrorPeticion(
+                f"el merge externo {ref} no existe en {repo} · SALIDA: trae el commit "
+                f"(git -C {repo} fetch origin {principal}) y repite el enlace, o cita el "
+                "PR con --ref '#36'"
+            )
+        return None
+    raise ErrorPeticion(
+        f"referencia de merge externo inválida: {ref} · SALIDA: cita el PR "
+        "(--ref '#36'), su URL (--ref https://github.com/org/repo/pull/36) o el SHA "
+        "del merge (--ref a1b2c3d)"
+    )
+
+
 def ruta_proceso_canonico(tipo, ref):
+    if tipo == "merge-externo":
+        validar_merge_externo(ref)
+        return None
     if tipo in {"unidad", "bug"}:
         if not re.fullmatch(r"\d{3}-[a-z0-9][a-z0-9-]*", ref):
             raise ErrorPeticion(f"referencia {tipo} inválida: {ref}")
@@ -865,6 +916,11 @@ def contexto_proceso(tipo, ruta):
         return "expres", "expres"
     if tipo == "auditoria":
         return "normal", "auditoria"
+    if tipo == "merge-externo":
+        # Un merge que ya pasó fuera no abre trabajo: no puede exigirle una ruta a la
+        # evaluación (la petición pudo evaluarse para feature y acabar satisfecha por un PR
+        # ajeno). Sin carril ni ruta esperada, validar_para_orden solo comprueba lo demás.
+        return None, None
     return "normal", tipo
 
 
@@ -1480,7 +1536,7 @@ def cmd_enlazar(args):
     )
     if not creado:
         raise ErrorPeticion(f"{args.tipo} {args.ref} ya está enlazado")
-    print(f"{args.peticion} enlaza {args.tipo} {args.ref}")
+    print(f"{args.peticion} enlaza {etiqueta_proceso(args.tipo)} {args.ref}")
     return 0
 
 
@@ -1989,12 +2045,25 @@ def cmd_cancelar(args):
     return 0
 
 
+def resumen_procesos(datos):
+    """Los procesos que satisfacen la petición, con el nombre que el usuario reconoce."""
+    return [
+        f"{etiqueta_proceso(proceso.get('tipo'))} {proceso.get('ref')} "
+        f"({proceso.get('estado')})"
+        for proceso in datos.get("procesos", [])
+        if proceso.get("relacion") == "satisface"
+        and proceso.get("estado") not in {"cancelado", "sustituido"}
+    ]
+
+
 def cmd_estado(args):
     datos = cargar(args.peticion)
     print(
         f"{datos['id']} · {datos['estado']} · revisión {datos['revision']} · "
         f"{datos['original']['resumen']}"
     )
+    for linea in resumen_procesos(datos):
+        print(f"  · {linea}")
     return 0
 
 
@@ -2008,9 +2077,11 @@ def cmd_listar(args):
         if args.estado and datos.get("estado") != args.estado:
             continue
         encontrados += 1
+        procesos = resumen_procesos(datos)
         print(
             f"{datos.get('id')} · {datos.get('estado')} · "
             f"{datos.get('original', {}).get('resumen', '')}"
+            + (" · " + ", ".join(procesos) if procesos else "")
         )
     if not encontrados:
         print("sin peticiones")
