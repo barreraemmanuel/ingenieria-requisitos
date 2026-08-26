@@ -277,11 +277,6 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .con-avatar > div:not(.avatar) { min-width: 0; flex: 1; }
 .con-avatar h3 { margin-top: 2px; }
 
-/* cabecera de la ficha de contrato: se queda arriba al bajar, con la acción a mano */
-.cabecera-contrato { position: sticky; top: 0; z-index: 4; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); margin-bottom: var(--e-bloque); }
-.cabecera-contrato h2 { margin: 0 0 12px; }
-.cabecera-contrato .ruta { margin-top: 12px; }
-
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
    Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
    presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y
@@ -360,7 +355,8 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
    distinguirlas; en la referencia no hay raíles ni bordes gordos — lo que
    ordena la página es el hueco entre tarjetas y una cabecera de sección
    pequeña en mayúsculas. Un borde de color era, además, un acento de más (R3). */
-.cabecera-contrato { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
+/* se queda arriba al bajar: la acción (Aprobar) siempre a mano */
+.cabecera-contrato { position: sticky; top: 0; z-index: 4; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
 .cabecera-contrato > h2 { margin-bottom: var(--hueco-chico); }
 .cabecera-contrato .ruta { font-size: var(--t-nota); color: var(--faint); margin-top: var(--hueco); word-break: break-all; }
 .bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
