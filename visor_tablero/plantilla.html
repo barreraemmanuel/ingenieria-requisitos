@@ -25,44 +25,45 @@
      Tres secciones y una rejilla de tarjetas. Nada de esto existe en el visor
      de contratos: allí se lee UN documento, aquí se mira un workspace entero.
      Ni una regla de aquí pisa las del bloque común: sólo añade. */
-  .menu-unidades a { display: block; font: 13.5px var(--sans); color: var(--ink); text-decoration: none; border: 1px solid transparent; border-radius: 8px; padding: 8px 10px; margin: 2px 0; }
+  .menu-unidades a { display: block; font: 13.5px/1.5 var(--sans); color: var(--ink); text-decoration: none; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 11px 12px; margin: 2px 0; }
   .menu-unidades a:hover { border-color: var(--line); background: var(--panel); }
   .menu-unidades a.activa { background: var(--accent-bg); border-color: var(--accent); font-weight: bold; }
   .menu-unidades .recuento { float: right; font-weight: normal; font-size: var(--t-nota); color: var(--faint); }
   .menu-unidades a.activa .recuento { color: var(--accent); }
 
-  .tira { display: flex; flex-wrap: wrap; gap: 8px; margin-top: var(--e-bloque); }
-  .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 8px 12px; }
-  .dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .1em; text-transform: uppercase; color: var(--faint); }
-  .dato .valor { font-size: 15px; margin-top: 2px; }
+  .tira { display: flex; flex-wrap: wrap; gap: var(--hueco-chico); margin-top: var(--e-bloque); }
+  .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
+  .dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
+  .dato .valor { font-size: var(--t-h2); line-height: 1.35; letter-spacing: -.01em; }
   .dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
-  .dato.roto { border-color: var(--warn); background: var(--warn-bg); }
-  .dato.roto .valor { color: var(--warn); font-size: 13.5px; }
+  .dato.roto { border-color: var(--fail); background: var(--fail-bg); }
+  .dato.roto .valor { color: var(--fail); font-size: 13.5px; }
 
-  h2.seccion { margin: 30px 0 2px; }
+  h2.seccion { margin: var(--aire-seccion) 0 var(--hueco-chico); }
   h2.seccion:first-child { margin-top: 0; }
   .seccion-nota { color: var(--faint); font-size: 12.5px; }
-  .tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; margin-top: var(--e-bloque); }
-  .tarjeta { border: 1px solid var(--line); border-radius: 10px; background: var(--sheet); padding: 12px 14px; }
-  .tarjeta.viva { border-left: 4px solid var(--ok); }
-  .tarjeta.quieta { border-left: 4px solid var(--line); color: var(--muted); }
-  .tarjeta.bloqueada { border-left: 4px solid var(--warn); }
-  .tarjeta h3 { margin-bottom: 3px; }
-  .tarjeta .linea { font-size: 13px; color: var(--muted); margin-top: 4px; }
-  .tarjeta .rutas { font-size: var(--t-nota); color: var(--faint); margin-top: 6px; word-break: break-all; }
+  .tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--hueco); margin-top: var(--e-bloque); }
+  .tarjeta { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
+  .tarjeta.viva { border-color: var(--ok); }
+  .tarjeta.quieta { color: var(--muted); }
+  .tarjeta.bloqueada { border-color: var(--fail); }
+  .tarjeta h3 { margin-bottom: var(--hueco-chico); }
+  .tarjeta .linea { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: 6px; }
+  .tarjeta .rutas { font-size: var(--t-nota); line-height: 1.6; color: var(--faint); margin-top: var(--hueco-chico); word-break: break-all; }
   .tarjeta a { color: var(--accent); }
   .con-avatar { display: flex; gap: 10px; align-items: flex-start; }
   .lista-plana { list-style: none; margin-top: var(--e-bloque); }
-  .lista-plana li { border-bottom: 1px solid var(--line-soft); padding: 7px 2px; font-size: 14px; display: flex; gap: 10px; justify-content: space-between; }
+  .lista-plana li { border-bottom: 1px solid var(--line-soft); padding: 14px 2px; font-size: 14px; line-height: 1.5; display: flex; gap: 10px; justify-content: space-between; }
   .lista-plana li:last-child { border-bottom: 0; }
   .lista-plana .espera { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
   .lista-plana a { color: var(--accent); text-decoration: none; }
   .lista-plana a:hover { text-decoration: underline; }
   .vacio-corto { color: var(--faint); font-size: 13px; padding: 8px 2px; }
-  .aviso-fuente { border: 1px solid var(--warn); border-radius: 10px; background: var(--warn-bg); padding: 10px 14px; font-size: var(--t-menor); margin-top: var(--e-bloque); color: var(--warn); }
-  .barra { height: 6px; border-radius: 999px; background: var(--line-soft); margin-top: 6px; overflow: hidden; }
-  .barra span { display: block; height: 100%; background: var(--accent); }
-  .dia { font-size: var(--t-nota); font-weight: bold; letter-spacing: .08em; text-transform: uppercase; color: var(--faint); margin: 14px 0 2px; }
+  .aviso-fuente { border: 1px solid var(--warn); border-radius: var(--radio); background: var(--warn-bg); padding: var(--hueco) var(--hueco-grande); font-size: var(--t-menor); margin-top: var(--e-bloque); color: var(--warn); }
+  /* R4 (unidad 082): el carril va RAYADO —lo que falta— y lo hecho, sólido. */
+  .barra { height: 8px; border-radius: var(--pildora); background-color: var(--line-soft); background-image: var(--textura-rayado); margin-top: var(--hueco-chico); overflow: hidden; }
+  .barra span { display: block; height: 100%; background: var(--ink); }
+  .dia { font-size: var(--t-nota); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); }
 
   /* R2 del bug 067: el enlace no se apaga ni desaparece — al lado se DICE que
      esa web no está levantada. Un enlace muerto miente; esto no. */
@@ -73,7 +74,7 @@
      RESPIRAN mientras el agente vive y se quedan quietas en cuanto termina. Es
      la señal de un vistazo que pidió el usuario, y es honesta: sólo se anima
      `.avatar.vivo`, que sólo lo pone un recibo abierto con el PID vivo. */
-  .avatar { flex: 0 0 42px; width: 42px; height: 42px; border-radius: 50%; border: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; }
+  .avatar { flex: 0 0 42px; width: 42px; height: 42px; border-radius: var(--radio); border: 1px solid var(--line); background: var(--panel); display: flex; align-items: center; justify-content: center; }
   .avatar svg { width: 30px; height: 30px; }
   .avatar .cara { fill: var(--line-soft); stroke: var(--muted); stroke-width: 1.4; }
   .avatar .ojo { fill: var(--muted); }
