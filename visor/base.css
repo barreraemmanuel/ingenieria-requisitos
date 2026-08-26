@@ -217,6 +217,7 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
 .dato .valor { font-size: var(--t-h2); line-height: 1.35; letter-spacing: -.01em; }
 .dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
+.dato .valor .detalle { font-size: var(--t-nota); line-height: 1.6; color: var(--muted); letter-spacing: 0; margin-top: 6px; }
 .dato.roto { border-color: var(--fail); background: var(--fail-bg); }
 .dato.roto .valor { color: var(--fail); font-size: 13.5px; }
 h2.seccion { margin: var(--aire-seccion) 0 var(--hueco-chico); }

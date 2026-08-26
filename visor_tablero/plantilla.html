@@ -275,10 +275,13 @@
     } else if (!s.lista.length) {
       html += dato("Servidores", "<small>ninguno levantado</small>");
     } else {
-      html += dato("Servidores", s.lista.map(function (x) {
-        return esc(x.servicio) + " :" + x.puerto + ' <small>desde ' +
-          (x.arbol ? esc(x.arbol) : "no pude ver qué árbol sirve") + "</small>";
-      }).join("<br>"));
+      // Cifra grande (cuántos) y el detalle en pequeño, una línea por servidor:
+      // misma anatomía que las otras cuatro cifras de la tira.
+      html += dato("Servidores", String(s.lista.length) + '<div class="detalle">' +
+        s.lista.map(function (x) {
+          return esc(x.servicio.replace(/^visor de /, "")) + " :" + x.puerto +
+            (x.arbol ? " · " + esc(x.arbol) : "");
+        }).join("<br>") + "</div>");
     }
     cabecera.innerHTML = html;
   }
