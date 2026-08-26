@@ -13,6 +13,7 @@
   @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
 </style>
 <link rel="stylesheet" href="/base.css">
+<!-- apartado:estilos -->
 <style>
   /* PLANTILLA FIJA del TABLERO DE CONTROL. Sólo lee. Hasta la 076 el bloque
      COMÚN (paleta, cabecera, barra de las cuatro webs, menú lateral, panel,
@@ -90,6 +91,7 @@
     .avatar.vivo, .avatar.vivo .util, .avatar.vivo .ojo { animation: none; }
   }
 </style>
+<!-- /apartado:estilos -->
 </head>
 <body>
 <script>
@@ -129,15 +131,11 @@
     });
   })();
 </script>
+<!-- apartado:cuerpo -->
   <div class="pagina">
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
-      <nav class="barra-webs" aria-label="Las cuatro webs del método">
-        <a href="http://127.0.0.1:8768/" data-web="tablero" class="actual" aria-current="page">Tablero</a>
-        <a href="http://127.0.0.1:8766/" data-web="contratos">Contratos</a>
-        <a href="http://127.0.0.1:9043/" data-web="presentaciones">Presentaciones</a>
-        <a href="http://127.0.0.1:8765/" data-web="flujos">Flujos</a>
-      </nav>
+      <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos · tablero de control</div>
       <h1>Qué hay en curso</h1>
       <div class="sub" id="sub">Cargando…</div>
@@ -163,10 +161,18 @@
     </div>
   </div>
 
-<script src="/render.js"></script>
+<!-- /apartado:cuerpo -->
+<!-- apartado:guion -->
 <script>
 (function () {
   "use strict";
+
+  /* Unidad 081: los datos de este apartado cuelgan de su prefijo porque los
+     cuatro visores comparten un solo servidor. `RUTA` es el único sitio que lo
+     sabe; servida suelta (sin cáscara) devuelve la ruta de siempre. */
+  function RUTA(sufijo) {
+    return ((window.IR && window.IR.base) || "") + sufijo;
+  }
 
   /* El tablero SÓLO mira: no hay un fetch con método distinto de GET en toda la
      página, y el servidor responde 405 a cualquier POST. Aprobar, decidir y
@@ -182,12 +188,13 @@
   var SONDEO = 5000;                 // la cabecera se refresca sola cada 5 s
   var SECCIONES = ["ahora", "te-toca", "por-hacer"];
 
-  /* R2 (bug 067): las otras webs del método, con su puerto por defecto y el
-     nombre con el que cada una se anuncia en `cabecera.servidores`. */
+  /* R2 (bug 067), reescrito por la 081: los otros tres apartados son RUTAS de
+     esta misma web, no otros puertos. Ya no hay «web apagada» que avisar: si
+     estás leyendo el tablero, los otros tres apartados están en pie. */
   var WEBS = {
-    contratos: {servicio: "visor de contratos", puerto: 8766},
-    presentaciones: {servicio: "visor de presentaciones", puerto: 9043},
-    flujos: {servicio: "visor de flujos", puerto: 8765}
+    contratos: "/contratos",
+    presentaciones: "/presentaciones",
+    flujos: "/flujos"
   };
 
   var panel = document.getElementById("panel");
@@ -260,33 +267,15 @@
      está se avisa al lado. Si NO se pudieron mirar los puertos (`estado` que
      no es "ok"), no se declara nada apagado: no saber no es saber que no. */
 
-  function webDe(f, cual) {
-    var quien = WEBS[cual];
-    var servidores = f && f.cabecera ? f.cabecera.servidores : null;
-    if (!servidores || servidores.estado !== "ok") {
-      return {base: "http://127.0.0.1:" + quien.puerto, viva: null};
-    }
-    for (var i = 0; i < servidores.lista.length; i++) {
-      if (servidores.lista[i].servicio === quien.servicio) {
-        return {base: "http://127.0.0.1:" +
-                      (servidores.lista[i].puerto || quien.puerto), viva: true};
-      }
-    }
-    return {base: "http://127.0.0.1:" + quien.puerto, viva: false};
-  }
-
   function enlaceA(f, cual, ruta, texto) {
-    var web = webDe(f, cual);
-    var html = '<a href="' + esc(web.base + ruta) + '" data-web="' + esc(cual) +
+    return '<a href="' + esc(WEBS[cual] + ruta) + '" data-web="' + esc(cual) +
       '">' + esc(texto) + "</a>";
-    if (web.viva === false) {
-      html += '<span class="apagada">web apagada · pídele a tu IA que la abra</span>';
-    }
-    return html;
   }
 
   function aContrato(f, unidad, texto) {
-    return enlaceA(f, "contratos", "/contrato/" + encodeURIComponent(unidad) + ".md",
+    /* 081: el apartado de contratos abre el contrato por su ancla, en vez de
+       descargar el markdown crudo que servía la web suelta. */
+    return enlaceA(f, "contratos", "#" + encodeURIComponent(unidad),
                    texto || unidad);
   }
 
@@ -391,7 +380,7 @@
             "Ningún contrato espera tu OK.") +
       '<div class="dia">Entregas por validar</div>' +
       lista(d.en_validacion, function (v) {
-        return enlaceA(f, "presentaciones", "/", v.unidad);
+        return enlaceA(f, "presentaciones", "/" + encodeURIComponent(v.unidad), v.unidad);
       }, "Nada pendiente de validar.") +
       '<div class="dia">Peticiones sin encaminar</div>' +
       '<div class="seccion-nota">Todavía no hay una web donde decidirlas: se ' +
@@ -421,7 +410,7 @@
             : "";
           var flujo = u.actividad
             ? '<div class="linea">Flujo: ' +
-              enlaceA(f, "flujos", "/", u.actividad) + "</div>"
+              enlaceA(f, "flujos", "#" + encodeURIComponent(u.actividad), u.actividad) + "</div>"
             : "";
           return '<div class="tarjeta' + (u.bloqueo ? " bloqueada" : "") +
             '"><h3>' + aContrato(f, u.carpeta, u.unidad) + "</h3>" +
@@ -483,7 +472,7 @@
   }
 
   function sondear() {
-    fetch("/estado.json", {cache: "no-store"}).then(function (r) {
+    fetch(RUTA("/estado.json"), {cache: "no-store"}).then(function (r) {
       return r.json();
     }).then(function (datos) {
       if (datos.error) throw new Error(datos.error);
@@ -513,5 +502,6 @@
                     pintarPorHacer: pintarPorHacer};
 })();
 </script>
+<!-- /apartado:guion -->
 </body>
 </html>

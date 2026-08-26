@@ -3,7 +3,7 @@
 en Windows no hay forma documentada de correr los tests, y el método dice que toda
 verificación es local en la máquina del usuario.
 
-    python visor/tests/correr.py            # rápida (visor, visor_contratos, visor_presentaciones, visor_tablero)
+    python visor/tests/correr.py            # rápida (web, visor, visor_contratos, visor_presentaciones, visor_tablero)
     python visor/tests/correr.py --nightly  # la adversarial
     python visor/tests/correr.py -v         # verboso
 
@@ -21,8 +21,9 @@ RAIZ = Path(__file__).resolve().parents[2]
 # La suite de presentaciones (051/056) se quedó fuera del lanzador: sus tests
 # existían pero no corrían con los demás, y por ahí se coló el bug 064. La del
 # tablero (058) estaba en el mismo sitio: existía y no corría (bug 067).
-RAPIDAS = ("visor/tests", "visor_contratos/tests", "visor_presentaciones/tests",
-           "visor_tablero/tests")
+# La suite de la web única (081) va la primera: es el criterio portante.
+RAPIDAS = ("web/tests", "visor/tests", "visor_contratos/tests",
+           "visor_presentaciones/tests", "visor_tablero/tests")
 NIGHTLY = ("visor/tests/nightly",)
 
 

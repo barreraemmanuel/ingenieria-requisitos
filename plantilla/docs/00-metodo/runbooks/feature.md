@@ -33,8 +33,8 @@ mueve el mapa, toca hotspots o no cabe en una ficha— es carril normal, que es 
    `.md` compilados a mano. Para enseñárselo: primero
    `python3 docs/00-metodo/requisitos/validar_web.py --datos docs/02-flujos/planos/planos.json`
    (si falla, no se da la URL ni se pide aprobación) y después
-   `python3 docs/00-metodo/requisitos/servir.py --datos docs/02-flujos/planos/planos.json`
-   → **http://127.0.0.1:8765/**, que se refresca sola cada 3 s: se edita el JSON y el usuario lo
+   `python3 docs/00-metodo/requisitos/requisitos.py abrir`
+   → el apartado **Flujos** de la web del método, que se refresca solo cada 3 s: se edita el JSON y el usuario lo
    ve al momento en pantalla. El flujo acordado queda ESCRITO en el mapa con estado
    `especificada` (vocabulario del aparato, `00-metodo/README.md`); el cierre lo pasará a
    `entregada`.

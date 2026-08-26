@@ -1,28 +1,23 @@
 #!/usr/bin/env python3
 """Visor local de los contratos de trabajo (una unidad = un `especificacion.md`).
 
-Mismo patrón que ``visor/servir.py`` — ThreadingHTTPServer en 127.0.0.1,
-estrictamente de sólo lectura, sin caché — pero con plantilla y rutas propias:
-NO toca el visor de flujos ni su esquema de planos.
+Desde la unidad 081 esto NO es un servidor: es el módulo de datos del apartado
+«Contratos» de la web única. `web/servir.py` importa `hacer_handler` y monta estas
+rutas bajo `/contratos/`.
 
 Sirve las unidades del meta-repo (``docs/05-trabajo/<NNN-slug>/especificacion.md``)
 para leerlas en BLUF desde el navegador. Aprobar o pedir cambios sigue siendo por
-conversación con el agente: aquí sólo se lee.
-
-Uso:
-    python3 visor_contratos/servir.py --workspace <ruta del meta-repo>
+conversación con el agente: aquí sólo se lee. Y sigue dejando el rastro por contrato
+mostrado en `.runtime/visor-contratos.log`, que es lo que `unidad.py despachar` exige.
 """
 
-import argparse
 import http.server
 import json
 import os
 import re
 import socket
 import sys
-import threading
 import time
-import webbrowser
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -330,68 +325,8 @@ def hacer_handler(workspace, estado):
 
     return VisorContratos
 
-
-def main():
-    p = argparse.ArgumentParser(description="Visor local de los contratos de trabajo")
-    p.add_argument("--workspace", required=True,
-                   help="Ruta del meta-repo (el que tiene docs/05-trabajo/)")
-    p.add_argument("--minutos", type=float, default=0,
-                   help="minutos sin actividad antes de apagarse; 0 = no caduca")
-    p.add_argument("--puerto", type=int, default=8766,
-                   help="puerto local; 0 pide uno libre (defecto: 8766)")
-    p.add_argument("--sin-navegador", action="store_true", help="No abrir el navegador")
-    args = p.parse_args()
-
-    if not (0 <= args.minutos <= 1440):
-        sys.exit("--minutos debe estar entre 0 y 1440")
-    if not (0 <= args.puerto <= 65535):
-        sys.exit("--puerto debe estar entre 0 y 65535")
-
-    workspace = os.path.abspath(args.workspace)
-    trabajo = carpeta_trabajo(workspace)
-    if not os.path.isdir(trabajo):
-        sys.exit("No existe la carpeta de unidades: " + trabajo)
-    if not os.path.isfile(PLANTILLA):
-        sys.exit("Falta la plantilla: " + PLANTILLA)
-    if not os.path.isfile(RENDER_JS):
-        sys.exit("Falta el motor de render: " + RENDER_JS)
-
-    estado = {"ultimo": time.time()}
-    try:
-        servidor = ServidorVisorContratos(
-            ("127.0.0.1", args.puerto), hacer_handler(workspace, estado)
-        )
-    except OSError as exc:
-        sys.exit("No pude abrir el puerto %d: %s" % (args.puerto, exc))
-    puerto = servidor.server_address[1]
-    hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
-    hilo.start()
-
-    url = "http://127.0.0.1:%d/" % puerto
-    print("Visor de contratos levantado: %s" % url, flush=True)
-    print("Unidades: %s (%d encontradas, se releen al recargar)"
-          % (trabajo, len(listar_unidades(workspace))), flush=True)
-    if args.minutos:
-        print("Se apaga tras %g minutos sin actividad." % args.minutos, flush=True)
-    else:
-        print("Sesión estable: no se apaga sola.", flush=True)
-    if not args.sin_navegador:
-        webbrowser.open(url)
-
-    try:
-        while True:
-            if not args.minutos:
-                time.sleep(15)
-                continue
-            restante = args.minutos * 60 - (time.time() - estado["ultimo"])
-            if restante <= 0:
-                break
-            time.sleep(min(restante, 15))
-    except KeyboardInterrupt:
-        pass
-    servidor.shutdown()
-    print("Visor de contratos cerrado.", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+# 081: este fichero dejó de ser un programa. Es el MÓDULO DE DATOS del apartado
+# «Contratos» de la web única: `web/servir.py` importa `hacer_handler` y le monta
+# estas mismas rutas bajo `/contratos/`. El rastro por contrato mostrado
+# (`.runtime/visor-contratos.log`, que `unidad.py despachar` exige) lo sigue
+# escribiendo `anotar_apertura`, aquí, con el mismo formato.

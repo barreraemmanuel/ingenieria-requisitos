@@ -40,7 +40,6 @@ import stat
 import subprocess
 import sys
 import time
-import urllib.request
 import webbrowser
 from pathlib import Path
 
@@ -246,8 +245,9 @@ def aprobacion(fm):
 # `.runtime/visor-contratos.log` — mismo criterio que el rastro del visor de flujos
 # (unidad 033). El comando que la deja escrita es el que se imprime en todos los FAIL de abajo.
 RASTRO_VISOR_CONTRATOS = ".runtime/visor-contratos.log"
+# 081: hay UNA web con cuatro apartados; el comando dice a cuál se abre.
 COMANDO_VISOR_CONTRATOS = (
-    "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+    "python3 main/web/abrir.py --workspace . --apartado contratos"
 )
 RE_RASTRO_CONTRATO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})T[\d:]+\s+contrato mostrado:\s+(\S+)\s*$"
@@ -278,18 +278,21 @@ def rastro_visor_contrato(nombre):
 # manual del agente; y la validación guiada (051/056) ni comando tenía: el manifiesto se
 # escribía a mano. Pedir un OK pasa a ser EJECUTAR algo, no acordarse de algo.
 
-# Puerto del visor de contratos. Se puede fijar por entorno para no chocar con otra sesión
-# (mismo patrón que IR_TOPE_HOOK_SEGUNDOS).
-PUERTO_VISOR_CONTRATOS = int(os.environ.get("IR_PUERTO_VISOR_CONTRATOS", "8766"))
+# El puerto de la web sale del workspace y lo calcula `web/abrir.py` (081, R6);
+# `INGENIERIA_REQUISITOS_PUERTO` lo fija cuando el calculado está ocupado.
 # Los datos de cada validación guiada: una carpeta por unidad, con su manifiesto y sus
 # recibos. Es la ruta que la 051 ya usa; aquí solo deja de escribirse a mano.
 RUTA_PRESENTACIONES = ".runtime/presentaciones"
-# Dónde puede vivir cada visor: en el workspace de alumno lo reparte `bootstrap.py`; en el
-# meta-repo del método viene con el repo de código, bajo `main/`.
-CARPETAS_PRESENTACIONES = ("docs/00-metodo/requisitos/visor_presentaciones",
-                           "main/visor_presentaciones")
-CARPETAS_CONTRATOS = ("main/visor_contratos",
-                      "docs/00-metodo/requisitos/visor_contratos")
+# Dónde puede vivir la web: en el workspace de alumno la reparte `bootstrap.py`
+# (ARCHIVOS_WEB); en el meta-repo del método viene con el repo de código, bajo
+# `main/`. Desde la 081 es UNA sola carpeta para los cuatro apartados.
+CARPETAS_WEB = ("main/web", "docs/00-metodo/requisitos/web")
+# `manifestar.py` (el contrato JSON del manifiesto) NO vive en la carpeta de la web en los
+# dos layouts: en el repo de código sigue siendo del visor de presentaciones y solo viaja
+# aplanado a `requisitos/web/` en el workspace del alumno (ARCHIVOS_WEB). Se busca por
+# layouts, como todo lo demás, y solo hace falta para la validación guiada: exigirlo para
+# ABRIR contratos dejaba sin web al meta-repo entero.
+CARPETAS_MANIFESTAR = ("main/visor_presentaciones", "docs/00-metodo/requisitos/web")
 
 
 def comando_validar(nombre):
@@ -299,9 +302,9 @@ def comando_validar(nombre):
 def hay_pantalla():
     """¿Tiene esta sesión un navegador que abrir?
 
-    MISMA regla que `visor_presentaciones/abrir.py:hay_pantalla` y a propósito duplicada:
-    los scripts del método viajan con la plantilla y el visor vive en el repo de código,
-    así que esto tiene que funcionar en un workspace donde el visor todavía no está.
+    MISMA regla que `web/abrir.py:hay_pantalla` y a propósito duplicada:
+    los scripts del método viajan con la plantilla y la web vive en el repo de código,
+    así que esto tiene que funcionar en un workspace donde la web todavía no está.
     `IR_SIN_NAVEGADOR` es la declaración explícita de quien lanza (un agente en batch, la
     CI, una sesión por SSH) y manda; `BROWSER` es la contraria. Sin ninguna se mira el
     escritorio: en Linux/BSD sin `DISPLAY` ni `WAYLAND_DISPLAY` no hay dónde pintar.
@@ -323,27 +326,37 @@ def carpeta_visor(candidatas, *ficheros):
     return None
 
 
-def visor_presentaciones():
-    return carpeta_visor(CARPETAS_PRESENTACIONES, "abrir.py", "manifestar.py", "servir.py")
+def carpeta_web():
+    """La carpeta de la web del método, en el layout que toque (081).
+
+    Se exige lo que hace falta para LEVANTARLA —el servidor y el lanzador—, ni un fichero
+    más: `manifestar.py` no está aquí en el layout del meta-repo (`main/web/`) y pedirlo
+    hacía que `nueva`, `estado` y `validar` dijeran «no encuentro la web» teniéndola
+    delante.
+    """
+    return carpeta_visor(CARPETAS_WEB, "abrir.py", "servir.py")
 
 
-def modulos_de_presentaciones(carpeta):
-    """Carga `manifestar` y `abrir` DEL WORKSPACE, no una copia.
+def carpeta_manifestar():
+    """Dónde está `manifestar.py`, que solo la validación guiada necesita."""
+    return carpeta_visor(CARPETAS_MANIFESTAR, "manifestar.py")
 
-    El contrato JSON del manifiesto y la mecánica de levantar el visor viven en el visor de
-    presentaciones. Reimplementarlos aquí sería tener dos verdades del mismo formato, que es
-    exactamente como nacen los manifiestos escritos a mano que este bug arregla.
+
+def modulo_de_la_web(carpeta, nombre):
+    """Carga `<nombre>.py` DE LA WEB DEL WORKSPACE, no una copia.
+
+    El contrato JSON del manifiesto y la mecánica de levantar la web viven ahí.
+    Reimplementarlos aquí sería tener dos verdades del mismo formato, que es
+    exactamente como nacen los manifiestos escritos a mano que el 057 arregla.
     """
     sys.path.insert(0, str(carpeta))
     try:
-        modulos = []
-        for nombre in ("manifestar", "abrir"):
-            spec = importlib.util.spec_from_file_location(
-                f"visor_presentaciones_{nombre}", carpeta / f"{nombre}.py")
-            modulo = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(modulo)
-            modulos.append(modulo)
-        return modulos
+        spec = importlib.util.spec_from_file_location(
+            f"web_metodo_{nombre}", carpeta / f"{nombre}.py")
+        modulo = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = modulo
+        spec.loader.exec_module(modulo)
+        return modulo
     finally:
         with contextlib.suppress(ValueError):
             sys.path.remove(str(carpeta))
@@ -441,69 +454,41 @@ def adjuntos_de(fm, ruta, permitida):
 
 # --------------------------------------------------------------- R2: el contrato se abre solo
 
-def _meta_visor_contratos(puerto):
-    try:
-        with urllib.request.urlopen(
-            "http://127.0.0.1:%d/meta.json" % puerto, timeout=0.5
-        ) as respuesta:
-            return json.loads(respuesta.read())
-    except (OSError, ValueError):
-        return None
-
-
 def abrir_visor_de_contratos(pendientes, sin_navegador):
-    """Levanta el visor de contratos y abre el navegador en el primero de `pendientes`.
+    """Abre LA web del método en el apartado de contratos, en el primero de
+    `pendientes`.
 
     Devuelve las líneas (nivel, mensaje) que hay que imprimir. Cuando NO puede abrir nada
-    lo dice y nombra el comando: un visor que no se levanta en silencio sería exactamente
-    el fallo que esta unidad arregla.
+    lo dice y nombra el comando: una web que no se levanta en silencio sería exactamente
+    el fallo que el 057 arregla. Desde la 081 no hay cuatro webs que levantar: hay una,
+    y `web/abrir.py` sabe reutilizar la que ya esté en pie para este workspace.
     """
     if sin_navegador:
-        return [("warn", "--sin-navegador: no levanto el visor de contratos. Enséñaselo tú: "
+        return [("warn", "--sin-navegador: no abro la web. Enséñasela tú: "
                          + COMANDO_VISOR_CONTRATOS)]
     if not hay_pantalla():
-        return [("warn", "sesión sin pantalla: no abro el visor de contratos. El comando, "
+        return [("warn", "sesión sin pantalla: no abro la web. El comando, "
                          "para cuando la haya: " + COMANDO_VISOR_CONTRATOS)]
-    carpeta = carpeta_visor(CARPETAS_CONTRATOS, "servir.py")
+    carpeta = carpeta_web()
     if carpeta is None:
-        return [("warn", "no encuentro el visor de contratos en este workspace "
-                         f"({' ni '.join(CARPETAS_CONTRATOS)}). Enséñaselo tú: "
+        return [("warn", "no encuentro la web del método en este workspace "
+                         f"({' ni '.join(CARPETAS_WEB)}). Enséñasela tú: "
                          + COMANDO_VISOR_CONTRATOS)]
-    puerto = PUERTO_VISOR_CONTRATOS
-    lineas = []
-    meta = _meta_visor_contratos(puerto)
-    if meta is None:
-        registro = RAIZ / ".runtime" / f"visor-contratos-{puerto}.log"
-        registro.parent.mkdir(parents=True, exist_ok=True)
-        orden = [sys.executable, str(carpeta / "servir.py"), "--workspace", str(RAIZ),
-                 "--minutos", "0", "--puerto", str(puerto), "--sin-navegador"]
-        try:
-            with registro.open("ab") as salida:
-                # Desasido a propósito: el visor tiene que seguir en pie cuando este
-                # comando termine — es lo que el usuario va a mirar.
-                subprocess.Popen(orden, stdin=subprocess.DEVNULL, stdout=salida,
-                                 stderr=subprocess.STDOUT, start_new_session=True)
-        except OSError as exc:
-            return [("warn", f"no pude levantar el visor de contratos ({exc}). Ábrelo tú: "
-                             + COMANDO_VISOR_CONTRATOS)]
-        for _ in range(50):
-            meta = _meta_visor_contratos(puerto)
-            if meta is not None:
-                break
-            time.sleep(0.1)
-        if meta is None:
-            return [("warn", f"el visor de contratos no llegó a arrancar (log en "
-                             f"{rel(registro)}). Ábrelo tú: " + COMANDO_VISOR_CONTRATOS)]
-        lineas.append(("ok", f"visor de contratos levantado en http://127.0.0.1:{puerto}/"))
+    mod_abrir = modulo_de_la_web(carpeta, "abrir")
+    argumentos = argparse.Namespace(
+        apartado=f"contratos#{pendientes[0]}", puerto=None, minutos=0,
+        sin_navegador=False)
+    try:
+        resultado = mod_abrir.abrir(RAIZ, argumentos)
+    except (OSError, RuntimeError, ValueError) as exc:
+        return [("warn", f"no pude abrir la web del método ({exc}). Ábrela tú: "
+                         + COMANDO_VISOR_CONTRATOS)]
+    lineas = [("ok", f"web del método: {resultado.url}")]
+    if resultado.navegador:
+        lineas.append(("ok", "navegador abierto ahí — el usuario ya lo tiene delante"))
     else:
-        suyo = str(meta.get("workspace", ""))
-        if not suyo or Path(suyo).resolve() != RAIZ:
-            return [("warn", f"el puerto {puerto} lo ocupa otro visor ({suyo or 'desconocido'}). "
-                             "Ábrelo tú en otro puerto: " + COMANDO_VISOR_CONTRATOS)]
-        lineas.append(("ok", f"visor de contratos ya en pie en http://127.0.0.1:{puerto}/"))
-    url = f"http://127.0.0.1:{puerto}/#{pendientes[0]}"
-    webbrowser.open(url)
-    lineas.append(("ok", f"navegador abierto en {url} — el usuario ya lo tiene delante"))
+        lineas.append(("warn", "no he podido abrir el navegador; pásale esta "
+                               f"dirección: {resultado.url}"))
     if len(pendientes) > 1:
         lineas.append(("warn", f"quedan {len(pendientes) - 1} contrato(s) más sin aprobar, en "
                                f"la misma página: {', '.join(pendientes[1:])}"))
@@ -567,10 +552,10 @@ def puerta_recibo_validacion(nombre, ok_usuario):
 
     `--force` no entra aquí: `cerrar` no lo tiene, y la válvula de hotfix es de `despachar`.
     """
-    if visor_presentaciones() is None:
+    if carpeta_web() is None:
         return None, None, (
-            "validación guiada: no hay visor de presentaciones en este workspace "
-            f"({' ni '.join(CARPETAS_PRESENTACIONES)}), así que no puedo leer el OK del "
+            "validación guiada: no hay web del método en este workspace "
+            f"({' ni '.join(CARPETAS_WEB)}), así que no puedo leer el OK del "
             "usuario y la puerta queda en AVISO — una regla sin ejecutor se dice, no se "
             "finge (ADR-029)")
     recibos = recibos_de_validacion(nombre)
@@ -595,7 +580,7 @@ def puerta_recibo_validacion(nombre, ok_usuario):
         return (f"--ok-usuario {ok_usuario}, pero los `confirmado` de {nombre} son de otro día "
                 f"({dias}): el OK que se firma es el que se dio. {SALIDA} "
                 f"{comando_validar(nombre)} y pide el OK de hoy", None, None)
-    return None, f"OK leído del visor de presentaciones: {nombre} confirmado por el usuario", None
+    return None, f"OK leído del apartado Presentaciones: {nombre} confirmado por el usuario", None
 
 
 # ----------------------------------------------------------- subcomando: validar (R1)
@@ -609,11 +594,11 @@ def cmd_validar(args):
     if unidad is None:
         fail(f"no existe la unidad {nombre} (¿ya está cerrada y archivada?)")
         return 1
-    carpeta = visor_presentaciones()
+    carpeta = carpeta_web()
     if carpeta is None:
-        fail(f"no encuentro el visor de presentaciones en este workspace "
-             f"({' ni '.join(CARPETAS_PRESENTACIONES)}): sin él no hay validación guiada "
-             f"que abrir. {SALIDA} vuelve a repartirlo con el actualizador del workspace "
+        fail(f"no encuentro la web del método en este workspace "
+             f"({' ni '.join(CARPETAS_WEB)}): sin ella no hay validación guiada "
+             f"que abrir. {SALIDA} vuelve a repartirla con el actualizador del workspace "
              f"(`python3 main/visor/actualizar.py`) o clona el repo de código en main/")
         return 1
 
@@ -632,7 +617,16 @@ def cmd_validar(args):
     evidencia = evidencia_de_la_ficha(texto_evidencia) or [
         f"sin evidencia escrita todavía en {rel(fuente_evidencia)}"]
 
-    mod_manifestar, mod_abrir = modulos_de_presentaciones(carpeta)
+    carpeta_manif = carpeta_manifestar()
+    if carpeta_manif is None:
+        fail(f"no encuentro manifestar.py en este workspace "
+             f"({' ni '.join(CARPETAS_MANIFESTAR)}): sin él no sé escribir el manifiesto "
+             f"de la validación guiada. {SALIDA} vuelve a repartir la web con el "
+             f"actualizador del workspace (`python3 main/visor/actualizar.py`) o clona el "
+             f"repo de código en main/")
+        return 1
+    mod_manifestar = modulo_de_la_web(carpeta_manif, "manifestar")
+    mod_abrir = modulo_de_la_web(carpeta, "abrir")
     presentacion = mod_manifestar.presentacion_validacion(
         nombre,
         f"{nombre} · cómo lo pruebas tú",
@@ -662,8 +656,8 @@ def cmd_validar(args):
     if anteriores:
         ok(f"{len(anteriores)} recibo(s) anterior(es) intactos en {rel(datos / 'recibos')}")
 
-    orden_manual = (f"python3 {rel(carpeta / 'abrir.py')} --datos {rel(datos)} "
-                    f"--workspace . --presentacion {nombre}")
+    orden_manual = (f"python3 {rel(carpeta / 'abrir.py')} --workspace . "
+                    f"--apartado presentaciones/{nombre}")
     if args.sin_navegador:
         warn("--sin-navegador: manifiesto listo, pero no levanto nada ni abro el navegador")
         print(f"\n  Cuando quieras enseñárselo:\n      {orden_manual}")
@@ -673,15 +667,16 @@ def cmd_validar(args):
         print(f"\n  Desde una sesión con pantalla:\n      {orden_manual}")
         return 0
     argumentos = argparse.Namespace(
-        puerto=args.puerto, presentacion=nombre, sin_navegador=False, workspace=str(RAIZ))
+        puerto=args.puerto, apartado=f"presentaciones/{nombre}", minutos=0,
+        sin_navegador=False)
     try:
-        resultado = mod_abrir.abrir(datos, argumentos)
+        resultado = mod_abrir.abrir(RAIZ, argumentos)
     except (OSError, RuntimeError, ValueError) as exc:
-        fail(f"no pude levantar el visor de presentaciones ({exc}). {SALIDA} lánzalo a mano: "
-             f"python3 {rel(carpeta / 'abrir.py')} --datos {rel(datos)} --workspace . "
-             f"--presentacion {nombre}")
+        fail(f"no pude abrir la web del método ({exc}). {SALIDA} lánzala a mano: "
+             f"python3 {rel(carpeta / 'abrir.py')} --workspace . "
+             f"--apartado presentaciones/{nombre}")
         return 1
-    ok(f"visor de presentaciones: {resultado.url}")
+    ok(f"web del método, apartado Presentaciones: {resultado.url}")
     if resultado.navegador:
         ok("navegador abierto ahí — el usuario ya lo tiene delante")
     else:

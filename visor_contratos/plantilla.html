@@ -58,15 +58,11 @@
     });
   })();
 </script>
+<!-- apartado:cuerpo -->
   <div class="pagina">
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
-      <nav class="barra-webs" aria-label="Las cuatro webs del método">
-        <a href="http://127.0.0.1:8768/" data-web="tablero">Tablero</a>
-        <a href="http://127.0.0.1:8766/" data-web="contratos" class="actual" aria-current="page">Contratos</a>
-        <a href="http://127.0.0.1:9043/" data-web="presentaciones">Presentaciones</a>
-        <a href="http://127.0.0.1:8765/" data-web="flujos">Flujos</a>
-      </nav>
+      <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos · contratos de trabajo</div>
       <h1>Contratos de las unidades</h1>
       <div class="sub" id="sub">Cargando…</div>
@@ -89,10 +85,18 @@
     </div>
   </div>
 
-<script src="/render.js"></script>
+<!-- /apartado:cuerpo -->
+<!-- apartado:guion -->
 <script>
 (function () {
   "use strict";
+
+  /* Unidad 081: los datos de este apartado cuelgan de su prefijo porque los
+     cuatro visores comparten un solo servidor. `RUTA` es el único sitio que lo
+     sabe; servida suelta (sin cáscara) devuelve la ruta de siempre. */
+  function RUTA(sufijo) {
+    return ((window.IR && window.IR.base) || "") + sufijo;
+  }
 
   /* BLUF: la conclusión primero. El orden de esta tabla ES el orden en que se
      pinta el contrato, y `plegada` decide qué se ve abierto de entrada. El Qué,
@@ -223,7 +227,7 @@
     if (location.hash.slice(1) !== u.carpeta) location.hash = u.carpeta;
     pintarListado();
     panel.innerHTML = '<div class="vacio">Cargando el contrato…</div>';
-    fetch("/contrato/" + encodeURIComponent(u.carpeta) + ".md", {cache: "no-store"})
+    fetch(RUTA("/contrato/" + encodeURIComponent(u.carpeta) + ".md"), {cache: "no-store"})
       .then(function (r) {
         if (!r.ok) throw new Error("no se pudo leer el contrato");
         return r.text();
@@ -265,7 +269,7 @@
   buscar.addEventListener("input", pintarListado);
 
   function cargarUnidades() {
-    return fetch("/unidades.json", {cache: "no-store"})
+    return fetch(RUTA("/unidades.json"), {cache: "no-store"})
       .then(function (r) { return r.json(); })
       .then(function (datos) {
         banner.classList.remove("visible");
@@ -291,5 +295,6 @@
   setInterval(cargarUnidades, 10000);
 })();
 </script>
+<!-- /apartado:guion -->
 </body>
 </html>

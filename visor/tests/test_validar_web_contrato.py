@@ -144,57 +144,62 @@ class AbrirActividadTest(unittest.TestCase):
             minutos=0,
         )
 
-    def test_actividad_valida_abre_su_resumen_directamente(self):
+    def _abrir(self, actividad, url):
+        """`cmd_abrir` con la web ya en pie: sólo se mira la URL que compone."""
         salida = io.StringIO()
-        with mock.patch.object(requisitos, "elegir_puerto", return_value=(8765, True)), \
+        falso = mock.Mock()
+        falso.abrir.return_value = mock.Mock(url=url, proceso=None, navegador=False)
+        falso.puerto_de.return_value = 8765
+        with mock.patch.object(requisitos, "carpeta_web",
+                               return_value=Path("web")), \
+             mock.patch.object(requisitos, "modulo_abrir", return_value=falso), \
              mock.patch.object(requisitos, "anotar_apertura"), \
              contextlib.redirect_stdout(salida):
-            self.assertEqual(
-                requisitos.cmd_abrir(self.workspace, self.mapa, self.args("canario-contexto")),
-                0,
-            )
-        self.assertIn(
-            "http://127.0.0.1:8765/#canario-contexto::resumen", salida.getvalue()
-        )
+            codigo = requisitos.cmd_abrir(self.workspace, self.mapa,
+                                          self.args(actividad))
+        return codigo, salida.getvalue(), falso
 
-    def test_actividad_valida_abre_su_resumen_al_arrancar_servidor(self):
-        salida = io.StringIO()
-        proceso = mock.Mock()
-        proceso.poll.return_value = None
-        with mock.patch.object(requisitos, "elegir_puerto", return_value=(0, False)), \
-             mock.patch.object(requisitos, "puerto_libre", return_value=8767), \
-             mock.patch.object(requisitos, "anotar_apertura", return_value=self.workspace / "visor.log"), \
-             mock.patch.object(requisitos.subprocess, "Popen", return_value=proceso), \
-             mock.patch.object(
-                 requisitos,
-                 "meta_puerto",
-                 return_value={"datos": str(self.mapa)},
-             ), \
-             contextlib.redirect_stdout(salida):
-            self.assertEqual(
-                requisitos.cmd_abrir(self.workspace, self.mapa, self.args("canario-contexto")),
-                0,
-            )
-        self.assertIn(
-            "http://127.0.0.1:8767/#canario-contexto::resumen", salida.getvalue()
-        )
+    def test_actividad_valida_abre_su_apartado_de_flujos_en_su_resumen(self):
+        """081: la actividad se pide como apartado de la web única, no como un
+        puerto propio; el ancla del resumen se conserva tal cual."""
+        codigo, salida, falso = self._abrir(
+            "canario-contexto",
+            "http://127.0.0.1:8770/flujos#canario-contexto::resumen")
+        self.assertEqual(0, codigo)
+        self.assertIn("http://127.0.0.1:8770/flujos#canario-contexto::resumen",
+                      salida)
+        argumentos = falso.abrir.call_args[0][1]
+        self.assertEqual("flujos#canario-contexto::resumen", argumentos.apartado)
 
-    def test_actividad_inexistente_no_abre_la_portada(self):
-        with mock.patch.object(requisitos, "elegir_puerto") as elegir:
+    def test_actividad_inexistente_no_abre_nada(self):
+        with mock.patch.object(requisitos, "carpeta_web") as carpeta:
             with self.assertRaisesRegex(ValueError, "no existe"):
                 requisitos.cmd_abrir(
                     self.workspace, self.mapa, self.args("no-existe")
                 )
-        elegir.assert_not_called()
+        carpeta.assert_not_called()
 
-    def test_sin_actividad_conserva_la_portada(self):
-        salida = io.StringIO()
-        with mock.patch.object(requisitos, "elegir_puerto", return_value=(8765, True)), \
-             mock.patch.object(requisitos, "anotar_apertura"), \
-             contextlib.redirect_stdout(salida):
+    def test_sin_actividad_conserva_la_portada_del_apartado(self):
+        codigo, salida, falso = self._abrir(None, "http://127.0.0.1:8770/flujos")
+        self.assertEqual(0, codigo)
+        self.assertIn("http://127.0.0.1:8770/flujos", salida)
+        self.assertEqual("flujos", falso.abrir.call_args[0][1].apartado)
+
+    def test_deja_el_rastro_que_exige_aprobar(self):
+        """R4 (unidad 033): sin `.runtime/visor-<puerto>.log` la aprobación
+        firmaría unos planos que nadie ha visto."""
+        falso = mock.Mock()
+        falso.abrir.return_value = mock.Mock(
+            url="http://127.0.0.1:8770/flujos", proceso=None, navegador=False)
+        falso.puerto_de.return_value = 8770
+        with mock.patch.object(requisitos, "carpeta_web",
+                               return_value=Path("web")), \
+             mock.patch.object(requisitos, "modulo_abrir", return_value=falso), \
+             mock.patch.object(requisitos, "anotar_apertura") as rastro, \
+             contextlib.redirect_stdout(io.StringIO()):
             requisitos.cmd_abrir(self.workspace, self.mapa, self.args(None))
-        self.assertIn("http://127.0.0.1:8765/", salida.getvalue())
-        self.assertNotIn("#", salida.getvalue())
+        rastro.assert_called_once()
+        self.assertEqual(8770, rastro.call_args[0][1])
 
 
 if __name__ == "__main__":

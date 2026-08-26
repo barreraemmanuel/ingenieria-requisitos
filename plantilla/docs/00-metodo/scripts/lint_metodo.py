@@ -138,10 +138,11 @@ def evidencia_rojo_verde(texto):
 
 
 # R4 del bug 054: mismo criterio que `unidad.py` (que es quien bloquea el despacho, R3) —
-# `visor_contratos/servir.py` anota una línea por contrato mostrado en este fichero.
+# el apartado de contratos de la web anota una línea por contrato mostrado en este
+# fichero. Desde la 081 la web es una sola y el comando dice a qué apartado se abre.
 RASTRO_VISOR_CONTRATOS = ".runtime/visor-contratos.log"
 COMANDO_VISOR_CONTRATOS = (
-    "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+    "python3 main/web/abrir.py --workspace . --apartado contratos"
 )
 RE_RASTRO_CONTRATO = re.compile(
     r"^(\d{4}-\d{2}-\d{2})T[\d:]+\s+contrato mostrado:\s+(\S+)\s*$"

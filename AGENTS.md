@@ -52,7 +52,9 @@ files) de su aplicación, con una web local para que los valide mirando.
    carpeta de trabajo, fuera de aquí; si tu sesión está corriendo dentro de
    esta carpeta, pregúntale dónde quiere guardar su proyecto y trabaja allí.
 3. Los scripts de la herramienta se invocan con la ruta de ESTA carpeta:
-   `visor/servir.py` (la web local), `visor/validar.py` (validación de los
+   `web/servir.py` (la web local: los cuatro apartados en un puerto),
+   `web/abrir.py` (la lanza y la abre en el apartado que toca),
+   `visor/validar.py` (validación de los
    planos), `visor/generar_spec.py` (el spec de un plano),
    `visor/compilar.py` (la documentación completa de la aplicación),
    `visor/bootstrap.py` (monta el workspace de trabajo completo desde los
@@ -61,7 +63,8 @@ files) de su aplicación, con una web local para que los valide mirando.
    `visor/migrar_skills.py` (saca del descubrimiento skills locales de proceso sin borrarlas;
    las técnicas solo se conservan mediante `--permitir`) y
    `visor/doctor.py` (primer arranque: ¿funciona la herramienta en esta máquina?).
-4. **El tablero de control** (unidad 058) muestra en una sola web qué agentes
-   trabajan ahora, qué espera una decisión tuya, qué queda por hacer, qué se
-   entregó y toda la documentación del meta-repo. Sólo lee, no escribe nada:
-   `python3 visor_tablero/abrir.py --workspace <ruta del meta-repo>`.
+4. **El tablero de control** (unidad 058) es la PORTADA de esa web y muestra qué
+   agentes trabajan ahora, qué espera una decisión tuya, qué queda por hacer, qué
+   se entregó y toda la documentación del meta-repo. Sólo lee, no escribe nada:
+   `python3 web/abrir.py --workspace <ruta del meta-repo> --apartado tablero`.
+   Desde ahí se llega a los otros tres apartados sin cambiar de puerto.

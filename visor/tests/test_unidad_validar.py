@@ -6,12 +6,16 @@ escribía a mano. Aquí se exige que el método lo haga solo.
 
 - R1 — `unidad.py validar NNN-slug` genera el manifiesto de la validación guiada DESDE la
   ficha («Cómo lo pruebas tú» → pasos, evidencia → evidencia, `ficheros:` → adjuntos),
-  levanta el visor de presentaciones y abre el navegador. Idempotente.
-- R2 — `unidad.py nueva` y `unidad.py estado`, con contratos sin `aprobado:`, levantan el
-  visor de contratos y abren el navegador en ese contrato; con `--sin-navegador` solo
-  imprimen, y lo dicen.
-- R3 — `unidad.py cerrar --ok-usuario FECHA` exige un recibo `confirmado` del visor de
-  presentaciones para ESA unidad; un recibo `problema` bloquea y manda abrir un bug.
+  abre la web en el apartado Presentaciones y abre el navegador. Idempotente.
+- R2 — `unidad.py nueva` y `unidad.py estado`, con contratos sin `aprobado:`, abren la web
+  en el apartado Contratos y abren el navegador en ese contrato; con `--sin-navegador`
+  solo imprimen, y lo dicen.
+- R3 — `unidad.py cerrar --ok-usuario FECHA` exige un recibo `confirmado` del apartado
+  Presentaciones para ESA unidad; un recibo `problema` bloquea y manda abrir un bug.
+
+Desde la unidad 081 la web es UNA con cuatro apartados: el workspace de estos fixtures
+lleva `docs/00-metodo/requisitos/web/` (lo que reparte `ARCHIVOS_WEB`) y las URL que se
+comprueban son rutas de esa web, no cuatro puertos.
 
 Las pruebas que levantan un servidor de verdad lo hacen en un puerto libre y lo matan al
 terminar: nada queda escuchando cuando la suite acaba.
@@ -39,8 +43,10 @@ SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
 PLANTILLAS = RAIZ / "plantilla/docs/00-metodo/plantillas"
 HOY = datetime.date.today().isoformat()
 SALIDA = "SALIDA:"
-COMANDO_VISOR_CONTRATOS = "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+COMANDO_VISOR_CONTRATOS = "python3 main/web/abrir.py --workspace . --apartado contratos"
 
+sys.path.insert(0, str(RAIZ / "visor"))
+import bootstrap  # noqa: E402 - la lista única de la web (ARCHIVOS_WEB)
 sys.path.insert(0, str(RAIZ / "visor_presentaciones"))
 import manifestar  # noqa: E402 - se importa tras fijar la ruta del visor de presentaciones
 
@@ -115,24 +121,21 @@ class WorkspaceBase(unittest.TestCase):
         decision.parent.mkdir(parents=True)
         decision.write_text("# Paleta vigente\n", encoding="utf-8")
 
-        # El visor de presentaciones viaja al workspace igual que lo reparte `bootstrap.py`.
-        self.presentaciones = self.ws / "docs/00-metodo/requisitos/visor_presentaciones"
-        self.presentaciones.mkdir(parents=True)
-        for nombre in ("abrir.py", "manifestar.py", "servir.py", "plantilla.html"):
-            shutil.copy2(RAIZ / "visor_presentaciones" / nombre, self.presentaciones / nombre)
-        shutil.copy2(RAIZ / "visor_contratos/render.js", self.presentaciones / "render.js")
+        # La web viaja al workspace igual que la reparte `bootstrap.py`: UNA lista.
+        self.web = self.ws / "docs/00-metodo/requisitos/web"
+        self.web.mkdir(parents=True)
+        for nombre in bootstrap.ARCHIVOS_WEB:
+            shutil.copy2(bootstrap.origen_web(nombre), self.web / nombre)
+        shutil.copy2(RAIZ / "visor/revision.py",
+                     self.web.parent / "revision.py")
 
         self.repo = self.ws / "main"
         (self.repo / "app").mkdir(parents=True)
         for indice in range(1, 4):
             (self.repo / "app" / f"modulo{indice}.py").write_text(
                 "print('base')\n", encoding="utf-8")
-        # El visor de contratos vive en el repo de código (`main/visor_contratos/`): es
-        # exactamente la ruta que el método nombra en todos sus mensajes.
-        contratos = self.repo / "visor_contratos"
-        contratos.mkdir()
-        for nombre in ("servir.py", "plantilla.html", "render.js"):
-            shutil.copy2(RAIZ / "visor_contratos" / nombre, contratos / nombre)
+        # 081: no hay una copia por visor en el repo de código. La web del workspace,
+        # la de arriba, es la única — y es la ruta que `unidad.py` busca de segundas.
         self.git(self.repo, "init", "-b", "main")
         self.git(self.repo, "config", "user.name", "Test")
         self.git(self.repo, "config", "user.email", "test@example.com")
@@ -169,7 +172,8 @@ class WorkspaceBase(unittest.TestCase):
         else:
             entorno["IR_SIN_NAVEGADOR"] = "1"
         if puerto is not None:
-            entorno["IR_PUERTO_VISOR_CONTRATOS"] = str(puerto)
+            # 081: un solo puerto para la web entera (R6).
+            entorno["INGENIERIA_REQUISITOS_PUERTO"] = str(puerto)
         return entorno
 
     def ejecutar(self, script, *args, con_pantalla=False, puerto=None):
@@ -394,9 +398,9 @@ class ValidarGeneraElManifiestoTest(WorkspaceBase):
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
-        url = f"http://127.0.0.1:{puerto}/presentacion/{nombre}"
+        url = f"http://127.0.0.1:{puerto}/presentaciones/{nombre}"
         self.assertIn(url, self.urls_abiertas(), salida)
-        servido = leer(f"http://127.0.0.1:{puerto}/manifiesto.json")
+        servido = leer(f"http://127.0.0.1:{puerto}/presentaciones/{nombre}/manifiesto.json")
         self.assertIsNotNone(servido, salida)
         self.assertEqual([p["id"] for p in servido["presentaciones"]], [nombre])
 
@@ -418,7 +422,7 @@ class ContratoQueSeAbreSoloTest(WorkspaceBase):
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
-        self.assertIn(f"http://127.0.0.1:{puerto}/#001-pendiente-de-ok",
+        self.assertIn(f"http://127.0.0.1:{puerto}/contratos#001-pendiente-de-ok",
                       self.urls_abiertas(), salida)
         self.assertIsNotNone(leer(f"http://127.0.0.1:{puerto}/meta.json"), salida)
 
@@ -444,7 +448,7 @@ class ContratoQueSeAbreSoloTest(WorkspaceBase):
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
-        self.assertIn(f"http://127.0.0.1:{puerto}/#001-pendiente-de-ok",
+        self.assertIn(f"http://127.0.0.1:{puerto}/contratos#001-pendiente-de-ok",
                       self.urls_abiertas(), salida)
 
     def test_estado_sin_contratos_pendientes_no_abre_nada(self):
@@ -458,7 +462,7 @@ class ContratoQueSeAbreSoloTest(WorkspaceBase):
 
 # ============================================================================ R3
 class ElOkSeLeeNoSeTecleaTest(WorkspaceBase):
-    """R3 — `--ok-usuario` sin recibo del visor es una fecha tecleada, no un OK."""
+    """R3 — `--ok-usuario` sin recibo del apartado es una fecha tecleada, no un OK."""
 
     def test_cerrar_sin_recibo_bloquea_y_nombra_validar(self):
         nombre = self.unidad_cerrable("sin-recibo")
@@ -527,17 +531,83 @@ class ElOkSeLeeNoSeTecleaTest(WorkspaceBase):
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
 
-    def test_sin_visor_de_presentaciones_la_puerta_avisa_pero_no_bloquea(self):
+    def test_sin_la_web_del_metodo_la_puerta_avisa_pero_no_bloquea(self):
         """Una puerta cuyo ejecutor no está en este workspace se dice, no se finge
-        (ADR-029): sin `visor_presentaciones/` no hay recibo que pedir."""
-        nombre = self.unidad_cerrable("sin-visor")
-        shutil.rmtree(self.presentaciones)
+        (ADR-029): sin `requisitos/web/` no hay recibo que pedir."""
+        nombre = self.unidad_cerrable("sin-web")
+        shutil.rmtree(self.web)
 
         resultado = self.ejecutar(self.unidad, "cerrar", nombre, "--ok-usuario", HOY)
 
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
-        self.assertIn("visor de presentaciones", salida.lower())
+        self.assertIn("web del método", salida.lower())
+
+
+# ==================================================== R2/R3 en el layout del meta-repo
+
+class LayoutMetaRepoTest(WorkspaceBase):
+    """La web no siempre viaja aplanada: en el meta-repo del método viene con el repo de
+    código, bajo `main/`, y ahí cada visor conserva su carpeta — `manifestar.py` se queda
+    en `main/visor_presentaciones/`, que es de donde lo copia `ARCHIVOS_WEB`.
+
+    Exigir `manifestar.py` DENTRO de la carpeta de la web dejaba a este layout sin web:
+    ni `validar` abría la presentación ni `nueva`/`estado` abrían el contrato. Es el
+    layout de este propio repo, así que no tenerlo cubierto era no probar la casa.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Aquí NO hay reparto al workspace: el repo de código está clonado en `main/`.
+        shutil.rmtree(self.web)
+        for destino, (carpeta, fichero) in bootstrap.ARCHIVOS_WEB.items():
+            copia = self.repo / carpeta / fichero
+            copia.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bootstrap.origen_web(destino), copia)
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-m", "web del método en el repo de código")
+        self.sha = self.git(self.repo, "rev-parse", "HEAD")
+        self.assertFalse((self.repo / "web/manifestar.py").exists(),
+                         "en este layout manifestar.py vive en su visor, no en web/")
+
+    def test_validar_encuentra_la_web_en_main_con_manifestar_en_su_visor(self):
+        nombre = self.unidad_con_rama("layout-meta-repo")
+
+        resultado = self.ejecutar(self.unidad, "validar", nombre, "--sin-navegador")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no encuentro la web del método", salida)
+        ruta = self.datos_de(nombre) / "manifiesto.json"
+        self.assertTrue(ruta.is_file(), salida)
+        datos = manifestar.validar(json.loads(ruta.read_text(encoding="utf-8")))
+        self.assertEqual([p["id"] for p in datos["presentaciones"]], [nombre])
+
+    def test_estado_abre_el_contrato_con_la_web_de_main(self):
+        pid = self.capturar("Nueva unidad en el meta-repo")
+        self.evaluar(pid)
+        creada = self.ejecutar(self.unidad, "nueva", "feature", "contrato-en-main",
+                               "--desde", pid)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        puerto = self.puerto_de_pruebas()
+
+        resultado = self.ejecutar(self.unidad, "estado", con_pantalla=True, puerto=puerto)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no encuentro la web del método", salida)
+        self.assertIn(f"http://127.0.0.1:{puerto}/contratos#001-contrato-en-main",
+                      self.urls_abiertas(), salida)
+
+    def test_la_puerta_del_recibo_no_avisa_de_una_web_que_si_esta(self):
+        nombre = self.unidad_cerrable("recibo-en-main")
+        self.dejar_recibo(nombre, "confirmado")
+
+        resultado = self.ejecutar(self.unidad, "cerrar", nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no hay web del método en este workspace", salida)
 
 
 if __name__ == "__main__":

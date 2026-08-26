@@ -1,7 +1,11 @@
 #!/usr/bin/env python3
-"""Servidor local de presentaciones y recibos de decisión inmutables."""
+"""Presentaciones y recibos de decisión inmutables: el apartado «Presentaciones».
 
-import argparse
+Desde la unidad 081 esto NO es un servidor: es el módulo de datos que `web/servir.py`
+monta bajo `/presentaciones/<unidad>/`. Los recibos siguen cayendo en
+`.runtime/presentaciones/<unidad>/recibos/`, que es donde los lee `unidad.py cerrar`.
+"""
+
 import hashlib
 import http.server
 import json
@@ -9,10 +13,8 @@ import os
 import re
 import socket
 import sys
-import threading
 import time
 import uuid
-import webbrowser
 from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
@@ -324,31 +326,8 @@ def hacer_handler(datos, estado, workspace=None):
 
     return Handler
 
-
-def main():
-    p = argparse.ArgumentParser()
-    p.add_argument("--datos", required=True)
-    p.add_argument("--workspace", help="raíz del meta-repo/main para servir adjuntos; se detecta sola si se omite")
-    p.add_argument("--puerto", type=int, default=8767)
-    p.add_argument("--sin-navegador", action="store_true")
-    args = p.parse_args()
-    datos = Path(args.datos).resolve()
-    _leer_manifiesto(datos)
-    workspace = Path(args.workspace).resolve() if args.workspace else None
-    servidor = ServidorPresentaciones(
-        ("127.0.0.1", args.puerto), hacer_handler(datos, {"ultimo": time.time()}, workspace)
-    )
-    url = f"http://127.0.0.1:{servidor.server_port}/"
-    print("Presentaciones locales: " + url, flush=True)
-    if not args.sin_navegador:
-        webbrowser.open(url)
-    try:
-        servidor.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        servidor.server_close()
-
-
-if __name__ == "__main__":
-    main()
+# 081: este fichero dejó de ser un programa. Es el MÓDULO DE DATOS del apartado
+# «Presentaciones» de la web única: `web/servir.py` importa `hacer_handler` y le
+# monta estas rutas bajo `/presentaciones/<unidad>/`. Los recibos de decisión
+# siguen cayendo en `.runtime/presentaciones/<unidad>/recibos/`, que es donde los
+# lee `unidad.py cerrar --ok-usuario`.

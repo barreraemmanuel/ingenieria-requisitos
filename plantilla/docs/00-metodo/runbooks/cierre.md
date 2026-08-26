@@ -229,10 +229,10 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    El usuario decide ahí, en la web: `confirmado` o `problema`. Su decisión queda en un recibo
    inmutable que el paso 6 LEE — una fecha tecleada por el agente ya no vale por un OK
    (bug 057). **Sin su OK no hay cierre**; un `problema` no se discute: se abre una unidad
-   tipo `bug` con su ejemplo — y su contrato pide el mismo OK que cualquier otro, con el visor
-   de contratos, que los comandos de creación y `unidad.py estado` también levantan solos
-   (`python3 main/visor_contratos/servir.py --workspace . --minutos 0` es el mismo comando, a
-   mano). La fecha de ese OK es lo que se le pasa al comando del paso 6.
+   tipo `bug` con su ejemplo — y su contrato pide el mismo OK que cualquier otro, en el
+   apartado de contratos de la web, que los comandos de creación y `unidad.py estado`
+   también abren solos (`python3 main/web/abrir.py --workspace . --apartado contratos` es
+   el mismo comando, a mano). La fecha de ese OK es lo que se le pasa al comando del paso 6.
 
    **El resumen que se le pega en la conversación** —además de la web, nunca en su lugar—:
 

@@ -6,7 +6,7 @@ import threading
 import unittest
 from pathlib import Path
 
-from visor_presentaciones import abrir, manifestar, servir
+from visor_presentaciones import manifestar, servir
 
 
 def manifiesto_valido():
@@ -112,30 +112,11 @@ class PruebasManifiesto(unittest.TestCase):
                     manifestar.validar(datos)
 
 
-class PruebasLanzadorEstable(unittest.TestCase):
-    def test_abre_y_reutiliza_la_ruta_directa_con_servidor_vivo(self):
-        with tempfile.TemporaryDirectory() as temporal:
-            datos = Path(temporal)
-            (datos / "manifiesto.json").write_text(
-                json.dumps(manifiesto_valido()), encoding="utf-8"
-            )
-            try:
-                puerto = abrir._puerto_libre()
-            except PermissionError:
-                raise unittest.SkipTest("sandbox sin sockets locales")
-            args = abrir.argumentos_prueba(
-                puerto=puerto, presentacion="propuesta-uno"
-            )
-            primera = abrir.abrir(datos, args)
-            self.addCleanup(abrir.detener, primera.proceso)
-            self.assertTrue(primera.url.endswith("/presentacion/propuesta-uno"))
-            with urllib.request.urlopen(primera.url, timeout=3) as respuesta:
-                self.assertEqual(respuesta.status, 200)
+# 081: `visor_presentaciones/abrir.py` se fundió en `web/abrir.py` — hay UN lanzador
+# para los cuatro apartados y un solo puerto por workspace. Levantar la sesión y
+# reutilizarla se prueba allí, en `web/tests/test_web_unica.py::AbrirTest`, y la ruta
+# directa a una presentación, en el mismo fichero (`/presentaciones/<unidad>`).
 
-            segunda = abrir.abrir(datos, args)
-
-            self.assertEqual(segunda.url, primera.url)
-            self.assertIsNone(segunda.proceso)
 
 class PruebasServidor(unittest.TestCase):
     def setUp(self):
@@ -194,7 +175,7 @@ class PruebasServidor(unittest.TestCase):
         self.assertEqual(estado, 200)
         meta = json.loads(cuerpo)
         self.assertEqual(meta["servicio"], "visor-presentaciones")
-        self.assertEqual(meta["huella_datos"], abrir.huella_datos(self.datos))
+        self.assertEqual(meta["huella_datos"], servir.huella_datos(self.datos))
         self.assertNotIn("datos", meta)
         self.assertNotIn(str(self.datos), cuerpo.decode("utf-8"))
 

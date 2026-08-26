@@ -50,7 +50,7 @@ dos OK del método tienen COMANDO, y el comando abre el navegador solo.
 
 - **OK sobre un contrato** (aprobar una unidad o un bug): `unidad.py nueva <tipo> <slug>
   --desde P-ID` y `unidad.py estado` levantan el visor de contratos y lo abren en el contrato
-  sin aprobar. A mano: `python3 main/visor_contratos/servir.py --workspace . --minutos 0`.
+  sin aprobar. A mano: `python3 main/web/abrir.py --workspace . --apartado contratos`.
 - **OK sobre una entrega** (probar lo entregado, paso 5 de `runbooks/cierre.md`):
   `python3 docs/00-metodo/scripts/unidad.py validar NNN-slug` — genera la validación guiada
   desde la ficha, levanta el visor de presentaciones y la abre. El usuario decide ahí

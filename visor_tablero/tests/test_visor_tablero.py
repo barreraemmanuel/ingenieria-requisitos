@@ -574,10 +574,13 @@ class DocumentacionTest(ConWorkspace):
         self.assertEqual(
             RENDER_JS_CONTRATOS.read_text(encoding="utf-8"), cuerpo
         )
-        # y la plantilla lo CARGA, no lo lleva dentro
+        # 081: lo carga la CÁSCARA, una sola vez para los cuatro apartados; la
+        # sección del tablero ni lo lleva dentro ni lo vuelve a pedir.
         html = PLANTILLA.read_text(encoding="utf-8")
-        self.assertIn('<script src="/render.js"></script>', html)
         self.assertNotIn("function bloques(", html)
+        self.assertNotIn('<script src="/render.js"></script>', html)
+        cascara = (BASE.parent / "web" / "plantilla.html").read_text(encoding="utf-8")
+        self.assertIn('<script src="/render.js"></script>', cascara)
 
 
 # --------------------------------------------------------------------------- R6
@@ -998,30 +1001,10 @@ class CacheTest(ConWorkspace):
         self.assertEqual([], cache.instantanea()["ahora"]["vivos"])
 
 
-class AbrirTest(ConWorkspace):
-    """`abrir.py`: una sesión por workspace, y ni una de más."""
-
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.abrir = _cargar(BASE / "abrir.py", "abrir_tablero_bajo_prueba")
-
-    def test_levanta_el_tablero_y_la_segunda_llamada_reutiliza_el_mismo(self):
-        args = self.abrir.argumentos_prueba()
-        resultado = self.abrir.abrir(str(self.raiz), args)
-        try:
-            self.assertTrue(resultado.url.startswith("http://127.0.0.1:"))
-            self.assertIsNotNone(resultado.proceso)
-            otra = self.abrir.abrir(str(self.raiz), args)
-            self.assertEqual(resultado.url, otra.url)
-            self.assertIsNone(otra.proceso)   # no ha levantado un segundo
-        finally:
-            self.abrir.detener(resultado.proceso)
-
-    def test_una_carpeta_que_no_es_meta_repo_se_rechaza_sin_levantar_nada(self):
-        with tempfile.TemporaryDirectory() as vacio:
-            with self.assertRaises(ValueError):
-                self.abrir.abrir(vacio, self.abrir.argumentos_prueba())
+# 081: `visor_tablero/abrir.py` se fundió en `web/abrir.py` — hay UN lanzador para
+# los cuatro apartados. La sesión por workspace (levantar una sola y reutilizarla,
+# y rechazar una carpeta que no es meta-repo) se prueba allí, en
+# `web/tests/test_web_unica.py::AbrirTest`, sobre la web entera.
 
 
 class FrontmatterTest(unittest.TestCase):
