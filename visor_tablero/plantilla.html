@@ -300,8 +300,7 @@
   function pintarAhora(f) {
     var d = f.ahora;
     var html = '<h2 class="seccion">Ahora</h2>' +
-      '<div class="seccion-nota">Agentes con recibo abierto y cerrojo vivo. ' +
-      'Leído ' + esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
+      '<div class="seccion-nota">Quién trabaja ahora mismo · ' + esc(fecha(d.leido)) + "</div>" + fuenteRota(d);
     if (!d.vivos.length) {
       html += '<div class="vacio-corto">Ahora mismo no trabaja ningún agente.</div>';
     } else {
@@ -353,9 +352,7 @@
   function pintarTeToca(f) {
     var d = f.te_toca;
     return '<h2 class="seccion">Te toca a ti</h2>' +
-      '<div class="seccion-nota">Lo que está parado esperando una decisión ' +
-      'tuya. Cada línea lleva a la web donde se decide. Leído ' +
-      esc(fecha(d.leido)) + ".</div>" + fuenteRota(d) +
+      '<div class="seccion-nota">Parado hasta que decidas · ' + esc(fecha(d.leido)) + "</div>" + fuenteRota(d) +
       '<div class="subtitulo">Contratos por aprobar · ' + d.contratos.length + '</div>' +
       (d.contratos.length
         ? '<div class="tarjetas">' + d.contratos.map(function (c) {
@@ -373,8 +370,7 @@
         return enlaceA(f, "presentaciones", "/" + encodeURIComponent(v.unidad), v.unidad);
       }, "Nada pendiente de validar.") +
       '<div class="subtitulo">Peticiones sin encaminar · ' + d.peticiones.length + '</div>' +
-      '<div class="seccion-nota">Todavía no hay una web donde decidirlas: se ' +
-      'evalúan hablando con el agente.</div>' +
+      '<div class="seccion-nota">Se deciden hablando con el agente.</div>' +
       lista(d.peticiones, function (p) { return esc(p.resumen || ""); },
             "Ninguna petición capturada sin evaluar.");
   }
@@ -382,9 +378,7 @@
   function pintarPorHacer(f) {
     var d = f.por_hacer;
     var html = '<h2 class="seccion">Por hacer</h2>' +
-      '<div class="seccion-nota">Cada unidad abre su contrato en el visor de ' +
-      'contratos, y su flujo en el visor de flujos. Leído ' +
-      esc(fecha(d.leido)) + ".</div>" + fuenteRota(d);
+      '<div class="seccion-nota">Aprobado y en cola · ' + esc(fecha(d.leido)) + "</div>" + fuenteRota(d);
     html += d.unidades.length
       ? '<div class="tarjetas">' + d.unidades.map(function (u) {
           var plan = u.plan
