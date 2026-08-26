@@ -41,10 +41,22 @@ OBLIGATORIOS = ("schema", "id", "timestamp", "fase", "sintoma", "esperado", "act
 # workspaces la reciben; el contrato del endpoint vive con el autor de la herramienta.
 ENDPOINT_FEEDBACK = ""
 
+AYUDA_LISTAR = "python3 docs/00-metodo/scripts/caja_negra.py listar --repo <repo>"
+
 LIMITE_ENVIO = 60 * 1024  # tope del paquete: suficiente contexto sin volcar historia entera
 
-# Rutas con el nombre del usuario dentro: en el envío se colapsan a `~`.
-RE_HOME = re.compile(r"/(?:Users|home)/[^/\s\"'\\]+")
+# Rutas con el nombre del usuario dentro: en el envío se colapsan a `~`. Dos familias, y
+# ninguna es opcional: POSIX (`/Users/x`, `/home/x`) y Windows (`C:\Users\x`, `C:/Users/x`,
+# en cualquier caja). Sin la rama de Windows, `C:\Users\fernando\…` viajaba entero y
+# `C:/Users/fernando/…` salía a medio colapsar como `C:~/…` (bug 085).
+RE_HOME = re.compile(
+    r"(?:(?i:[A-Za-z]:[\\/]Users[\\/])|/(?:Users|home)/)[^/\\\s\"']+"
+)
+
+# El perfil real no se adivina: si el entorno lo dice, su valor literal se borra ANTES que
+# nada. Cubre perfiles que no viven bajo `C:\Users` (`D:\datos\fernando`, `/opt/gente/x`).
+CLAVES_PERFIL = ("USERPROFILE", "HOME")
+LARGO_MINIMO_PERFIL = 4  # `/`, `C:\` y demás raíces no son un nombre de usuario
 
 # Formas de credencial reconocibles que la redacción genérica no sabe limpiar (no van
 # precedidas de `clave=`): si una sobrevive a la redacción, NO se envía nada.
@@ -262,8 +274,27 @@ def validar(args):
     return 0
 
 
+def perfiles_del_entorno():
+    """Valores de USERPROFILE/HOME que valen como raíz del usuario, del más largo al más corto."""
+    valores = []
+    for clave in CLAVES_PERFIL:
+        valor = (os.environ.get(clave) or "").strip().rstrip("\\/")
+        if len(valor) >= LARGO_MINIMO_PERFIL and valor not in valores:
+            valores.append(valor)
+    return sorted(valores, key=len, reverse=True)
+
+
+def _patron_perfil(valor):
+    """El perfil, insensible a la caja y a la barra que separe (Windows mezcla las dos)."""
+    partes = [re.escape(parte) for parte in re.split(r"[\\/]", valor)]
+    return re.compile("[\\\\/]".join(partes), re.IGNORECASE)
+
+
 def redactar_envio(texto):
     """Redacción reforzada para lo que sale del ordenador: secretos + rutas de usuario."""
+    texto = texto or ""
+    for valor in perfiles_del_entorno():
+        texto = _patron_perfil(valor).sub("~", texto)
     return RE_HOME.sub("~", redactar(texto))
 
 
@@ -294,13 +325,15 @@ def credencial_residual(texto):
     return ""
 
 
-def empaquetar(incidentes, version, limite=None):
+def empaquetar(incidentes, version, limite=None, total=None):
     """Paquete de envío. Si no cabe en `limite` bytes, conserva los MÁS RECIENTES.
 
     Devuelve (paquete, texto JSON). El JSONL es cronológico: truncar es descartar por
-    delante. La plataforma viaja sin hostname ni usuario.
+    delante. La plataforma viaja sin hostname ni usuario. `total` es cuántos hay
+    REGISTRADOS: con `--incidente` no coincide con los que se empaquetan, y `truncado`
+    sigue significando «no cupo», nunca «elegiste menos».
     """
-    total = len(incidentes)
+    total = len(incidentes) if total is None else total
     recorte = list(incidentes)
     while True:
         paquete = {
@@ -313,7 +346,7 @@ def empaquetar(incidentes, version, limite=None):
             },
             "total_registrados": total,
             "incluidos": len(recorte),
-            "truncado": len(recorte) < total,
+            "truncado": len(recorte) < len(incidentes),
             "incidentes": recorte,
         }
         texto = json.dumps(paquete, ensure_ascii=False, indent=2, sort_keys=True)
@@ -325,6 +358,32 @@ def empaquetar(incidentes, version, limite=None):
 
 
 
+def seleccionar_incidentes(incidentes, elegidos):
+    """Los incidentes cuyo id empieza por alguno de `elegidos`, en el orden del JSONL.
+
+    Un prefijo que no casa con nada, o que casa con varios, PARA el envío: compartir de más
+    es justo el defecto que este flag viene a arreglar.
+    """
+    if not elegidos:
+        return list(incidentes)
+    encontrados = {}
+    for prefijo in elegidos:
+        clave = str(prefijo).strip()
+        casan = [i for i in incidentes if str(i.get("id", "")).startswith(clave)]
+        if not casan:
+            morir(
+                f"no hay ningún incidente cuyo id empiece por '{clave}'; míralos con "
+                f"`{AYUDA_LISTAR}` y repite `enviar --incidente <ID>`."
+            )
+        if len(casan) > 1:
+            morir(
+                f"'{clave}' casa con {len(casan)} incidentes; dame más letras del id. "
+                f"Los ves enteros con `{AYUDA_LISTAR}`."
+            )
+        encontrados[str(casan[0].get("id", ""))] = casan[0]
+    return [i for i in incidentes if str(i.get("id", "")) in encontrados]
+
+
 def enviar(args):
     repo = repo_valido(args)
     # (a) Redactar ANTES de cualquier salida: nada del JSONL crudo llega a la pantalla.
@@ -332,9 +391,13 @@ def enviar(args):
     if not crudos:
         print("No hay nada que enviar: la caja negra está vacía.")
         return 0
-    incidentes = [redactar_incidente(incidente) for incidente in crudos]
+    elegidos = list(getattr(args, "incidente", None) or [])
+    seleccion = seleccionar_incidentes(crudos, elegidos)
+    incidentes = [redactar_incidente(incidente) for incidente in seleccion]
     version = version_metodo(repo)
-    paquete, texto = empaquetar(incidentes, version, limite=LIMITE_ENVIO)
+    paquete, texto = empaquetar(
+        incidentes, version, limite=LIMITE_ENVIO, total=len(crudos)
+    )
     # (e) Si tras redactar queda una credencial reconocible, no sale nada de aquí.
     residuo = credencial_residual(texto)
     if residuo:
@@ -348,8 +411,19 @@ def enviar(args):
           "hostname y sin tu nombre de usuario en las rutas):\n")
     print(texto)
     if paquete["truncado"]:
-        print(f"\nAviso: de {paquete['total_registrados']} incidentes solo viajan los "
+        print(f"\nAviso: de los {len(incidentes)} incidentes elegidos solo viajan los "
               f"{paquete['incluidos']} más recientes; el paquete no cabía entero.")
+    # (f) Cuántos van, siempre, y cómo mandar menos: el envío entero no puede ser una
+    # sorpresa que se descubre leyendo el JSON de arriba (bug 085).
+    if elegidos:
+        print(f"\nVan {paquete['incluidos']} incidente(s) de "
+              f"{paquete['total_registrados']} registrados (los que has elegido con "
+              "--incidente).")
+    else:
+        print(f"\nVan los {paquete['incluidos']} incidente(s) registrados, TODOS. Para "
+              "compartir solo alguno, repite el comando con `--incidente <ID>` (vale el "
+              "principio del id, y el flag se puede repetir); los ids los da "
+              f"`{AYUDA_LISTAR}`.")
     print("\nCompartirlo es VOLUNTARIO y sirve solo para mejorar el método. "
           "No se envía nada más que lo de arriba.")
     if not args.si:
@@ -430,6 +504,9 @@ def main():
     p.add_argument("--repo", default=".", help="raíz declarada del meta-repo")
     p.add_argument("--si", action="store_true",
                    help="no preguntar (para uso no interactivo); el envío sigue siendo opt-in")
+    p.add_argument("--incidente", action="append", default=[], metavar="ID",
+                   help="comparte SOLO este incidente (vale el principio del id); "
+                        "repetible. Sin el flag viajan todos")
     p.set_defaults(func=enviar)
     args = parser.parse_args()
     return args.func(args)

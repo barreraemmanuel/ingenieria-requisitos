@@ -8,6 +8,7 @@ import sys
 import tempfile
 import types
 import unittest
+import unittest.mock
 import uuid
 from pathlib import Path
 
@@ -103,7 +104,7 @@ class EnvioSinGhTest(unittest.TestCase):
             encoding="utf-8",
         )
 
-    def enviar_sin_gh(self):
+    def enviar_sin_gh(self, incidente=None):
         """Ejecuta `enviar --si` con gh AUSENTE (mock); prohíbe cualquier subproceso."""
         sin_gh = types.SimpleNamespace(which=lambda *_: None)
         def prohibido(*args, **kwargs):
@@ -115,7 +116,9 @@ class EnvioSinGhTest(unittest.TestCase):
         try:
             with contextlib.redirect_stdout(salida):
                 codigo = caja_negra.enviar(
-                    argparse.Namespace(repo=str(self.repo), si=True)
+                    argparse.Namespace(
+                        repo=str(self.repo), si=True, incidente=list(incidente or [])
+                    )
                 )
         finally:
             caja_negra.shutil, caja_negra.subprocess = original
@@ -287,6 +290,140 @@ class RegistrarYValidarTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
         self.assertIn("malformado", resultado.stdout)
         self.assertIn("sintoma", resultado.stdout)
+
+
+class RedaccionRutasWindowsTest(unittest.TestCase):
+    """Bug 085 (1): la promesa del envío es «sin tu nombre de usuario en las rutas».
+
+    En Windows nunca se cumplía: `RE_HOME` solo colapsaba rutas POSIX.
+    """
+
+    def test_ruta_windows_con_contrabarra_pierde_el_nombre_de_usuario(self):
+        limpio = caja_negra.redactar_incidente(
+            incidente_crudo(actual=r"falla en C:\Users\fernando\proyecto\x.py")
+        )
+
+        self.assertEqual(limpio["actual"], r"falla en ~\proyecto\x.py")
+
+    def test_ruta_windows_con_barra_normal_y_en_minusculas_tambien(self):
+        limpio = caja_negra.redactar_incidente(
+            incidente_crudo(
+                actual="C:/Users/fernando/proyecto/x.py",
+                workaround=r"c:\users\fernando\otro.log",
+            )
+        )
+
+        self.assertEqual(limpio["actual"], "~/proyecto/x.py")
+        self.assertEqual(limpio["workaround"], r"~\otro.log")
+
+    def test_ninguna_forma_del_nombre_sobrevive_al_paquete_entero(self):
+        crudo = incidente_crudo(
+            repo_root=r"C:\Users\fernando\proyecto",
+            cwd="C:/Users/fernando/proyecto",
+            actual=r"D:\Users\Fernando\copias\log.txt",
+        )
+
+        _, texto = caja_negra.empaquetar(
+            [caja_negra.redactar_incidente(crudo)], "1.1.0"
+        )
+
+        self.assertNotIn("fernando", texto.lower())
+        self.assertNotIn("Users", texto)
+
+    def test_userprofile_definido_se_sustituye_literal_aunque_no_sea_c_users(self):
+        """El perfil real no se adivina: si el entorno lo dice, se borra tal cual."""
+        with unittest.mock.patch.dict(
+            caja_negra.os.environ, {"USERPROFILE": r"D:\datos\fernando"}, clear=False
+        ):
+            limpio = caja_negra.redactar_incidente(
+                incidente_crudo(actual=r"no encuentro D:\datos\fernando\notas.md")
+            )
+
+        self.assertEqual(limpio["actual"], r"no encuentro ~\notas.md")
+
+    def test_home_definido_se_sustituye_literal(self):
+        with unittest.mock.patch.dict(
+            caja_negra.os.environ, {"HOME": "/opt/gente/fernando"}, clear=False
+        ):
+            limpio = caja_negra.redactar_incidente(
+                incidente_crudo(actual="cwd=/opt/gente/fernando/proyecto")
+            )
+
+        self.assertEqual(limpio["actual"], "cwd=~/proyecto")
+
+
+class ElegirIncidentesTest(EnvioSinGhTest):
+    """Bug 085 (2): `enviar` empaquetaba SIEMPRE el JSONL entero."""
+
+    def tres_incidentes(self):
+        incidentes = [
+            incidente_crudo(id=f"{letra * 8}-0000-0000-0000-{letra * 12}", sintoma=f"caso {letra}")
+            for letra in ("a", "b", "c")
+        ]
+        self.escribir_jsonl(incidentes)
+        return incidentes
+
+    def paquete_escrito(self):
+        envios = sorted((self.repo / ".caja-negra").glob("envio-*.json"))
+        self.assertEqual(len(envios), 1)
+        return json.loads(envios[0].read_text(encoding="utf-8"))
+
+    def test_con_incidente_solo_viaja_ese(self):
+        incidentes = self.tres_incidentes()
+
+        codigo, salida = self.enviar_sin_gh(incidente=[incidentes[1]["id"]])
+
+        self.assertEqual(codigo, 0)
+        paquete = self.paquete_escrito()
+        self.assertEqual(paquete["incluidos"], 1)
+        self.assertEqual(paquete["total_registrados"], 3)
+        self.assertEqual(paquete["incidentes"][0]["id"], incidentes[1]["id"])
+        self.assertNotIn("caso a", salida)
+
+    def test_el_prefijo_del_id_basta_y_el_flag_se_repite(self):
+        incidentes = self.tres_incidentes()
+
+        codigo, _ = self.enviar_sin_gh(incidente=["aaaa", "cccc"])
+
+        self.assertEqual(codigo, 0)
+        paquete = self.paquete_escrito()
+        self.assertEqual(paquete["incluidos"], 2)
+        self.assertEqual(
+            [i["id"] for i in paquete["incidentes"]],
+            [incidentes[0]["id"], incidentes[2]["id"]],
+        )
+
+    def test_sin_el_flag_la_vista_previa_dice_cuantos_van_y_como_elegir(self):
+        self.tres_incidentes()
+
+        codigo, salida = self.enviar_sin_gh()
+
+        self.assertEqual(codigo, 0)
+        self.assertIn("3", salida)
+        self.assertIn("--incidente", salida)
+
+    def test_id_desconocido_no_envia_nada_y_dice_como_verlos(self):
+        self.tres_incidentes()
+
+        with self.assertRaises(SystemExit) as contexto:
+            self.enviar_sin_gh(incidente=["zzzz"])
+
+        mensaje = str(contexto.exception)
+        self.assertIn("zzzz", mensaje)
+        self.assertIn("listar", mensaje)
+        self.assertEqual(list((self.repo / ".caja-negra").glob("envio-*.json")), [])
+
+    def test_prefijo_ambiguo_no_envia_nada_y_pide_mas_letras(self):
+        self.escribir_jsonl([
+            incidente_crudo(id="ab111111-0000-0000-0000-000000000001"),
+            incidente_crudo(id="ab222222-0000-0000-0000-000000000002"),
+        ])
+
+        with self.assertRaises(SystemExit) as contexto:
+            self.enviar_sin_gh(incidente=["ab"])
+
+        self.assertIn("ab", str(contexto.exception))
+        self.assertEqual(list((self.repo / ".caja-negra").glob("envio-*.json")), [])
 
 
 if __name__ == "__main__":
