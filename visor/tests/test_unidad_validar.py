@@ -544,5 +544,71 @@ class ElOkSeLeeNoSeTecleaTest(WorkspaceBase):
         self.assertIn("web del método", salida.lower())
 
 
+# ==================================================== R2/R3 en el layout del meta-repo
+
+class LayoutMetaRepoTest(WorkspaceBase):
+    """La web no siempre viaja aplanada: en el meta-repo del método viene con el repo de
+    código, bajo `main/`, y ahí cada visor conserva su carpeta — `manifestar.py` se queda
+    en `main/visor_presentaciones/`, que es de donde lo copia `ARCHIVOS_WEB`.
+
+    Exigir `manifestar.py` DENTRO de la carpeta de la web dejaba a este layout sin web:
+    ni `validar` abría la presentación ni `nueva`/`estado` abrían el contrato. Es el
+    layout de este propio repo, así que no tenerlo cubierto era no probar la casa.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # Aquí NO hay reparto al workspace: el repo de código está clonado en `main/`.
+        shutil.rmtree(self.web)
+        for destino, (carpeta, fichero) in bootstrap.ARCHIVOS_WEB.items():
+            copia = self.repo / carpeta / fichero
+            copia.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(bootstrap.origen_web(destino), copia)
+        self.git(self.repo, "add", "-A")
+        self.git(self.repo, "commit", "-m", "web del método en el repo de código")
+        self.sha = self.git(self.repo, "rev-parse", "HEAD")
+        self.assertFalse((self.repo / "web/manifestar.py").exists(),
+                         "en este layout manifestar.py vive en su visor, no en web/")
+
+    def test_validar_encuentra_la_web_en_main_con_manifestar_en_su_visor(self):
+        nombre = self.unidad_con_rama("layout-meta-repo")
+
+        resultado = self.ejecutar(self.unidad, "validar", nombre, "--sin-navegador")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no encuentro la web del método", salida)
+        ruta = self.datos_de(nombre) / "manifiesto.json"
+        self.assertTrue(ruta.is_file(), salida)
+        datos = manifestar.validar(json.loads(ruta.read_text(encoding="utf-8")))
+        self.assertEqual([p["id"] for p in datos["presentaciones"]], [nombre])
+
+    def test_estado_abre_el_contrato_con_la_web_de_main(self):
+        pid = self.capturar("Nueva unidad en el meta-repo")
+        self.evaluar(pid)
+        creada = self.ejecutar(self.unidad, "nueva", "feature", "contrato-en-main",
+                               "--desde", pid)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        puerto = self.puerto_de_pruebas()
+
+        resultado = self.ejecutar(self.unidad, "estado", con_pantalla=True, puerto=puerto)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no encuentro la web del método", salida)
+        self.assertIn(f"http://127.0.0.1:{puerto}/contratos#001-contrato-en-main",
+                      self.urls_abiertas(), salida)
+
+    def test_la_puerta_del_recibo_no_avisa_de_una_web_que_si_esta(self):
+        nombre = self.unidad_cerrable("recibo-en-main")
+        self.dejar_recibo(nombre, "confirmado")
+
+        resultado = self.ejecutar(self.unidad, "cerrar", nombre, "--ok-usuario", HOY)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("no hay web del método en este workspace", salida)
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -287,6 +287,12 @@ RUTA_PRESENTACIONES = ".runtime/presentaciones"
 # (ARCHIVOS_WEB); en el meta-repo del método viene con el repo de código, bajo
 # `main/`. Desde la 081 es UNA sola carpeta para los cuatro apartados.
 CARPETAS_WEB = ("main/web", "docs/00-metodo/requisitos/web")
+# `manifestar.py` (el contrato JSON del manifiesto) NO vive en la carpeta de la web en los
+# dos layouts: en el repo de código sigue siendo del visor de presentaciones y solo viaja
+# aplanado a `requisitos/web/` en el workspace del alumno (ARCHIVOS_WEB). Se busca por
+# layouts, como todo lo demás, y solo hace falta para la validación guiada: exigirlo para
+# ABRIR contratos dejaba sin web al meta-repo entero.
+CARPETAS_MANIFESTAR = ("main/visor_presentaciones", "docs/00-metodo/requisitos/web")
 
 
 def comando_validar(nombre):
@@ -321,12 +327,23 @@ def carpeta_visor(candidatas, *ficheros):
 
 
 def carpeta_web():
-    """La carpeta de la web del método, en el layout que toque (081)."""
-    return carpeta_visor(CARPETAS_WEB, "abrir.py", "servir.py", "manifestar.py")
+    """La carpeta de la web del método, en el layout que toque (081).
+
+    Se exige lo que hace falta para LEVANTARLA —el servidor y el lanzador—, ni un fichero
+    más: `manifestar.py` no está aquí en el layout del meta-repo (`main/web/`) y pedirlo
+    hacía que `nueva`, `estado` y `validar` dijeran «no encuentro la web» teniéndola
+    delante.
+    """
+    return carpeta_visor(CARPETAS_WEB, "abrir.py", "servir.py")
 
 
-def modulos_de_la_web(carpeta):
-    """Carga `manifestar` y `abrir` DE LA WEB DEL WORKSPACE, no una copia.
+def carpeta_manifestar():
+    """Dónde está `manifestar.py`, que solo la validación guiada necesita."""
+    return carpeta_visor(CARPETAS_MANIFESTAR, "manifestar.py")
+
+
+def modulo_de_la_web(carpeta, nombre):
+    """Carga `<nombre>.py` DE LA WEB DEL WORKSPACE, no una copia.
 
     El contrato JSON del manifiesto y la mecánica de levantar la web viven ahí.
     Reimplementarlos aquí sería tener dos verdades del mismo formato, que es
@@ -334,15 +351,12 @@ def modulos_de_la_web(carpeta):
     """
     sys.path.insert(0, str(carpeta))
     try:
-        modulos = []
-        for nombre in ("manifestar", "abrir"):
-            spec = importlib.util.spec_from_file_location(
-                f"web_metodo_{nombre}", carpeta / f"{nombre}.py")
-            modulo = importlib.util.module_from_spec(spec)
-            sys.modules[spec.name] = modulo
-            spec.loader.exec_module(modulo)
-            modulos.append(modulo)
-        return modulos
+        spec = importlib.util.spec_from_file_location(
+            f"web_metodo_{nombre}", carpeta / f"{nombre}.py")
+        modulo = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = modulo
+        spec.loader.exec_module(modulo)
+        return modulo
     finally:
         with contextlib.suppress(ValueError):
             sys.path.remove(str(carpeta))
@@ -460,7 +474,7 @@ def abrir_visor_de_contratos(pendientes, sin_navegador):
         return [("warn", "no encuentro la web del método en este workspace "
                          f"({' ni '.join(CARPETAS_WEB)}). Enséñasela tú: "
                          + COMANDO_VISOR_CONTRATOS)]
-    _, mod_abrir = modulos_de_la_web(carpeta)
+    mod_abrir = modulo_de_la_web(carpeta, "abrir")
     argumentos = argparse.Namespace(
         apartado=f"contratos#{pendientes[0]}", puerto=None, minutos=0,
         sin_navegador=False)
@@ -603,7 +617,16 @@ def cmd_validar(args):
     evidencia = evidencia_de_la_ficha(texto_evidencia) or [
         f"sin evidencia escrita todavía en {rel(fuente_evidencia)}"]
 
-    mod_manifestar, mod_abrir = modulos_de_la_web(carpeta)
+    carpeta_manif = carpeta_manifestar()
+    if carpeta_manif is None:
+        fail(f"no encuentro manifestar.py en este workspace "
+             f"({' ni '.join(CARPETAS_MANIFESTAR)}): sin él no sé escribir el manifiesto "
+             f"de la validación guiada. {SALIDA} vuelve a repartir la web con el "
+             f"actualizador del workspace (`python3 main/visor/actualizar.py`) o clona el "
+             f"repo de código en main/")
+        return 1
+    mod_manifestar = modulo_de_la_web(carpeta_manif, "manifestar")
+    mod_abrir = modulo_de_la_web(carpeta, "abrir")
     presentacion = mod_manifestar.presentacion_validacion(
         nombre,
         f"{nombre} · cómo lo pruebas tú",

@@ -231,6 +231,53 @@ class UnSoloPuertoTest(ConWorkspace):
                 self.assertNotIn("HTTPServer(", ruta.read_text(encoding="utf-8"))
 
 
+class DatosBajoSuPrefijoTest(unittest.TestCase):
+    """R1 — «todos sus datos bajo su prefijo»: ningún guion de apartado puede pedir un
+    dato en relativo.
+
+    Montada la cáscara, `/flujos` (sin barra final) hace que `fetch("historial.json")`
+    resuelva a `/historial.json`, que es la portada o su 404, no el dato: el apartado se
+    queda sin lo que enseñaba y el `.catch` lo tapa en silencio. `RUTA(...)` es el único
+    sitio que sabe el prefijo (y devuelve la ruta de siempre servido suelto), así que
+    aquí se exige que TODA petición pase por él.
+    """
+
+    PLANTILLAS = ("visor/plantilla.html", "visor_contratos/plantilla.html",
+                  "visor_presentaciones/plantilla.html", "visor_tablero/plantilla.html")
+    LLAMADA = re.compile(r"\b(fetch|apiJSON)\(\s*(.{0,24})", re.S)
+
+    def test_ninguna_peticion_de_un_apartado_va_sin_RUTA(self):
+        for relativa in self.PLANTILLAS:
+            texto = (RAIZ / relativa).read_text(encoding="utf-8")
+            for funcion, argumento in self.LLAMADA.findall(texto):
+                with self.subTest(plantilla=relativa, llamada=argumento.split("\n")[0]):
+                    self.assertFalse(
+                        argumento.startswith(('"', "'", "`")),
+                        "%s: %s(%s…) pide un dato en relativo; envuélvelo en RUTA(...)"
+                        % (relativa, funcion, argumento.split("\n")[0]))
+
+    def test_el_historial_y_la_comparacion_de_flujos_cuelgan_del_prefijo(self):
+        """Los dos datos que se perdieron: se piden por su ruta absoluta del apartado."""
+        texto = (RAIZ / "visor/plantilla.html").read_text(encoding="utf-8")
+        for dato in ("historial.json", "comparacion.json"):
+            with self.subTest(dato=dato):
+                self.assertTrue('RUTA("/%s")' % dato in texto,
+                                "%s se sigue pidiendo sin RUTA(...)" % dato)
+
+    def test_servidos_bajo_la_cascara_esos_dos_datos_responden(self):
+        raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz, True)
+        web = ServidorDePrueba(raiz)
+        self.addCleanup(web.parar)
+        for dato in ("historial.json", "comparacion.json"):
+            with self.subTest(dato=dato):
+                estado, cabeceras, _ = web.pedir("/flujos/" + dato)
+                self.assertEqual(200, estado)
+                self.assertIn("json", cabeceras.get("Content-Type", ""))
+                # …y en relativo (sin el prefijo) NO están: por eso hay que usar RUTA.
+                self.assertEqual(404, web.pedir("/" + dato)[0])
+
+
 # --------------------------------------------------------------------------- R2
 
 class BarraYVueltaAtrasTest(unittest.TestCase):

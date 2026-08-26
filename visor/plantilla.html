@@ -1259,8 +1259,8 @@ async function cargar() {
     const encargo = await txtOpcional(RUTA("/" + base + "encargo.md"));
     const [historial, comparacion] =
       await Promise.all([
-        apiJSON("historial.json").catch(() => []),
-        apiJSON("comparacion.json").catch(() => ({
+        apiJSON(RUTA("/historial.json")).catch(() => []),
+        apiJSON(RUTA("/comparacion.json")).catch(() => ({
           hay_aprobacion: false, identico: false, planos: {}
         }))
       ]);
