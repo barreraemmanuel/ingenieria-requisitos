@@ -519,5 +519,83 @@ class LaFotoRealSePintaTest(unittest.TestCase):
         self.assertIn("/contratos#200-bug-abierto", pintado)
 
 
+
+
+def ejecutar_js(codigo):
+    """Corre `codigo` en node con la plantilla cargada y devuelve su stdout (bug 083)."""
+    node = shutil.which("node")
+    if not node:
+        raise unittest.SkipTest("sin node no se puede ejecutar el JS de la plantilla")
+    partes = [STUBS, RENDER_JS.read_text(encoding="utf-8")]
+    partes += scripts_inline(PLANTILLA.read_text(encoding="utf-8"))
+    partes.append(codigo)
+    with tempfile.TemporaryDirectory() as tmp:
+        guion = Path(tmp) / "plegables.js"
+        guion.write_text("\n".join(partes), encoding="utf-8")
+        hecho = subprocess.run([node, str(guion)], capture_output=True, text=True)
+    if hecho.returncode != 0:
+        raise AssertionError("la plantilla no pudo ejecutar el guion:\n%s" % hecho.stderr)
+    return hecho.stdout
+
+
+# Un `#panel` de mentira: guarda los <details data-plegable> que "contiene" y, al
+# asignarle innerHTML, los sustituye por otros nuevos y CERRADOS, que es exactamente lo
+# que hace el navegador al repintar (y lo que perdía el estado en el bug 083).
+PANEL_FALSO = """
+function panelFalso() {
+  var p = {detalles: []};
+  p.querySelectorAll = function () { return p.detalles; };
+  Object.defineProperty(p, "innerHTML", {set: function (html) {
+    p.detalles = [];
+    var re = /<details[^>]*data-plegable="([^"]+)"/g, m;
+    while ((m = re.exec(html))) {
+      p.detalles.push({dataset: {plegable: m[1]}, open: false});
+    }
+  }});
+  return p;
+}
+var HTML_CON = '<details class="plegable" data-plegable="terminados-hoy"><summary>x</summary></details>';
+var HTML_SIN = '<div>otra pestaña sin plegable</div>';
+"""
+
+
+class PlegableSobreviveAlSondeoTest(unittest.TestCase):
+    """Bug 083: el estado abierto/cerrado de un plegable sobrevive al repintado."""
+
+    def test_el_plegable_del_tablero_tiene_identidad(self):
+        """R1: para recordar un plegable hay que poder nombrarlo."""
+        pintado = pintar("pintarAhora", foto_sintetica())
+        apertura = pintado[pintado.index("<details"):pintado.index(">", pintado.index("<details"))]
+        self.assertIn('data-plegable="terminados-hoy"', apertura)
+
+    def test_abierto_sigue_abierto_y_cerrado_sigue_cerrado_tras_repintar(self):
+        """R1: un sondeo repinta el panel y el plegable conserva lo que el usuario hizo."""
+        salida = ejecutar_js(PANEL_FALSO + """
+var p = panelFalso();
+window.tablero.pintarEn(p, HTML_CON);          // carga: nace cerrado
+var nace = p.detalles[0].open;
+p.detalles[0].open = true;                      // el usuario lo abre
+window.tablero.pintarEn(p, HTML_CON);          // sondeo
+var trasSondeo = p.detalles[0].open;
+p.detalles[0].open = false;                     // el usuario lo cierra
+window.tablero.pintarEn(p, HTML_CON);          // otro sondeo
+var trasCerrar = p.detalles[0].open;
+process.stdout.write(JSON.stringify([nace, trasSondeo, trasCerrar]));
+""")
+        self.assertEqual(json.loads(salida), [False, True, False])
+
+    def test_cambiar_de_pestana_y_volver_conserva_el_estado(self):
+        """R3: la pestaña «te toca» no tiene el plegable; al volver a «ahora» sigue abierto."""
+        salida = ejecutar_js(PANEL_FALSO + """
+var p = panelFalso();
+window.tablero.pintarEn(p, HTML_CON);
+p.detalles[0].open = true;
+window.tablero.pintarEn(p, HTML_SIN);          // a otra pestaña
+window.tablero.pintarEn(p, HTML_CON);          // y vuelta
+process.stdout.write(JSON.stringify(p.detalles[0].open));
+""")
+        self.assertEqual(json.loads(salida), True)
+
+
 if __name__ == "__main__":
     unittest.main()
