@@ -361,7 +361,7 @@
     }
     /* R5: en «Ahora» sólo hay vida. Los que ya terminaron hoy siguen contados,
        pero plegados: se abren si te interesan, no gritan si no. */
-    html += '<details class="plegable"><summary>Han terminado hoy · ' +
+    html += '<details class="plegable" data-plegable="terminados-hoy"><summary>Han terminado hoy · ' +
       d.terminados_hoy.length + "</summary>";
     html += d.terminados_hoy.length
       ? '<div class="tarjetas">' + d.terminados_hoy.map(tarjetaQuieta).join("") + "</div>"
@@ -448,6 +448,24 @@
     });
   }
 
+  /* Bug 083: el sondeo repinta el panel entero y cada <details> renacía
+     cerrado, deshaciendo lo que el usuario acababa de abrir. Antes de repintar
+     se apunta qué plegables (por su data-plegable) están abiertos y después se
+     restauran. El mapa vive fuera del panel: sobrevive al sondeo y al cambio de
+     pestaña. Al cargar la página nace vacío, así que el plegable sigue
+     arrancando cerrado (R5 de la 067). */
+  var plegablesAbiertos = {};
+
+  function pintarEn(elemento, html) {
+    elemento.querySelectorAll("details[data-plegable]").forEach(function (d) {
+      plegablesAbiertos[d.dataset.plegable] = !!d.open;
+    });
+    elemento.innerHTML = html;
+    elemento.querySelectorAll("details[data-plegable]").forEach(function (d) {
+      if (plegablesAbiertos[d.dataset.plegable]) d.open = true;
+    });
+  }
+
   function pintar() {
     if (!foto) return;
     document.querySelectorAll("#secciones a").forEach(function (a) {
@@ -456,9 +474,9 @@
       if (suya) a.setAttribute("aria-current", "page");
       else a.removeAttribute("aria-current");
     });
-    if (actual === "ahora") panel.innerHTML = pintarAhora(foto);
-    else if (actual === "te-toca") panel.innerHTML = pintarTeToca(foto);
-    else panel.innerHTML = pintarPorHacer(foto);
+    if (actual === "ahora") pintarEn(panel, pintarAhora(foto));
+    else if (actual === "te-toca") pintarEn(panel, pintarTeToca(foto));
+    else pintarEn(panel, pintarPorHacer(foto));
   }
 
   /* Rutas por hash, como el visor de flujos y el de presentaciones: el menú son
@@ -498,7 +516,7 @@
   /* Banco de pruebas (bug 067): la suite llama a estas tres con una foto de
      `/estado.json` y comprueba los enlaces sin abrir un navegador. La página no
      las usa por aquí — pinta llamándolas directamente en `pintar()`. */
-  window.tablero = {pintarAhora: pintarAhora, pintarTeToca: pintarTeToca,
+  window.tablero = {pintarAhora: pintarAhora, pintarTeToca: pintarTeToca, pintarEn: pintarEn,
                     pintarPorHacer: pintarPorHacer};
 })();
 </script>
