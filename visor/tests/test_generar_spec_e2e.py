@@ -8,6 +8,7 @@ from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[2]
 GENERADOR = RAIZ / "visor" / "generar_spec.py"
+COMPILAR = RAIZ / "visor" / "compilar.py"
 
 
 def plano_con_e2e():
@@ -230,6 +231,222 @@ class GenerarSpecE2ETest(unittest.TestCase):
         self.assertEqual(criterio["cubre"], nunca["requisito"])
         self.assertEqual(criterio["tipo"], "denegacion")
         self.assertRegex(criterio["entonces"].lower(), r"(se rechaza|sin modificar)")
+
+
+# --- Bug 092: compilar.py respeta la estructura que YA tiene el proyecto -------------
+#
+# Un workspace nacido del bootstrap guarda sus specs APLANADAS (docs/02-flujos/<id>.md,
+# un .md por actividad, hermanos del INDICE.md que mantiene el padre). compilar.py
+# escribía SIEMPRE 01-constitution/ + 02-flows/ bajo --salida, dejando el .md histórico
+# huérfano y la documentación incoherente. Ahora mira la salida antes de escribir.
+
+
+def plano_de_proyecto_simple():
+    """Mapa de proyecto de una sola actividad (sin lista `actividades`)."""
+    plano = plano_con_e2e()
+    plano["proyecto"] = "pedidos"
+    plano["titulo"] = "Pedidos seguros"
+    return plano
+
+
+def plano_de_mapa_con_actividades():
+    return {
+        "version": 2,
+        "proyecto": "taller",
+        "titulo": "Taller",
+        "actividades": [
+            {"id": "recibir-pedido", "nombre": "Recibir pedido", "area": "General",
+             "estado": "especificada"},
+            {"id": "enviar-pedido", "nombre": "Enviar pedido", "area": "General",
+             "estado": "especificada"},
+        ],
+    }
+
+
+class CompilarRespetaEstructuraTest(unittest.TestCase):
+    def preparar(self, plano, actividades=None):
+        directorio = tempfile.TemporaryDirectory()
+        self.addCleanup(directorio.cleanup)
+        raiz = Path(directorio.name)
+        mapa = raiz / "planos.json"
+        mapa.write_text(json.dumps(plano, ensure_ascii=False), encoding="utf-8")
+        for identificador, datos in (actividades or {}).items():
+            carpeta = raiz / "actividades" / identificador
+            carpeta.mkdir(parents=True)
+            (carpeta / "planos.json").write_text(
+                json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+        salida = raiz / "salida"
+        salida.mkdir()
+        return mapa, salida
+
+    def compilar(self, mapa, salida, *extra):
+        return subprocess.run(
+            [sys.executable, str(COMPILAR), "--mapa", str(mapa), "--salida", str(salida),
+             *extra],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False,
+        )
+
+    # 1. El bug: proyecto plano -> se regenera el .md plano, sin estructura nueva.
+    def test_proyecto_plano_recompila_el_md_y_no_crea_carpetas(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "pedidos.md").write_text("# Spec viejo\n", encoding="utf-8")
+        (salida / "INDICE.md").write_text(
+            "| Pedidos (`pedidos`) | especificada | [pedidos.md](pedidos.md) | — |\n",
+            encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((salida / "02-flows").exists(), "no debe crear 02-flows/")
+        self.assertFalse((salida / "01-constitution").exists(), "no debe crear 01-constitution/")
+        self.assertFalse((salida / "README.md").exists(), "no debe crear README.md")
+        texto = (salida / "pedidos.md").read_text(encoding="utf-8")
+        self.assertIn("REC-1", texto)
+        self.assertNotIn("Spec viejo", texto)
+        self.assertIn("plano", r.stdout)
+        # El índice lo mantiene el padre del workspace: no se pisa.
+        self.assertIn("[pedidos.md](pedidos.md)",
+                      (salida / "INDICE.md").read_text(encoding="utf-8"))
+
+    # 2. Un mapa con actividades aplanadas: un .md por actividad, hermanos del índice.
+    def test_mapa_con_actividades_planas_regenera_cada_md_hermano(self):
+        actividades = {
+            "recibir-pedido": plano_con_e2e(),
+            "enviar-pedido": plano_con_e2e(),
+        }
+        mapa, salida = self.preparar(plano_de_mapa_con_actividades(), actividades)
+        (salida / "recibir-pedido.md").write_text("viejo\n", encoding="utf-8")
+        (salida / "enviar-pedido.md").write_text("viejo\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((salida / "02-flows").exists())
+        for nombre in ("recibir-pedido.md", "enviar-pedido.md"):
+            self.assertIn("REC-1", (salida / nombre).read_text(encoding="utf-8"))
+
+    # 3. La señal puede venir solo del índice, aunque el .md se haya borrado.
+    def test_indice_que_enlaza_al_plano_basta_como_senal(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "INDICE.md").write_text("- [Pedidos](pedidos.md)\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertFalse((salida / "02-flows").exists())
+        self.assertTrue((salida / "pedidos.md").is_file())
+
+    # 4. Comportamiento de HOY intacto: salida vacía -> carpetas.
+    def test_salida_vacia_sigue_compilando_en_carpetas(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+
+        r = self.compilar(mapa, salida)
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((salida / "01-constitution" / "constitution.md").is_file())
+        self.assertTrue((salida / "02-flows" / "pedidos.md").is_file())
+        self.assertTrue((salida / "README.md").is_file())
+
+    # 5. Comportamiento de HOY intacto: ya hay carpetas -> se regeneran.
+    def test_salida_con_carpetas_sigue_compilando_en_carpetas(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "02-flows").mkdir()
+        (salida / "02-flows" / "sobra.md").write_text("residuo\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((salida / "02-flows" / "pedidos.md").is_file())
+        self.assertFalse((salida / "02-flows" / "sobra.md").exists())
+
+    # 6. Los dos formatos a la vez: no se escribe nada y se dicen las dos salidas.
+    def test_ambos_formatos_avisa_con_las_dos_salidas_y_no_escribe(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "pedidos.md").write_text("# Spec viejo\n", encoding="utf-8")
+        (salida / "02-flows").mkdir()
+        (salida / "02-flows" / "pedidos.md").write_text("# En carpetas\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        aviso = r.stdout + r.stderr
+        self.assertIn("SALIDA:", aviso)
+        self.assertIn("--formato plano", aviso)
+        self.assertIn("--formato carpetas", aviso)
+        self.assertEqual("# Spec viejo\n", (salida / "pedidos.md").read_text(encoding="utf-8"))
+        self.assertEqual("# En carpetas\n",
+                         (salida / "02-flows" / "pedidos.md").read_text(encoding="utf-8"))
+
+    # 7. Documentación ajena en la salida: tampoco se adivina.
+    def test_salida_con_documentacion_ajena_avisa_y_no_escribe(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "otra-cosa.md").write_text("# Documento del usuario\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        self.assertIn("SALIDA:", r.stdout + r.stderr)
+        self.assertFalse((salida / "02-flows").exists())
+        self.assertEqual("# Documento del usuario\n",
+                         (salida / "otra-cosa.md").read_text(encoding="utf-8"))
+
+    # 8. --formato manda sobre la detección, en los dos sentidos.
+    def test_formato_explicito_manda_sobre_la_deteccion(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+        (salida / "pedidos.md").write_text("# Spec viejo\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida, "--formato", "carpetas")
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((salida / "02-flows" / "pedidos.md").is_file())
+
+    def test_formato_plano_explicito_sobre_salida_vacia(self):
+        mapa, salida = self.preparar(plano_de_proyecto_simple())
+
+        r = self.compilar(mapa, salida, "--formato", "plano")
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertTrue((salida / "pedidos.md").is_file())
+        self.assertFalse((salida / "02-flows").exists())
+
+    # 9. El incidente c5b972b6 tal cual: docs/02-flujos con el .md del PROYECTO (no de
+    #    una actividad) y su INDICE.md. El mapa ya tiene actividades, así que ese .md no
+    #    corresponde a ninguna: antes se sepultaba con 01-constitution/ + 02-flows/;
+    #    ahora se avisa y no se toca nada.
+    def test_incidente_md_de_proyecto_con_mapa_de_actividades_avisa_y_no_escribe(self):
+        mapa, salida = self.preparar(plano_de_mapa_con_actividades(),
+                                     {"recibir-pedido": plano_con_e2e()})
+        (salida / "taller.md").write_text("# Spec: Taller\n", encoding="utf-8")
+        (salida / "INDICE.md").write_text("- [Taller](taller.md)\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida)
+
+        self.assertNotEqual(r.returncode, 0, r.stdout)
+        aviso = r.stdout + r.stderr
+        self.assertIn("SALIDA:", aviso)
+        self.assertIn("--formato plano", aviso)
+        self.assertIn("--formato carpetas", aviso)
+        self.assertFalse((salida / "02-flows").exists())
+        self.assertFalse((salida / "01-constitution").exists())
+        self.assertEqual("# Spec: Taller\n", (salida / "taller.md").read_text(encoding="utf-8"))
+        self.assertEqual("- [Taller](taller.md)\n",
+                         (salida / "INDICE.md").read_text(encoding="utf-8"))
+
+    # 10. Y si el usuario elige plano, se le dice qué queda fuera del mapa.
+    def test_formato_plano_nombra_los_md_que_ya_no_salen_del_mapa(self):
+        mapa, salida = self.preparar(plano_de_mapa_con_actividades(),
+                                     {"recibir-pedido": plano_con_e2e()})
+        (salida / "taller.md").write_text("# Spec: Taller\n", encoding="utf-8")
+
+        r = self.compilar(mapa, salida, "--formato", "plano")
+
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertIn("REC-1", (salida / "recibir-pedido.md").read_text(encoding="utf-8"))
+        self.assertIn("taller.md", r.stdout)
+        self.assertEqual("# Spec: Taller\n", (salida / "taller.md").read_text(encoding="utf-8"))
+        self.assertIn("Enviar pedido", r.stdout)  # la actividad sin planos, nombrada
+
 
 
 if __name__ == "__main__":
