@@ -24,11 +24,6 @@
      Tres secciones y una rejilla de tarjetas. Nada de esto existe en el visor
      de contratos: allí se lee UN documento, aquí se mira un workspace entero.
      Ni una regla de aquí pisa las del bloque común: sólo añade. */
-  .menu-unidades a { display: block; font: 13.5px/1.5 var(--sans); color: var(--ink); text-decoration: none; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 11px 12px; margin: 2px 0; }
-  .menu-unidades a:hover { border-color: var(--line); background: var(--panel); }
-  .menu-unidades a.activa { background: var(--accent-bg); border-color: var(--accent); font-weight: bold; }
-  .menu-unidades .recuento { float: right; font-weight: normal; font-size: var(--t-nota); color: var(--faint); }
-  .menu-unidades a.activa .recuento { color: var(--accent); }
 
   .tira { display: flex; flex-wrap: wrap; gap: var(--hueco-chico); margin-top: var(--e-bloque); }
   .dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
@@ -146,12 +141,12 @@
     Pide a tu IA que vuelva a abrir la sesión y recarga esta página.</div>
 
     <div class="cuerpo">
-      <aside class="menu-unidades" id="menu" aria-label="Secciones del tablero">
+      <aside class="menu-lateral" id="menu" aria-label="Secciones del tablero">
         <div class="titulo-menu">Tablero</div>
-        <nav id="secciones">
-          <a href="#ahora" data-seccion="ahora">Ahora<span class="recuento" data-recuento="ahora">·</span></a>
-          <a href="#te-toca" data-seccion="te-toca">Te toca a ti<span class="recuento" data-recuento="te-toca">·</span></a>
-          <a href="#por-hacer" data-seccion="por-hacer">Por hacer<span class="recuento" data-recuento="por-hacer">·</span></a>
+        <nav id="secciones" class="menu-grupo-lista">
+          <a href="#ahora" data-seccion="ahora" class="menu-item"><span class="nombre">Ahora</span><span class="recuento cuenta" data-recuento="ahora">·</span></a>
+          <a href="#te-toca" data-seccion="te-toca" class="menu-item"><span class="nombre">Te toca a ti</span><span class="recuento cuenta" data-recuento="te-toca">·</span></a>
+          <a href="#por-hacer" data-seccion="por-hacer" class="menu-item"><span class="nombre">Por hacer</span><span class="recuento cuenta" data-recuento="por-hacer">·</span></a>
         </nav>
       </aside>
 

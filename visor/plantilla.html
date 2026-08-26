@@ -74,25 +74,11 @@
   .indice-mapa button { font: var(--t-nota) var(--sans); border: 1px solid var(--line); border-radius: var(--pildora); padding: 6px 14px; background: var(--sheet); cursor: pointer; color: var(--ink); }
   .indice-mapa button:hover { border-color: var(--warn); }
   .indice-mapa button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
-  .pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
-  .pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
   .fila-resaltada { outline: 2px solid var(--warn); outline-offset: 4px; border-radius: 4px; }
 
   /* El ancho lo da `.pagina` de base.css; aquí sólo el caso propio: con el
      menú lateral la web necesita más sitio que las otras tres. */
   body.con-menu .pagina { max-width: 1200px; }
-  .menu-actividades { flex: 0 0 235px; position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 14px 6px 20px 0; }
-  .menu-actividades .titulo-menu { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px 10px; }
-  .menu-actividades .menu-vacio { font-size: 12.5px; line-height: 1.4; color: var(--faint); padding: 7px 10px; }
-  .menu-actividades .grupo { font-size: var(--t-etiqueta); font-weight: bold; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico) 10px; }
-  .menu-actividades button { display: block; width: 100%; text-align: left; font: 13px/1.5 var(--sans); padding: 10px 12px; border: 0; background: none; border-radius: var(--radio-chico); cursor: pointer; color: var(--ink); }
-  .menu-actividades button:hover { background: var(--line-soft); }
-  .menu-actividades button:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
-  .menu-actividades button.activo { background: var(--ink); color: var(--paper); }
-  .menu-filtros { display: grid; gap: 8px; margin: 0 6px var(--hueco); }
-  .menu-filtros input, .menu-filtros select { width: 100%; border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--paper); color: var(--ink); padding: 9px 12px; font: var(--t-nota) var(--sans); }
-  .menu-filtros input:focus, .menu-filtros select:focus { border-color: var(--warn); outline: 2px solid var(--warn-bg); }
   /* base.css apila el lateral bajo el contenido a 860px, que es lo que quieren
      las otras tres webs (allí el menú es una lista larga de unidades). Aquí NO:
      el índice de actividades tiene que quedarse a la izquierda a cualquier
@@ -102,8 +88,6 @@
     body.con-menu .cuerpo { display: flex; gap: 12px; }
   }
   @media (max-width: 760px) {
-    .menu-actividades { flex: 0 0 34vw; min-width: 120px; max-width: 180px; }
-    .menu-actividades button { overflow-wrap: anywhere; }
   }
   .flujo .descripcion { font-size: 13.5px; color: var(--muted); max-width: 65ch; }
   .lienzo { margin-top: var(--e-bloque); }
@@ -218,7 +202,7 @@
     solo cuando tu IA termine de escribir.</div>
 
     <div class="cuerpo">
-      <aside class="menu-actividades" id="menuIzq"
+      <aside class="menu-lateral" id="menuIzq"
              aria-label="Flujos de la aplicación">
         <div class="titulo-menu">Flujos</div>
         <div class="menu-filtros">
@@ -1002,7 +986,7 @@ function seleccionarFlujo(id) {
   pestanaActiva = "flujos";
   activar("flujos");
   document.querySelectorAll("#menuIzq button").forEach(
-    b => b.classList.toggle("activo", b.dataset.flujo === id)
+    b => b.classList.toggle("activa", b.dataset.flujo === id)
   );
   const destino = document.getElementById("flujo-" + id);
   if (!destino) return;
@@ -1059,7 +1043,7 @@ function pintarMenu(dRoot) {
   const actividades = Array.isArray(dRoot.actividades) ? dRoot.actividades : [];
   const flujos = Array.isArray(dRoot.flujos) ? dRoot.flujos : [];
   if (actividades.length) {
-    const bMapa = el("button", seleccion === "mapa" ? "activo" : null, "🗺 El mapa");
+    const bMapa = el("button", "menu-item" + (seleccion === "mapa" ? " activa" : ""), "El mapa");
     bMapa.dataset.busqueda = "mapa actividades";
     bMapa.dataset.filtros = "";
     bMapa.addEventListener("click", () => seleccionar("mapa"));
@@ -1067,9 +1051,9 @@ function pintarMenu(dRoot) {
     const areas = [];
     actividades.forEach(a => { if (!areas.includes(a.area)) areas.push(a.area); });
     areas.forEach(area => {
-      entradas.appendChild(el("div", "grupo", area));
+      entradas.appendChild(el("div", "menu-grupo grupo", area));
       actividades.filter(a => a.area === area).forEach(a => {
-        const b = el("button", seleccion === a.id ? "activo" : null);
+        const b = el("button", "menu-item" + (seleccion === a.id ? " activa" : ""));
         b.appendChild(el("span", "pm " + (PM_ESTADO[a.estado] || "pm-sin")));
         b.appendChild(document.createTextNode(a.nombre));
         b.dataset.busqueda = [a.nombre, a.area, a.resumen || ""].join(" ");

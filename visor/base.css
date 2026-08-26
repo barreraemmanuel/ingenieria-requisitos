@@ -200,15 +200,6 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 /* ---------- esqueleto: menú lateral + panel ---------- */
 .cuerpo { display: flex; gap: 32px; align-items: flex-start; margin-top: var(--aire-seccion); }
 
-.menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco); }
-.titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
-.menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 9px 12px; margin-bottom: var(--hueco); }
-.menu-unidades button { display: block; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 11px 12px; margin: 2px 0; cursor: pointer; line-height: 1.45; }
-.menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
-.menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
-.menu-unidades button .nombre { display: block; font-weight: bold; margin-bottom: 2px; }
-.menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
 
 .panel { flex: 1 1 auto; min-width: 0; }
 .panel .vacio { border: 1px dashed var(--line); border-radius: var(--radio); padding: var(--hueco-grande); color: var(--muted); font-size: var(--t-medio); background: var(--sheet); }
@@ -217,6 +208,39 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta.
    Delante, un glifo de punto — la firma de la referencia: el estado se ve
    antes de leerse, y no hace falta un color para distinguirlo. */
+/* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
+   Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
+   presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y
+   entradas. Ninguna plantilla redefine nada de esto: sólo pone las clases. */
+.menu-lateral, .menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco); }
+.menu-lateral .titulo-menu, .titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.menu-lateral input[type="search"], .menu-lateral select, .menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 9px 12px; margin-bottom: var(--hueco-chico); }
+.menu-lateral select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%), linear-gradient(135deg, var(--faint) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.menu-lateral input:focus, .menu-lateral select:focus { outline: none; border-color: var(--ink); }
+.menu-lateral .menu-filtros { display: grid; gap: 8px; margin-bottom: var(--hueco-chico); }
+.menu-lateral .menu-filtros > * { margin-bottom: 0; }
+.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 12px 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-lateral .menu-grupo .cuenta { color: var(--ink); letter-spacing: 0; }
+.menu-lateral details.menu-grupo { display: block; border-bottom: 0; padding: 0; }
+.menu-lateral details.menu-grupo > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; padding: 12px 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-lateral details.menu-grupo > summary::-webkit-details-marker { display: none; }
+.menu-lateral .menu-item, .menu-unidades button { display: flex; justify-content: flex-start; align-items: center; gap: 8px; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 10px 12px; margin-bottom: 2px; cursor: pointer; text-decoration: none; }
+.menu-lateral .menu-item.con-chips, .menu-unidades button { display: block; }
+.menu-lateral .menu-item:hover, .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
+.menu-lateral .menu-item:focus-visible, .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.menu-lateral .menu-item.activa, .menu-unidades button.activa { background: var(--panel); border-color: var(--ink); }
+.menu-lateral .menu-item .nombre, .menu-unidades button .nombre { display: block; font-weight: bold; }
+.menu-lateral .menu-item .cuenta { font-size: var(--t-nota); color: var(--faint); flex: none; margin-left: auto; }
+.menu-lateral .menu-item.activa .cuenta { color: var(--ink); }
+.menu-lateral .menu-item .pm { flex: none; }
+.menu-lateral .vacio, .menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
+.menu-lateral .chip, .menu-unidades .chip { margin: 5px 4px 0 0; padding: 3px 9px; letter-spacing: .06em; }
+.menu-lateral .chip::before, .menu-unidades .chip::before { margin-right: 5px; }
+/* punto de estado de una entrada (antes sólo en flujos) */
+.pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
+.pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
+
 .chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .1em; text-transform: uppercase; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
 /* El glifo NO es texto: es la marca de estado. Se mide en `em` para que
    crezca con su etiqueta y no compita con el suelo de la letra (R2/076). */
@@ -227,8 +251,6 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .chip-aprobado::before { content: "●"; }
 /* Dentro del menú lateral la etiqueta es una MARCA, no un titular: se aprieta
    para que la lista siga siendo una lista y quepan las unidades de un vistazo. */
-.menu-unidades .chip { margin: 5px 4px 0 0; padding: 3px 9px; letter-spacing: .06em; }
-.menu-unidades .chip::before { margin-right: 5px; }
 
 /* ---------- texturas, sueltas (R4) ----------
    Dos utilidades y ninguna imagen: cualquier bloque puede decir «esto va por
@@ -303,8 +325,8 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .md a { color: var(--ink); text-decoration-color: var(--faint); text-underline-offset: 3px; }
 
 @media (max-width: 860px) {
+  .menu-lateral, .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: var(--hueco-grande); }
   .cuerpo { display: block; }
-  .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: var(--hueco-grande); }
 }
 @media (max-width: 760px) {
   :root { --aire-tarjeta: 18px 18px; --aire-seccion: 26px; }

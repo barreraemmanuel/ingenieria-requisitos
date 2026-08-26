@@ -39,7 +39,7 @@
   legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
   label { display: block; margin: var(--hueco) 0; }
   textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
-  button:not(.boton-tema):not(.ir-detalle) { padding: 11px 20px; border: 1px solid var(--accent); border-radius: var(--pildora); background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
+  button:not(.boton-tema):not(.ir-detalle):not(.menu-item) { padding: 11px 20px; border: 1px solid var(--accent); border-radius: var(--pildora); background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
   button.ir-detalle { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: var(--sheet); color: var(--ink); font: inherit; cursor: pointer; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
   @media (max-width: 700px) { button:not(.boton-tema) { width: 100%; } }
@@ -98,7 +98,7 @@
     Pide a tu IA que vuelva a abrir la sesión y recarga esta página.</div>
 
     <div class="cuerpo">
-      <aside class="menu-unidades" id="menu" aria-label="Presentaciones">
+      <aside class="menu-lateral" id="menu" aria-label="Presentaciones">
         <div class="titulo-menu">Presentaciones</div>
         <input id="buscar" type="search" placeholder="Buscar…" aria-label="Buscar presentación">
         <div id="listado"></div>
@@ -200,7 +200,8 @@
     var boton = el("button");
     boton.type = "button";
     boton.dataset.id = p.id;
-    if (p.id === elegidaId) { boton.className = "activa"; boton.setAttribute("aria-current", "true"); }
+    boton.className = "menu-item con-chips";
+    if (p.id === elegidaId) { boton.className += " activa"; boton.setAttribute("aria-current", "true"); }
     var nombre = el("span", "nombre", p.titulo);
     boton.appendChild(nombre);
     var estado = estadoDe(p);
@@ -227,7 +228,9 @@
       });
       if (!items.length) return;
       huboAlguna = true;
-      listado.appendChild(el("div", "titulo-menu", grupo.titulo));
+      var cab = el("div", "menu-grupo", grupo.titulo);
+      cab.appendChild(el("span", "cuenta", String(items.length)));
+      listado.appendChild(cab);
       items.forEach(function (p) { listado.appendChild(pintarBotonMenu(p)); });
     });
     if (!huboAlguna && filtro) {
