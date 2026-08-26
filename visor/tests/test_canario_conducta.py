@@ -714,3 +714,310 @@ class EscriturasDesdeBashTest(BaseConducta):
         self.assertTrue(hasattr(canario, "ESCRITURAS_DESDE_BASH"))
         for comando in self.ESCRITURAS:
             self.assertTrue(canario.ESCRITURAS_DESDE_BASH.search(comando), comando)
+
+
+# --------------------------------------------------------------------------- 072 · incidentes
+
+
+class IncidentesDeLaSesionTest(BaseConducta):
+    """072 · R1-R2: hay accidentes que degradan la sesión sin repetir ni un comando.
+
+    Equivocarse de carpeta, deshacer trabajo con git, resolver un conflicto a mano, esconder
+    cambios en un `stash` o escribir dentro de `main/` no dejan una racha ni un fallo
+    repetido: pasan UNA vez y a partir de ahí el agente trabaja sobre una realidad que ya no
+    es la que cree. gentle-ai lo llama «Delegation Stop Rules»: tras un accidente de
+    cwd/git/merge/entorno, auditoría fresca.
+    """
+
+    def turnos_bash(self, comandos, salida="", *, prefijo="inc"):
+        eventos = []
+        for i, comando in enumerate(comandos):
+            eventos += self.turno_con_herramienta(
+                f"{prefijo}{i}", "Bash", {"command": comando}, salida)
+        return eventos
+
+    def sesion_con(self, comandos, salida=""):
+        self.sesion_claude(tokens=100_000, eventos=self.turnos_bash(comandos, salida))
+        return self.diagnostico()
+
+    # --- R1: cada patrón, con su umbral ------------------------------------
+
+    def test_los_umbrales_de_incidente_viven_en_defectos(self):
+        for clave in ("cwd_erroneo", "git_destructivo", "conflicto", "stash",
+                      "escritura_en_main"):
+            self.assertIn(clave, canario.DEFECTOS)
+            self.assertGreater(canario.DEFECTOS[clave], 0)
+
+    def test_dos_cd_a_una_carpeta_que_no_existe(self):
+        informe = self.sesion_con(
+            ["cd worktrees/072-x && ls", "cd worktrees/072-x && ls"],
+            salida="/bin/bash: line 1: cd: worktrees/072-x: No such file or directory")
+
+        self.assertEqual(informe["veredicto"], "sintomas")
+        self.assertEqual(informe["sintoma"]["tipo"], "incidente")
+        self.assertEqual(informe["sintoma"]["patron"], "cwd_erroneo")
+
+    def test_un_solo_cd_fallido_todavia_no_es_un_accidente(self):
+        informe = self.sesion_con(
+            ["cd worktrees/072-x && ls"],
+            salida="/bin/bash: line 1: cd: worktrees/072-x: No such file or directory")
+
+        self.assertIsNone(informe["sintoma"])
+
+    def test_un_cd_que_funciona_no_cuenta(self):
+        informe = self.sesion_con(["cd main && git status", "cd main && git status"],
+                                  salida="nothing to commit, working tree clean")
+
+        self.assertIsNone(informe["sintoma"])
+
+    def test_deshacer_trabajo_con_git_cuenta_a_la_primera(self):
+        for comando in ("git reset --hard HEAD~1",
+                        "git checkout -- docs/x.md",
+                        "git restore visor/tests/test_x.py"):
+            with self.subTest(comando=comando):
+                self.setUp()
+                informe = self.sesion_con([comando])
+                self.assertEqual(informe["sintoma"]["patron"], "git_destructivo", comando)
+
+    def test_un_conflicto_de_merge_cuenta_a_la_primera(self):
+        informe = self.sesion_con(
+            ["git merge --no-ff 072-incidentes"],
+            salida="CONFLICT (content): Merge conflict in docs/05-trabajo/ESTADO.md\n"
+                   "Automatic merge failed; fix conflicts and then commit the result.")
+
+        self.assertEqual(informe["sintoma"]["patron"], "conflicto")
+
+    def test_el_stash_cuenta_a_la_primera(self):
+        informe = self.sesion_con(["git stash"])
+
+        self.assertEqual(informe["sintoma"]["patron"], "stash")
+
+    def test_mirar_el_stash_no_es_esconder_nada(self):
+        informe = self.sesion_con(["git stash list", "git stash show -p"])
+
+        self.assertIsNone(informe["sintoma"])
+
+    def test_escribir_dentro_de_main_cuenta_a_la_primera(self):
+        informe = self.sesion_con(["sed -i '' 's/a/b/' main/web/abrir.py"])
+
+        self.assertEqual(informe["sintoma"]["patron"], "escritura_en_main")
+
+    def test_commitear_dentro_de_main_cuenta_a_la_primera(self):
+        informe = self.sesion_con(["git -C main commit -m 'arreglo'"])
+
+        self.assertEqual(informe["sintoma"]["patron"], "escritura_en_main")
+
+    def test_editar_un_fichero_de_main_con_la_herramienta_de_edicion(self):
+        self.sesion_claude(tokens=100_000, eventos=self.turno_con_herramienta(
+            "e0", "Write", {"file_path": str(self.cwd / "main/web/abrir.py"),
+                            "content": "x"}, "The file has been written."))
+
+        self.assertEqual(self.diagnostico()["sintoma"]["patron"], "escritura_en_main")
+
+    def test_leer_main_y_actualizarlo_con_pull_no_es_un_accidente(self):
+        informe = self.sesion_con(["git -C main pull --ff-only",
+                                   "git -C main log --oneline -5",
+                                   "grep -rn 'abrir' main/web/abrir.py",
+                                   "git -C main worktree list"])
+
+        self.assertIsNone(informe["sintoma"])
+
+    def test_una_sesion_limpia_sigue_sana(self):
+        informe = self.sesion_con(["ls docs", "git status --short", "python3 -V"])
+
+        self.assertEqual(informe["veredicto"], "sano")
+
+    def test_los_umbrales_de_incidente_se_declaran_en_la_config(self):
+        self.config({"cwd_erroneo": 1})
+        informe = self.sesion_con(
+            ["cd worktrees/072-x && ls"],
+            salida="/bin/bash: line 1: cd: worktrees/072-x: No such file or directory")
+
+        self.assertEqual(informe["sintoma"]["patron"], "cwd_erroneo")
+
+    # --- R2: el aviso y el parte dicen patrón, turno y acción ---------------
+
+    def test_el_aviso_nombra_el_patron_y_que_hacer(self):
+        informe = self.sesion_con(["git stash"])
+
+        texto = canario.texto_veredicto(informe)
+
+        self.assertIn("stash", texto)
+        self.assertIn("revisión fresca", texto)
+        self.assertIn("canario.py retomada", texto)
+
+    def test_el_aviso_del_cwd_manda_cortar_la_sesion(self):
+        informe = self.sesion_con(
+            ["cd worktrees/072-x && ls", "cd worktrees/072-x && ls"],
+            salida="/bin/bash: line 1: cd: worktrees/072-x: No such file or directory")
+
+        self.assertIn("sesión NUEVA", canario.texto_veredicto(informe))
+
+    def test_el_aviso_no_bloquea_y_dice_el_turno(self):
+        informe = self.sesion_con(["ls docs", "ls main", "git stash"])
+
+        self.assertEqual(informe["sintoma"]["turno"], 3)
+        self.assertIn("turno 3", canario.texto_veredicto(informe))
+
+    def test_el_parte_de_retomada_nombra_patron_turno_y_accion(self):
+        informe = self.sesion_con(["ls docs", "git stash"])
+
+        parte = canario.texto_retomada(self.cwd, incidentes=informe["incidentes"])
+
+        self.assertIn("Incidentes", parte)
+        self.assertIn("stash", parte)
+        self.assertIn("turno 2", parte)
+        self.assertIn("revisión fresca", parte)
+
+    def test_el_parte_sin_incidentes_no_inventa_la_seccion(self):
+        parte = canario.texto_retomada(self.cwd, incidentes=[])
+
+        self.assertNotIn("Incidentes", parte)
+
+    def test_el_comando_retomada_trae_los_incidentes_de_la_sesion_real(self):
+        """De punta a punta: `canario.py retomada` mira la sesión, no solo los papeles."""
+        import os
+        self.sesion_con(["git stash"])
+
+        r = subprocess.run(
+            [sys.executable, str(CANARIO_PATH), "retomada",
+             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env={**os.environ,
+                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
+                 "CANARIO_CODEX_SESSIONS": str(self.codex)})
+
+        self.assertEqual(r.returncode, 0)
+        self.assertIn("Incidentes", r.stdout)
+        self.assertIn("stash", r.stdout)
+
+    # --- R3: el caso límite y la no-regresión ------------------------------
+
+    def test_lo_que_hace_un_subagente_no_cuenta_en_la_sesion_del_padre(self):
+        """El recibo de `ejecucion.py` trae DENTRO los comandos del subagente."""
+        recibo = ("worktree: worktrees/072-x\n"
+                  "$ git stash\n"
+                  "$ git reset --hard HEAD~1\n"
+                  "CONFLICT (content): Merge conflict in docs/x.md\n"
+                  "cd: worktrees/072-x: No such file or directory\n")
+        informe = self.sesion_con(
+            ["python3 docs/00-metodo/scripts/ejecucion.py --unidad 072-x --modelo opus",
+             "python3 docs/00-metodo/scripts/ejecucion.py --unidad 072-x --modelo opus"],
+            salida=recibo)
+
+        self.assertIsNone(informe["sintoma"],
+                          "los comandos del subagente son suyos, no de esta sesión")
+
+    def test_la_herramienta_de_subagente_tampoco_cuenta(self):
+        self.sesion_claude(tokens=100_000, eventos=self.turno_con_herramienta(
+            "t0", "Task", {"prompt": "git stash y luego git reset --hard"},
+            "hecho: git stash, git reset --hard HEAD~1"))
+
+        self.assertIsNone(self.diagnostico()["sintoma"])
+
+    def test_el_comando_repetido_sigue_mandando_sobre_el_incidente(self):
+        """No-regresión: los avisos de siempre no cambian de forma ni de prioridad."""
+        eventos = self.par_fallido_claude("node scripts/build.js", "Error: cannot find module",
+                                          canario.DEFECTOS["repeticiones"])
+        eventos += self.turnos_bash(["git stash"])
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertEqual(informe["sintoma"]["tipo"], "repeticion")
+        self.assertIn("YA está degradando", canario.texto_veredicto(informe))
+
+    def test_el_atasco_sin_error_sigue_mandando_sobre_el_incidente(self):
+        eventos = self.eventos_edicion("src/app.py", canario.DEFECTOS["ediciones_seguidas"])
+        eventos += self.turnos_bash(["git stash"])
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        self.assertEqual(self.diagnostico()["sintoma"]["tipo"], "ediciones")
+
+    def test_los_incidentes_viajan_en_el_informe_aunque_mande_otro_sintoma(self):
+        eventos = self.eventos_edicion("src/app.py", canario.DEFECTOS["ediciones_seguidas"])
+        eventos += self.turnos_bash(["git stash"])
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertEqual([i["patron"] for i in informe["incidentes"]], ["stash"])
+
+    def test_una_sesion_de_codex_tambien_ve_los_accidentes(self):
+        eventos = [
+            json.dumps({"type": "response_item", "payload": {
+                "type": "function_call", "call_id": "c1", "name": "shell",
+                "arguments": json.dumps({"command": ["bash", "-lc", "git stash"]})}}),
+            json.dumps({"type": "response_item", "payload": {
+                "type": "function_call_output", "call_id": "c1",
+                "output": "Saved working directory"}}),
+        ]
+        self.sesion_codex(tokens=50_000, eventos=eventos)
+
+        informe = self.diagnostico()
+
+        self.assertEqual(informe["sintoma"]["patron"], "stash")
+
+    # --- R3: lo medido sobre los 63 transcripts reales del workspace --------
+    #
+    # Cada uno de estos casos disparaba un aviso falso al medir la unidad contra las
+    # sesiones reales de este taller. Quedan escritos como test para que no vuelvan.
+
+    def test_consultar_no_es_escribir_aunque_el_verbo_se_parezca(self):
+        informe = self.sesion_con([
+            "git -C main merge-base --is-ancestor 8e16127 main",
+            "git -C main branch --show-current",
+            "git -C main worktree add -b 072-x ../worktrees/072-x origin/main",
+            "cd main && git checkout main && git pull --ff-only",
+        ])
+
+        self.assertIsNone(informe["sintoma"],
+                          "actualizar el clon y colgarle un worktree es el uso normal de main/")
+
+    def test_el_merge_del_cierre_sin_gh_no_es_un_accidente(self):
+        """ADR-009: es la única excepción nombrada. Avisar ahí sería gritar en cada cierre."""
+        informe = self.sesion_con(["git -C main merge --no-ff 072-incidentes -m 'Merge'"])
+
+        self.assertIsNone(informe["sintoma"])
+
+    def test_pero_si_ese_merge_choca_el_conflicto_si_se_ve(self):
+        informe = self.sesion_con(
+            ["git -C main merge --no-ff 072-incidentes -m 'Merge'"],
+            salida="CONFLICT (content): Merge conflict in docs/05-trabajo/ESTADO.md")
+
+        self.assertEqual(informe["sintoma"]["patron"], "conflicto")
+
+    def test_mencionar_una_ruta_de_main_no_es_escribir_en_main(self):
+        informe = self.sesion_con([
+            "cp main/plantilla/docs/00-metodo/scripts/sanidad.py docs/00-metodo/scripts/",
+            "python3 - <<'EOF'\nfrom pathlib import Path\n"
+            "p = Path('docs/bugs/080-x.md')\np.write_text(p.read_text() + 'main/visor/x')\nEOF",
+            "python3 main/web/abrir.py --workspace . --apartado contratos > .runtime/log.txt",
+        ])
+
+        self.assertIsNone(informe["sintoma"],
+                          "leer de main/ y nombrarlo de pasada no lo toca")
+
+    def test_un_fallo_suelto_de_fichero_no_es_perderse_de_carpeta(self):
+        informe = self.sesion_con(
+            ["cd worktrees/072-x && cat falta.txt", "cd worktrees/072-x && cat falta.txt"],
+            salida="cat: falta.txt: No such file or directory")
+
+        self.assertIsNone(informe["sintoma"],
+                          "el «no such file» tiene que hablar del `cd`, no de un fichero")
+
+    def test_el_aviso_de_incidente_no_bloquea_el_hook(self):
+        self.sesion_claude(tokens=100_000, eventos=self.turnos_bash(["git stash"]))
+
+        r = subprocess.run(
+            [sys.executable, str(CANARIO_PATH), "hook-stop",
+             "--cwd", str(self.cwd), "--workspace", str(self.cwd)],
+            input="{}", capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env={**__import__("os").environ,
+                 "CANARIO_CLAUDE_PROJECTS": str(self.claude),
+                 "CANARIO_CODEX_SESSIONS": str(self.codex)})
+        salida = json.loads(r.stdout)
+
+        self.assertEqual(r.returncode, 0)
+        self.assertTrue(salida["continue"])
+        self.assertIn("stash", salida["systemMessage"])
