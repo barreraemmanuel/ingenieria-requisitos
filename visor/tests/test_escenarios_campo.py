@@ -8,6 +8,7 @@ Familias y origen:
   15-18  brownfield: la adopción se saltaba entera (Discord, 08-08)
   19-22  publicar/arrancar bloqueado por un rojo del propio método (Discord, 08-08)
   23-25  «el agente decidió parar los tests porque sí, sin avisar» (Discord, 07-08)
+  26-29  el guard de procesos vivos se rendía en silencio con `lsof` lento (bug 086)
 
 Doctrina que estos escenarios vigilan: ADR-026 (guiar, no bloquear; gate duro solo ante
 daño irreversible, siempre con salida nombrada).
@@ -570,6 +571,85 @@ class EscenariosProcesosAjenos(Escenario):
         suite.kill()
         suite.wait(timeout=10)
         borrado, motivo = unidad.borrar_worktree(repo, destino)
+        self.assertTrue(borrado, motivo)
+
+    # --- 26-28: `lsof` lento (bug 086). En este Mac `lsof -t +D` tarda ~90 s con un volumen
+    # SMB montado: el guard se agotaba y devolvía "nadie dentro", y el worktree se borraba
+    # con la suite viva. Un timeout es "no sé", nunca "nadie" (ADR-026: gate duro con salida).
+
+    def _worktree_de_juguete(self):
+        """Repo + worktree reales, para mirar de verdad si el borrado ocurre."""
+        base = Path(tempfile.mkdtemp(prefix="escenario-lsof-lento-"))
+        self.addCleanup(shutil.rmtree, base, True)
+        repo = base / "repo"
+        repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=repo, check=True)
+        (repo / "x.txt").write_text("x\n", encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True,
+                       capture_output=True)
+        destino = base / "worktree-unidad"
+        subprocess.run(["git", "worktree", "add", str(destino), "-b", "unidad-lsof"],
+                       cwd=repo, check=True, capture_output=True)
+        return repo, destino
+
+    def _lsof_dormilon(self, segundos=5):
+        """Pone en el PATH un `lsof` falso que tarda más que el tope del guard."""
+        carpeta = Path(tempfile.mkdtemp(prefix="lsof-lento-"))
+        self.addCleanup(shutil.rmtree, carpeta, True)
+        falso = carpeta / "lsof"
+        falso.write_text(f"#!/bin/sh\nsleep {segundos}\n", encoding="utf-8")
+        falso.chmod(0o755)
+        parche = mock.patch.dict(
+            os.environ, {"PATH": f"{carpeta}{os.pathsep}{os.environ.get('PATH', '')}"})
+        parche.start()
+        self.addCleanup(parche.stop)
+        return falso
+
+    def test_escenario_26_un_lsof_que_se_agota_no_borra_el_worktree(self):
+        unidad = cargar_modulo("unidad_lsof_lento", SCRIPTS / "unidad.py")
+        self._lsof_dormilon()
+        repo, destino = self._worktree_de_juguete()
+
+        with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
+            borrado, motivo = unidad.borrar_worktree(repo, destino)
+
+        self.assertFalse(borrado, f"un `lsof` agotado no es 'nadie dentro': {motivo}")
+        self.assertTrue(destino.exists(), "el worktree sigue ahí: no se sabe si hay vida")
+        self.assertIn("SALIDA:", motivo)
+        self.assertIn("--sin-guardian", motivo)
+
+    def test_escenario_27_lsof_agotado_es_no_se_no_una_lista_vacia(self):
+        unidad = cargar_modulo("unidad_lsof_lento27", SCRIPTS / "unidad.py")
+        self._lsof_dormilon()
+        _, destino = self._worktree_de_juguete()
+
+        with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
+            self.assertIsNone(unidad.procesos_dentro(destino))
+
+    def test_escenario_28_sin_guardian_es_la_salida_y_borra_de_verdad(self):
+        unidad = cargar_modulo("unidad_lsof_lento28", SCRIPTS / "unidad.py")
+        self._lsof_dormilon()
+        repo, destino = self._worktree_de_juguete()
+
+        with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
+            borrado, motivo = unidad.borrar_worktree(repo, destino, sin_guardian=True)
+
+        self.assertTrue(borrado, motivo)
+        self.assertFalse(destino.exists(), "con la salida asumida, el borrado ocurre")
+
+    def test_escenario_29_sin_lsof_el_borrado_sigue_como_siempre(self):
+        """El guard es de máximo esfuerzo: sin `lsof` no se convierte en un bloqueo."""
+        unidad = cargar_modulo("unidad_lsof_lento29", SCRIPTS / "unidad.py")
+        repo, destino = self._worktree_de_juguete()
+
+        with mock.patch.object(unidad.shutil, "which", return_value=None):
+            self.assertEqual(unidad.procesos_dentro(destino), [])
+            borrado, motivo = unidad.borrar_worktree(repo, destino)
+
         self.assertTrue(borrado, motivo)
 
     def test_escenario_25_matar_procesos_por_nombre_es_fail_del_linter(self):
