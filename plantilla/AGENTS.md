@@ -102,8 +102,8 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
     fecha. Sin fuente = opinión. Un riesgo crítico no concluyente bloquea la orden.
 12. **Evidencia, no afirmación.** Nada se da por hecho sin el output del check que lo demuestra.
     "Hecho" sin evidencia no es hecho. Las líneas base se miden al vuelo, no de una foto; un
-    fallo repetido no se normaliza. **Los outputs largos se REFERENCIAN por ruta en `.runtime/`,
-    no se pegan**: solo el veredicto y las líneas que lo prueban.
+    fallo repetido no se normaliza. **Los outputs largos se REFERENCIAN por ruta en `.runtime/`, no se pegan**: solo el veredicto y las líneas que lo prueban.
+    **La verificación es LOCAL (ADR-035):** la suite y los lints se corren en TU máquina antes de fusionar; ese output es la evidencia. No se monta CI remoto (GitHub Actions u otro) salvo que lo pidas y quede escrito en `01-constitucion/bias.md` (`ci_remoto: sí`). El repo de código declara sus checks locales en su `AGENTS.md`.
 13. **Los guardianes se lintean.** `lint_metodo.py` al arrancar y cerrar —lleva dentro `lint_salidas.py`, que impide que crezca la lista de rechazos que no dicen cómo salir, y `lint_juntas.py`, que vigila lo que se rompe ENTRE dos piezas: el vocabulario que comparten los scripts con la prosa, el tope de 250 líneas del carril directo medido contra git, y el inventario congelado de puertas duras con su dueño—; `lint_ci.py` antes
     del merge (`--require-e2e` si los planos seleccionan E2E); `lint_deploy.py` antes de producción. Un FAIL del proyecto se arregla; uno causado por el MÉTODO se registra (`caja_negra.py registrar`) y NO te bloquea: sigue, el arreglo llega por Modo D (ADR-026). Estructura solo con ADR.
 14. **Los flujos siguen vivos — la puerta la abre el DELTA, no el cambio.** Si el trabajo **añade, quita o contradice** algo del mapa, asume el rol ANALISTA DE FLUJOS y sigue `docs/00-metodo/requisitos/RUNBOOK.md`: modifica `docs/02-flujos/planos/`, enseña el visor web y obtén la aprobación ANTES de crear unidades de código (ADR-007). Si cabe dentro de un

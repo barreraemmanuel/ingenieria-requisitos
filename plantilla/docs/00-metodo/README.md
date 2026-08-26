@@ -221,10 +221,14 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
   lo del código en peticiones con evidencia; `atraso` cuenta cierres y días desde la última
   pasada. El libro comparable vive en `05-trabajo/SANIDAD.md`. Rol: `roles.md` §SANIDAD;
   receta: `runbooks/sanidad.md`; checklist eje a eje: `auditoria-sanidad.md`.
-- `scripts/lint_ci.py` — **el contrato del CI por stack** (ADR-018): acepta el repositorio
-  todavía vacío y, en cuanto hay código, exige suite completa, lint, seguridad, workflows y
-  Dependabot reales; Actions por SHA y cero `|| true`. Se ejecuta sobre el worktree antes del
-  merge. `lint_deploy.py` reutiliza esas mismas entradas sobre `main/` antes de producción.
+- `scripts/lint_ci.py` — **el contrato de cómo se comprueba el repo de código** (ADR-018 y
+  ADR-035): acepta el repositorio todavía vacío y, en cuanto hay código, exige que declare en
+  su `AGENTS.md` los checks que corre en local antes de fusionar. **Un CI remoto no se
+  presupone**: solo lo exige si el proyecto lo pidió con `ci_remoto: sí` en
+  `01-constitucion/bias.md`. Y a quien SÍ lo tiene montado se lo valida entero: suite, lint,
+  seguridad, workflows y Dependabot reales; Actions por SHA y cero `|| true`. Se ejecuta sobre
+  el worktree antes del merge. `lint_deploy.py` reutiliza esas mismas entradas sobre `main/`
+  antes de producción.
 - El **bootstrap** no vive aquí sino en la herramienta de ingeniería de requisitos
   (`visor/bootstrap.py`, junto a su `plantilla/`): es la ÚNICA forma de crear un workspace,
   y es quien coloca este `00-metodo/` en cada proyecto (ADR-002).
@@ -238,6 +242,11 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
 | Puertas del usuario | 0 | 2 | 4 | 4 |
 | Tests al cerrar | área tocada | área tocada | + suite completa | + end-to-end |
 | Esfuerzo del modelo | el mínimo | bajo | medio | alto |
+
+**Los tests de cualquier carril se corren en local** (ADR-035): en la máquina de quien
+construye, antes de fusionar, y su output es la evidencia del cierre. Ningún carril espera a
+un CI remoto, y ninguno lo monta salvo que el proyecto lo haya pedido con `ci_remoto: sí` en
+`01-constitucion/bias.md`.
 
 **Principio rector de esta fase: sencillez Barrio Sésamo.** Lo mínimo que cumpla el trabajo,
 invisible para el usuario final; ante la duda, la pieza NO se construye. Descartado por
