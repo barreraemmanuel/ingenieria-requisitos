@@ -4,6 +4,14 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.8.1 — 2026-08-26
+
+**El visor de contratos ya viaja a tu proyecto (bug 080).** La 1.8.0 exige que el agente te
+enseñe cada contrato en esa web antes de despachar, pero la web solo existía dentro de la
+herramienta: en tus proyectos el despacho quedaba bloqueado sin salida. Ahora `bootstrap` y
+«pon al día mis proyectos» la colocan en `docs/00-metodo/requisitos/visor_contratos/`, y se ve
+con sus estilos.
+
 ## 1.8.0 — 2026-08-25
 
 **Veintitrés trabajos fusionados desde la 1.7.7 y ninguno subió el número.** Otra vez lo mismo:

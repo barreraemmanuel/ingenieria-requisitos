@@ -295,6 +295,11 @@ def contenido_esperado(workspace):
     for nombre in bootstrap.ARCHIVOS_PRESENTACIONES:
         esperado[f"docs/00-metodo/requisitos/visor_presentaciones/{nombre}"] = (
             bootstrap.origen_presentacion(nombre).read_text(encoding="utf-8"))
+    # El visor de contratos (bug 080): la puerta de despacho del 054 lo exige y hasta
+    # ahora no llegaba a ningún workspace. Mismo trato que el de presentaciones.
+    for nombre in bootstrap.ARCHIVOS_CONTRATOS:
+        esperado[f"docs/00-metodo/requisitos/visor_contratos/{nombre}"] = (
+            HERRAMIENTA / "visor_contratos" / nombre).read_text(encoding="utf-8")
     for origen in sorted((PLANTILLA / "githooks").rglob("*")):
         if origen.is_file():
             rel = origen.relative_to(PLANTILLA / "githooks")

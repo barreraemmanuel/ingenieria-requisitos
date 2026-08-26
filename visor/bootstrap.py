@@ -176,6 +176,12 @@ ARCHIVOS_REQUISITOS = (
 ARCHIVOS_PRESENTACIONES = ("abrir.py", "manifestar.py", "servir.py", "plantilla.html",
                            "render.js")
 ORIGEN_PRESENTACIONES = {"render.js": ("visor_contratos", "render.js")}
+# El visor de contratos (unidad 009) es OBLIGATORIO desde el 054: `unidad.py despachar`
+# exige el rastro de que mostró el contrato. Hasta el bug 080 no viajaba al workspace —
+# solo su `render.js`, y a la carpeta de presentaciones—: la puerta llegaba sin la llave y
+# ningún proyecto ajeno a la herramienta podía despachar. Viaja entero, a la ruta que
+# `unidad.py` (CARPETAS_CONTRATOS) ya buscaba: `requisitos/visor_contratos/`.
+ARCHIVOS_CONTRATOS = ("servir.py", "plantilla.html", "render.js")
 
 
 def origen_presentacion(nombre):
@@ -1143,6 +1149,10 @@ def main():
     presentaciones.mkdir()
     for nombre in ARCHIVOS_PRESENTACIONES:
         shutil.copyfile(origen_presentacion(nombre), presentaciones / nombre)
+    contratos = requisitos / "visor_contratos"
+    contratos.mkdir()
+    for nombre in ARCHIVOS_CONTRATOS:
+        shutil.copyfile(BASE.parent / "visor_contratos" / nombre, contratos / nombre)
     (docs / "01-constitucion").mkdir()
     shutil.copyfile(constitucion, docs / "01-constitucion" / "manifiesto.md")
     shutil.copyfile(PLANTILLA / "bias" / fichero_bias,

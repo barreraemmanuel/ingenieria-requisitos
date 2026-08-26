@@ -43,10 +43,24 @@ CAMPOS = ("unidad", "tipo", "carril", "estado", "aprobado", "actividad")
 BASE = os.path.dirname(os.path.abspath(__file__))
 PLANTILLA = os.path.join(BASE, "plantilla.html")
 RENDER_JS = os.path.join(BASE, "render.js")
-# La hoja común de las cuatro webs (unidad 076): se lee de visor/, su único
-# sitio, igual que `render.js` se lee de aquí. Ruta resuelta desde el módulo,
+# La hoja común de las cuatro webs (unidad 076). Ruta resuelta desde el módulo,
 # nunca desde el cwd: el visor se lanza desde donde le da la gana al usuario.
-BASE_CSS = os.path.join(os.path.dirname(BASE), "visor", "base.css")
+# Dos layouts (bug 080), igual que en el visor de presentaciones: en el WORKSPACE este
+# fichero cuelga de `docs/00-metodo/requisitos/visor_contratos/` y la hoja está en
+# `requisitos/base.css`; en el repo de código, en `visor/base.css`.
+BASE_CSS_LAYOUTS = (os.path.join(os.path.dirname(BASE), "base.css"),
+                    os.path.join(os.path.dirname(BASE), "visor", "base.css"))
+
+
+def ruta_base_css():
+    """La hoja común, en el layout que toque: workspace primero, repo después."""
+    for candidato in BASE_CSS_LAYOUTS:
+        if os.path.isfile(candidato):
+            return candidato
+    return BASE_CSS_LAYOUTS[0]
+
+
+BASE_CSS = ruta_base_css()
 SUBRUTA_TRABAJO = ("docs", "05-trabajo")
 SUBRUTA_BUGS = ("docs", "bugs")
 RASTRO = "visor-contratos.log"
@@ -243,8 +257,8 @@ def hacer_handler(workspace, estado):
                 # (unidad 056): un solo fichero, sin copia (bug 055).
                 self._fichero(RENDER_JS, "text/javascript; charset=utf-8")
             elif pedida == "/base.css":
-                # Hoja común de las cuatro webs (unidad 076).
-                self._fichero(BASE_CSS, "text/css; charset=utf-8")
+                # Hoja común de las cuatro webs (unidad 076), en el layout que toque.
+                self._fichero(ruta_base_css(), "text/css; charset=utf-8")
             elif pedida == "/meta.json":
                 self._json(200, {"workspace": workspace})
             elif pedida == "/unidades.json":
