@@ -77,13 +77,13 @@
     <div class="cuerpo">
       <aside class="menu-lateral" id="menu" aria-label="Unidades de trabajo">
         <div class="titulo-menu">Unidades</div>
-        <input id="buscar" type="search" placeholder="Buscar unidad…"
+        <input id="buscar" type="search" placeholder="Buscar unidad…  ( / )"
                aria-label="Buscar unidad">
         <div id="listado"></div>
       </aside>
 
       <main class="panel" id="panel">
-        <div class="vacio">Elige una unidad de la lista para leer su contrato.</div>
+        <div class="vacio">Elige una unidad de la lista para leer su contrato. Las que esperan tu OK están arriba del todo, en «Te toca aprobar».</div>
       </main>
     </div>
   </div>
@@ -224,7 +224,14 @@
     var accion = boton.getAttribute("data-accion");
     if (accion === "cambios") { caja.querySelector(".caja-cambios").hidden = false; return; }
     if (accion === "aprobar") {
-      if (!confirm("Aprobar el contrato " + carpeta + " con fecha de hoy?")) return;
+      // Confirmación en línea, sin diálogo del navegador: el primer clic pide
+      // confirmar; el segundo aprueba. Si se pincha en otro sitio, se deshace.
+      if (!boton.classList.contains("confirmar")) {
+        boton.classList.add("confirmar", "boton-primario");
+        boton.textContent = "Confirmar: aprobar " + carpeta;
+        setTimeout(function () { boton.classList.remove("confirmar", "boton-primario"); boton.textContent = "Aprobar este contrato"; }, 6000);
+        return;
+      }
       boton.disabled = true;
       enviar("/aprobar/" + encodeURIComponent(carpeta)).then(function (d) {
         resultado.textContent = "Aprobado el " + d.aprobado + ". El agente ya puede despacharlo.";
@@ -338,6 +345,10 @@
   });
 
   buscar.addEventListener("input", pintarListado);
+  // Atajo: «/» lleva al buscador desde cualquier sitio de la página.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); buscar.focus(); }
+  });
 
   function cargarUnidades() {
     return fetch(RUTA("/unidades.json"), {cache: "no-store"})

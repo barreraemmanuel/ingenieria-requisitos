@@ -337,7 +337,12 @@
     if (!boton) return;
     var unidad = boton.getAttribute("data-aprobar");
     var resultado = boton.parentNode.querySelector(".resultado");
-    if (!confirm("Aprobar el contrato " + unidad + " con fecha de hoy?")) return;
+    if (!boton.classList.contains("confirmar")) {
+      boton.classList.add("confirmar", "boton-primario");
+      boton.textContent = "Confirmar";
+      setTimeout(function () { if (!boton.disabled) { boton.classList.remove("confirmar", "boton-primario"); boton.textContent = "Aprobar"; } }, 6000);
+      return;
+    }
     boton.disabled = true;
     fetch(WEBS.contratos + "/aprobar/" + encodeURIComponent(unidad), {method: "POST"})
       .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); })

@@ -96,12 +96,12 @@
     <div class="cuerpo">
       <aside class="menu-lateral" id="menu" aria-label="Presentaciones">
         <div class="titulo-menu">Presentaciones</div>
-        <input id="buscar" type="search" placeholder="Buscar…" aria-label="Buscar presentación">
+        <input id="buscar" type="search" placeholder="Buscar…  ( / )" aria-label="Buscar presentación">
         <div id="listado"></div>
       </aside>
 
       <main class="panel" id="panel">
-        <div class="vacio">Elige una presentación de la lista.</div>
+        <div class="vacio">Elige una presentación de la lista. Cada una es una entrega que puedes probar paso a paso y dar por buena.</div>
       </main>
     </div>
   </div>
@@ -240,6 +240,9 @@
     irA(boton.dataset.id, "detalle");
   });
   buscar.addEventListener("input", pintarListado);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); buscar.focus(); }
+  });
 
   /* ---------- panel derecho: una vista por tipo ---------- */
 

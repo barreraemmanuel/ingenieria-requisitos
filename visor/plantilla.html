@@ -201,7 +201,7 @@
              aria-label="Flujos de la aplicación">
         <div class="titulo-menu">Flujos</div>
         <div class="menu-filtros">
-          <input id="buscarFlujos" type="search" placeholder="Buscar flujo…">
+          <input id="buscarFlujos" type="search" placeholder="Buscar flujo…  ( / )">
           <select id="filtroFlujos">
             <option value="">Todos</option>
             <option value="futuro">Con la app</option>
@@ -1283,6 +1283,9 @@ document.getElementById("filtroFlujos").addEventListener(
 );
 cargar();
 setInterval(cargar, 3000);
+document.addEventListener("keydown", function (ev) {
+  if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); document.getElementById("buscarFlujos").focus(); }
+});
 </script>
 <!-- /apartado:guion -->
 </body>
