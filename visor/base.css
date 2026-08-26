@@ -106,16 +106,16 @@
      Entre párrafos, --e-parrafo. Entre BLOQUES (tabla, tarjeta, plegable,
      bloque de código), --e-bloque: un bloque necesita más aire que una línea. */
   --e-parrafo: 16px;
-  --e-bloque: 22px;
+  --e-bloque: 28px;
 
   /* ---------- espaciado interior (082) ----------
      La referencia respira por DENTRO: la tarjeta tiene más aire que borde, y
      lo que ordena la página son huecos iguales, no líneas. Tres medidas y ya. */
-  --hueco-chico: 10px;
-  --hueco: 16px;
-  --hueco-grande: 24px;
-  --aire-tarjeta: 22px 26px;
-  --aire-seccion: 40px;
+  --hueco-chico: 12px;
+  --hueco: 20px;
+  --hueco-grande: 28px;
+  --aire-tarjeta: 24px 28px;
+  --aire-seccion: 48px;
 
   /* El ancho de la PÁGINA. El de la COLUMNA DE TEXTO es otra cosa y se mide
      en `ch` (ver `.md`): 78 caracteres, la medida de Butterick. */
@@ -229,9 +229,10 @@ h2.seccion:first-child { margin-top: 0; }
 .tarjeta.viva { border-color: var(--ok); }
 .tarjeta.quieta { color: var(--muted); }
 .tarjeta.bloqueada { border-color: var(--fail); }
-.tarjeta h3 { margin-bottom: var(--hueco-chico); }
-.tarjeta .linea { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: 6px; }
-.tarjeta .rutas { font-size: var(--t-nota); line-height: 1.6; color: var(--faint); margin-top: var(--hueco-chico); word-break: break-all; }
+.tarjeta h3 { margin: 0 0 8px; line-height: 1.4; font-size: var(--t-h3); }
+.tarjeta .linea { font-size: var(--t-menor); line-height: 1.6; color: var(--muted); margin-top: 8px; }
+.tarjeta .linea + .linea { margin-top: 6px; }
+.tarjeta .rutas { font-size: var(--t-nota); line-height: 1.6; color: var(--faint); margin-top: var(--hueco); word-break: break-all; }
 .tarjeta a { color: var(--accent); }
 .tarjeta h3 a { text-decoration: none; }
 .tarjeta h3 a:hover { text-decoration: underline; }
@@ -270,6 +271,11 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .decision label.comentario { display: block; border: 0; padding: 0; margin-top: var(--hueco); cursor: default; }
 .decision textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
 .decision .boton { margin-top: var(--hueco); }
+
+/* avatar + texto: el icono arriba a la izquierda, el texto con su propio ritmo */
+.con-avatar { display: flex; gap: 16px; align-items: flex-start; }
+.con-avatar > div { min-width: 0; flex: 1; }
+.con-avatar h3 { margin-top: 2px; }
 
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
    Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
