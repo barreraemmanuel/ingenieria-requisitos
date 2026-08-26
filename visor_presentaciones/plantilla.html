@@ -254,12 +254,13 @@
       // «N · Dónde · Qué haces · Qué deberías ver»: la lista ya numera, así que el N
       // sobra, y las tres partes se leen mejor en columnas que en una frase.
       var partes = String(v).replace(/^\s*\d+\s*·\s*/, "").split(" · ");
+      var conCodigo = function (t) { return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>"); };
       if (partes.length >= 3) {
-        html += '<li><span class="paso-donde">' + esc(partes[0]) + '</span>' +
-                '<span class="paso-que">' + esc(partes[1]) + '</span>' +
-                '<span class="paso-ver">' + esc(partes.slice(2).join(" · ")) + "</span></li>";
+        html += '<li><span class="paso-donde">' + conCodigo(partes[0]) + '</span>' +
+                '<span class="paso-que">' + conCodigo(partes[1]) + '</span>' +
+                '<span class="paso-ver">' + conCodigo(partes.slice(2).join(" · ")) + "</span></li>";
       } else {
-        html += "<li><span class=\"paso-que\">" + esc(partes.join(" · ")) + "</span></li>";
+        html += "<li><span class=\"paso-que\">" + conCodigo(partes.join(" · ")) + "</span></li>";
       }
     });
     return html + "</ol>";
