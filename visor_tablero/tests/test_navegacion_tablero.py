@@ -519,8 +519,6 @@ class LaFotoRealSePintaTest(unittest.TestCase):
         self.assertIn("/contratos#200-bug-abierto", pintado)
 
 
-if __name__ == "__main__":
-    unittest.main()
 
 
 def ejecutar_js(codigo):
@@ -597,3 +595,7 @@ window.tablero.pintarEn(p, HTML_CON);          // y vuelta
 process.stdout.write(JSON.stringify(p.detalles[0].open));
 """)
         self.assertEqual(json.loads(salida), True)
+
+
+if __name__ == "__main__":
+    unittest.main()
