@@ -26,23 +26,12 @@
      SÓLO lo propio de presentaciones: pestañas, adjuntos y decisión. */
 
   /* ---------- propio del visor de presentaciones: pestañas, adjuntos, decisión ---------- */
-  nav.pestanas { display: flex; gap: 8px; margin: var(--e-bloque) 0 var(--hueco-grande); }
-  nav.pestanas button { font: bold var(--t-menor) var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
-  nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
-  nav.pestanas button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
   .boton-bandeja { border-bottom: 1px solid var(--line-soft) !important; margin-bottom: 8px !important; padding-bottom: 10px !important; }
   .adjunto { margin: 0 0 var(--e-bloque); }
-  .adjunto h4 { font-size: var(--t-nota); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-family: var(--mono); margin-bottom: var(--hueco-chico); word-break: break-all; }
+  .adjunto h4 { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); font-family: var(--mono); margin-bottom: var(--hueco-chico); word-break: break-all; }
   pre.codigo { margin: 0; padding: var(--hueco) var(--hueco-grande); overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); font: var(--t-menor)/1.5 var(--mono); }
   pre.codigo .num { display: inline-block; width: 3em; color: var(--faint); user-select: none; text-align: right; margin-right: 12px; }
-  fieldset { margin: var(--e-bloque) 0 0; padding: 0; border: 0; }
-  legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
-  label { display: block; margin: var(--hueco) 0; }
-  textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
-  button:not(.boton-tema):not(.ir-detalle) { padding: 11px 20px; border: 1px solid var(--accent); border-radius: var(--pildora); background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
-  button.ir-detalle { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: var(--sheet); color: var(--ink); font: inherit; cursor: pointer; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
-  @media (max-width: 700px) { button:not(.boton-tema) { width: 100%; } }
 </style>
 <!-- /apartado:estilos -->
 </head>
@@ -98,14 +87,14 @@
     Pide a tu IA que vuelva a abrir la sesión y recarga esta página.</div>
 
     <div class="cuerpo">
-      <aside class="menu-unidades" id="menu" aria-label="Presentaciones">
+      <aside class="menu-lateral" id="menu" aria-label="Presentaciones">
         <div class="titulo-menu">Presentaciones</div>
-        <input id="buscar" type="search" placeholder="Buscar…" aria-label="Buscar presentación">
+        <input id="buscar" type="search" placeholder="Buscar…  ( / )" aria-label="Buscar presentación">
         <div id="listado"></div>
       </aside>
 
       <main class="panel" id="panel">
-        <div class="vacio">Elige una presentación de la lista.</div>
+        <div class="vacio">Elige una presentación de la lista. Cada una es una entrega que puedes probar paso a paso y dar por buena.</div>
       </main>
     </div>
   </div>
@@ -123,6 +112,14 @@
     return ((window.IR && window.IR.base) || "") + sufijo;
   }
 
+  /* Los datos del APARTADO entero (no de una entrega): cuelgan un nivel por
+     encima, porque `IR.base` aquí es `/presentaciones/<unidad>`. Sin esto,
+     `indice.json` se pediría dentro de la unidad abierta y nunca llegaría. */
+  function RUTA_APARTADO(sufijo) {
+    var base = (window.IR && window.IR.base) || "";
+    return base.replace(/\/[^\/]*$/, "") + sufijo;
+  }
+
   /* Grupos del menú, en este orden; "bandeja" no aparece aquí porque tiene
      su propio botón fijo arriba del todo (R3: «bandeja» siempre a mano). */
   var GRUPOS = [
@@ -133,6 +130,13 @@
   var ETIQUETAS_TIPO = {lector: "lectura", propuesta: "propuesta", validacion: "validación", bandeja: "bandeja"};
 
   var presentaciones = [];
+  var otras = [];   // el resto de validaciones del workspace (/presentaciones/indice.json)
+  fetch(RUTA_APARTADO("/indice.json"), {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {presentaciones: []}; })
+    .then(function (d) {
+      var actual = ((window.IR && window.IR.base) || "").split("/").pop();
+      otras = (d.presentaciones || []).filter(function (o) { return o.unidad !== actual; });
+      if (typeof pintarListado === "function" && presentaciones.length) pintarListado();
+    }).catch(function () {});
   var bandeja = null;
   var decididas = {};   // id de presentación -> true si ya tiene recibo
   var elegidaId = null;
@@ -200,7 +204,8 @@
     var boton = el("button");
     boton.type = "button";
     boton.dataset.id = p.id;
-    if (p.id === elegidaId) { boton.className = "activa"; boton.setAttribute("aria-current", "true"); }
+    boton.className = "menu-item con-chips";
+    if (p.id === elegidaId) { boton.className += " activa"; boton.setAttribute("aria-current", "true"); }
     var nombre = el("span", "nombre", p.titulo);
     boton.appendChild(nombre);
     var estado = estadoDe(p);
@@ -227,9 +232,26 @@
       });
       if (!items.length) return;
       huboAlguna = true;
-      listado.appendChild(el("div", "titulo-menu", grupo.titulo));
+      var cab = el("div", "menu-grupo", grupo.titulo);
+      cab.appendChild(el("span", "cuenta", String(items.length)));
+      listado.appendChild(cab);
       items.forEach(function (p) { listado.appendChild(pintarBotonMenu(p)); });
     });
+    // Una sola entrega y nada elegido: se abre sola, que es lo que se venía a ver.
+    if (presentaciones.length === 1 && !elegidaId && !location.hash) irA(presentaciones[0].id, "detalle");
+    // Las demás validaciones del workspace, para saltar entre ellas sin volver al tablero.
+    if (otras.length) {
+      var cab = el("div", "menu-grupo", "Otras entregas");
+      cab.appendChild(el("span", "cuenta", String(otras.length)));
+      listado.appendChild(cab);
+      otras.forEach(function (o) {
+        var a = el("a", "menu-item con-chips");
+        a.href = "/presentaciones/" + encodeURIComponent(o.unidad);
+        a.appendChild(el("span", "nombre", o.unidad));
+        a.insertAdjacentHTML("beforeend", '<span class="chip' + (o.decidida ? " chip-aprobado" : " chip-pendiente") + '">' + (o.decidida ? "decidida" : "te toca") + "</span>");
+        listado.appendChild(a);
+      });
+    }
     if (!huboAlguna && filtro) {
       listado.appendChild(el("div", "vacio", "Ninguna presentación coincide."));
     }
@@ -241,14 +263,30 @@
     irA(boton.dataset.id, "detalle");
   });
   buscar.addEventListener("input", pintarListado);
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); buscar.focus(); }
+  });
 
   /* ---------- panel derecho: una vista por tipo ---------- */
 
   function listaSeccion(titulo, valores) {
     if (!valores || !valores.length) return "";
-    var html = "<h4>" + esc(titulo) + "</h4><ul>";
-    valores.forEach(function (v) { html += "<li>" + esc(v) + "</li>"; });
-    return html + "</ul>";
+    // Lista de pasos como componente de la hoja común: una fila por paso, con aire.
+    var html = '<div class="subtitulo">' + esc(titulo) + '</div><ol class="lista-pasos">';
+    valores.forEach(function (v) {
+      // «N · Dónde · Qué haces · Qué deberías ver»: la lista ya numera, así que el N
+      // sobra, y las tres partes se leen mejor en columnas que en una frase.
+      var partes = String(v).replace(/^\s*\d+\s*·\s*/, "").split(" · ");
+      var conCodigo = function (t) { return esc(t).replace(/`([^`]+)`/g, "<code>$1</code>"); };
+      if (partes.length >= 3) {
+        html += '<li><span class="paso-donde">' + conCodigo(partes[0]) + '</span>' +
+                '<span class="paso-que">' + conCodigo(partes[1]) + '</span>' +
+                '<span class="paso-ver">' + conCodigo(partes.slice(2).join(" · ")) + "</span></li>";
+      } else {
+        html += "<li><span class=\"paso-que\">" + conCodigo(partes.join(" · ")) + "</span></li>";
+      }
+    });
+    return html + "</ol>";
   }
 
   function pintarBandeja(p) {
@@ -259,7 +297,7 @@
       p.peticiones.forEach(function (pet) {
         html += '<div class="bluf"><h3>' + esc(pet.titulo) + "</h3>" +
                 chipEstado(decididas[pet.destino] ? "decidida" : pet.estado) +
-                "<p>" + esc(pet.detalle) + '</p><p><button type="button" class="ir-detalle" data-id="' +
+                "<p>" + esc(pet.detalle) + '</p><p><button type="button" class="boton ir-detalle" data-id="' +
                 esc(pet.destino) + '">Abrir</button></p></div>';
       });
     }
@@ -281,13 +319,13 @@
       cuerpo += listaSeccion("Pasos", p.pasos) + listaSeccion("Evidencia", p.evidencia);
       contenidoRevisado = p.pasos.join("\n");
     }
-    cuerpo += '<form id="decision" data-contenido="' + esc(contenidoRevisado) +
+    cuerpo += '<form id="decision" class="decision" data-contenido="' + esc(contenidoRevisado) +
               '"><fieldset><legend>Registrar decisión</legend><div id="opciones">';
     p.opciones.forEach(function (o) {
       cuerpo += '<label><input type="radio" name="eleccion" value="' + esc(o) + '"> ' + esc(o) + "</label>";
     });
-    cuerpo += '</div><label>Comentario<textarea id="comentario" maxlength="2000"></textarea></label>' +
-              '<button id="confirmar" type="submit">Confirmar decisión</button>' +
+    cuerpo += '</div><label class="comentario">Comentario<textarea id="comentario" maxlength="2000"></textarea></label>' +
+              '<button id="confirmar" type="submit" class="boton boton-primario">Confirmar decisión</button>' +
               '<p id="mensaje" class="sub" role="alert" aria-live="polite"></p></fieldset></form>';
     return cuerpo;
   }
@@ -422,7 +460,8 @@
       bandeja = presentaciones.find(function (p) { return p.tipo === "bandeja"; }) || null;
       decididas = {};
       (recibos.recibos || []).forEach(function (r) { decididas[r.presentacion] = true; });
-      sub.textContent = presentaciones.length + " presentaciones";
+      var pendientes = otras.filter(function (o) { return !o.decidida; }).length + (Object.keys(decididas).length ? 0 : 1);
+      sub.textContent = (otras.length + 1) + " entregas · " + pendientes + " esperan tu decisión";
       pintarListado();
       var h = hashActual();
       if (h.id) {

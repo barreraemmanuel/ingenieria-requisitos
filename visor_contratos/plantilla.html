@@ -75,15 +75,15 @@
     Pide a tu IA que vuelva a abrir la sesión y recarga esta página.</div>
 
     <div class="cuerpo">
-      <aside class="menu-unidades" id="menu" aria-label="Unidades de trabajo">
+      <aside class="menu-lateral" id="menu" aria-label="Unidades de trabajo">
         <div class="titulo-menu">Unidades</div>
-        <input id="buscar" type="search" placeholder="Buscar unidad…"
+        <input id="buscar" type="search" placeholder="Buscar unidad…  ( / )"
                aria-label="Buscar unidad">
         <div id="listado"></div>
       </aside>
 
       <main class="panel" id="panel">
-        <div class="vacio">Elige una unidad de la lista para leer su contrato.</div>
+        <div class="vacio">Elige una unidad de la lista para leer su contrato. Las que esperan tu OK están arriba del todo, en «Te toca aprobar».</div>
       </main>
     </div>
   </div>
@@ -181,16 +181,24 @@
     return ordenadas;
   }
 
+  // En la LISTA solo el chip que decide (pendiente / aprobado) y, si no es normal, el carril:
+  // cuatro chips por entrada saturaban el menú. En la ficha van todos.
+  function chipsCompactos(u) {
+    var html = u.pendiente_de_aprobar
+      ? '<span class="chip chip-pendiente">te toca</span>'
+      : '<span class="chip chip-aprobado">aprobado</span>';
+    if (u.estado && u.estado !== "planificada") html += '<span class="chip">' + esc(u.estado.replace("_", " ")) + "</span>";
+    return html;
+  }
+
+  // Cabecera de la ficha: UN chip (lo que decide) y el resto como línea de texto tenue.
   function chipsDe(u) {
-    var html = "";
-    if (u.pendiente_de_aprobar) {
-      html += '<span class="chip chip-pendiente">pendiente de aprobar</span>';
-    } else {
-      html += '<span class="chip chip-aprobado">aprobado ' + esc(u.aprobado) + "</span>";
-    }
-    if (u.estado) html += '<span class="chip">' + esc(u.estado) + "</span>";
-    if (u.carril) html += '<span class="chip">' + esc(u.carril) + "</span>";
-    if (u.tipo) html += '<span class="chip">' + esc(u.tipo) + "</span>";
+    var html = u.pendiente_de_aprobar
+      ? '<span class="chip chip-pendiente">pendiente de aprobar</span>'
+      : '<span class="chip chip-aprobado">aprobado ' + esc(u.aprobado) + "</span>";
+    var meta = [u.tipo, u.estado && u.estado.replace("_", " "), u.carril && ("carril " + u.carril)]
+      .filter(Boolean).map(esc).join(" · ");
+    if (meta) html += '<span class="meta">' + meta + "</span>";
     return html;
   }
 
@@ -202,8 +210,8 @@
   function pintarContrato(u, texto) {
     var doc = trocear(texto);
     var html = '<div class="cabecera-contrato"><h2>' +
-               esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
-               '<div class="ruta">' + esc(rutaDe(u)) + "</div></div>";
+               esc(doc.titulo || u.unidad).replace(/`([^`]+)`/g, "<code>$1</code>") + "</h2>" + chipsDe(u) +
+               '<div class="ruta">' + esc(rutaDe(u)) + "</div>" + accionesDe(u) + "</div>";
     var secciones = ordenBluf(doc.secciones);
     for (var i = 0; i < secciones.length; i++) {
       var s = secciones[i];
@@ -222,6 +230,70 @@
     // la página sólo escondería la cabecera.
     if (window.innerWidth <= 860) panel.scrollIntoView({block: "start"});
   }
+
+  function accionesDe(u) {
+    if (!u.pendiente_de_aprobar) return "";
+    return '<div class="acciones" data-carpeta="' + esc(u.carpeta) + '">' +
+           '<button type="button" class="boton boton-ok" data-accion="aprobar">Aprobar este contrato</button>' +
+           '<button type="button" class="boton" data-accion="cambios">Pedir cambios</button>' +
+           '<div class="caja-cambios" hidden><textarea rows="4" placeholder="Qué cambiarías y por qué…"></textarea>' +
+           '<button type="button" class="boton boton-ok" data-accion="enviar-cambios">Enviar al agente</button></div>' +
+           '<div class="resultado" aria-live="polite"></div></div>';
+  }
+
+  function enviar(ruta, cuerpo) {
+    return fetch(RUTA(ruta), {method: "POST", headers: {"Content-Type": "application/json"},
+                              body: JSON.stringify(cuerpo || {})})
+      .then(function (r) { return r.json().then(function (d) { if (!r.ok) throw new Error(d.error || r.status); return d; }); });
+  }
+
+  panel.addEventListener("click", function (ev) {
+    var boton = ev.target.closest("button[data-accion]");
+    if (!boton) return;
+    var caja = boton.closest(".acciones");
+    var carpeta = caja.getAttribute("data-carpeta");
+    var resultado = caja.querySelector(".resultado");
+    var accion = boton.getAttribute("data-accion");
+    if (accion === "cambios") { caja.querySelector(".caja-cambios").hidden = false; return; }
+    if (accion === "aprobar") {
+      // Confirmación en línea, sin diálogo del navegador: el primer clic pide
+      // confirmar; el segundo aprueba. Si se pincha en otro sitio, se deshace.
+      if (!boton.classList.contains("confirmar")) {
+        boton.classList.add("confirmar", "boton-primario");
+        boton.textContent = "Confirmar: aprobar " + carpeta;
+        setTimeout(function () { boton.classList.remove("confirmar", "boton-primario"); boton.textContent = "Aprobar este contrato"; }, 6000);
+        return;
+      }
+      boton.disabled = true;
+      enviar("/aprobar/" + encodeURIComponent(carpeta)).then(function (d) {
+        resultado.textContent = "Aprobado el " + d.aprobado + ". El agente ya puede despacharlo.";
+        cargarUnidades().then(function () { var u = porCarpeta(carpeta); if (u) abrir(u); });
+      }).catch(function (e) { boton.disabled = false; resultado.textContent = "No se pudo aprobar: " + e.message; });
+      return;
+    }
+    if (accion === "enviar-cambios") {
+      var texto = caja.querySelector("textarea").value;
+      boton.disabled = true;
+      enviar("/pedir-cambios/" + encodeURIComponent(carpeta), {comentario: texto}).then(function (d) {
+        resultado.textContent = "Anotado en el contrato (" + d.anotado + "). El agente lo leerá antes de seguir.";
+      }).catch(function (e) { boton.disabled = false; resultado.textContent = "No se pudo anotar: " + e.message; });
+    }
+  });
+
+  function porCarpeta(carpeta) {
+    for (var i = 0; i < unidades.length; i++) if (unidades[i].carpeta === carpeta) return unidades[i];
+    return null;
+  }
+
+  // Jerarquía de la lista: primero lo que te toca a TI, luego lo que está en marcha,
+  // luego lo que espera tu validación, al final lo cerrado. Dentro, lo más nuevo arriba.
+  var GRUPOS = [
+    {clave: "aprobar", titulo: "Te toca aprobar", test: function (u) { return u.pendiente_de_aprobar; }},
+    {clave: "validar", titulo: "Esperan tu validación", test: function (u) { return u.estado === "en_validacion"; }},
+    {clave: "obra", titulo: "En marcha", test: function (u) { return u.estado === "en_obra" || u.estado === "en_revision"; }},
+    {clave: "cola", titulo: "Aprobadas, en cola", test: function (u) { return u.estado === "planificada"; }},
+    {clave: "cerradas", titulo: "Cerradas", test: function () { return true; }}
+  ];
 
   function abrir(u) {
     elegida = u.carpeta;
@@ -252,12 +324,23 @@
       listado.innerHTML = '<div class="vacio">Ninguna unidad coincide.</div>';
       return;
     }
-    listado.innerHTML = visibles.map(function (u) {
-      return '<button type="button" data-carpeta="' + esc(u.carpeta) + '"' +
-             (u.carpeta === elegida ? ' class="activa" aria-current="true"' : "") +
-             '><span class="nombre">' + esc(u.unidad) + "</span>" +
-             chipsDe(u) + "</button>";
-    }).join("");
+    var restantes = visibles.slice().sort(function (a, b) { return a.carpeta < b.carpeta ? 1 : -1; });
+    var html = "";
+    GRUPOS.forEach(function (g) {
+      var mios = restantes.filter(g.test);
+      restantes = restantes.filter(function (u) { return mios.indexOf(u) < 0; });
+      if (!mios.length) return;
+      html += '<details class="menu-grupo" ' + (g.clave === "cerradas" ? "" : "open") +
+              '><summary><span>' + esc(g.titulo) + '</span><span class="cuenta">' + mios.length + '</span></summary>';
+      html += mios.map(function (u) {
+        return '<button type="button" class="menu-item con-chips' + (u.carpeta === elegida ? ' activa" aria-current="true"' : '"') +
+               ' data-carpeta="' + esc(u.carpeta) + '"' +
+               '><span class="nombre">' + esc(u.unidad) + "</span>" +
+               chipsCompactos(u) + "</button>";
+      }).join("");
+      html += "</details>";
+    });
+    listado.innerHTML = html;
   }
 
   listado.addEventListener("click", function (ev) {
@@ -270,6 +353,10 @@
   });
 
   buscar.addEventListener("input", pintarListado);
+  // Atajo: «/» lleva al buscador desde cualquier sitio de la página.
+  document.addEventListener("keydown", function (ev) {
+    if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); buscar.focus(); }
+  });
 
   function cargarUnidades() {
     return fetch(RUTA("/unidades.json"), {cache: "no-store"})

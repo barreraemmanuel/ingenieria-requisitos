@@ -34,6 +34,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 BASE_CSS = RAIZ / "visor" / "base.css"
 RENDER_JS = RAIZ / "visor_contratos" / "render.js"
 CASCARA = RAIZ / "web" / "plantilla.html"
+BASE_CSS_TEXTO = (RAIZ / "visor" / "base.css").read_text(encoding="utf-8")
 
 # Las cuatro secciones de la web única: su `<style>` propio también cuenta.
 SECCIONES = (
@@ -361,8 +362,8 @@ class TexturasTest(BaseTest):
         """R4 en el tablero (decisión del padre, H1 de la revisión, 27-08): la ocupación se
         pinta como carril RAYADO (lo pendiente) con lo hecho en tinta sólida; la matriz de
         puntos queda para el progreso del plan. Sin este test nada miraba el tablero."""
-        css = sin_comentarios(style_propio(
-            (RAIZ / "visor_tablero" / "plantilla.html").read_text(encoding="utf-8")))
+        # 27-08: `.barra` pasó a la hoja común como componente compartido.
+        css = sin_comentarios(BASE_CSS_TEXTO)
         barra = re.search(r"\.barra\s*\{([^}]*)\}", css)
         hecho = re.search(r"\.barra span\s*\{([^}]*)\}", css)
         self.assertIsNotNone(barra, "el tablero no declara .barra")
@@ -451,6 +452,117 @@ class ContrasteTest(BaseTest):
                         "el fondo por defecto ya no es casi negro")
         self.assertGreater(luminancia(self.claro["--paper"]), 0.5,
                            "el tema claro dejó de ser claro")
+
+
+# ------------------------------------- la iteración de legibilidad del 26-08
+
+# Cada componente compartido, con la pinta que tiene que seguir teniendo. Si uno
+# se borra de `base.css`, la plantilla que lo usaba se queda sin estilo y NADIE
+# se entera hasta que alguien abre esa pantalla: por eso el inventario es un test.
+COMPONENTES = (
+    (".tarjeta", "border"),          # la caja de una unidad, una entrega, un flujo
+    (".dato", "border"),             # la cifra grande del tablero
+    (".subtitulo", "font-size"),     # el rótulo que parte una sección
+    (".lista-pasos", "list-style"),  # los pasos de una validación guiada
+    (".lista-criterios", "list-style"),  # los criterios con casilla
+    ("dl.vocab", "display"),         # término arriba, definición debajo
+    ("nav.pestanas", "display"),     # detalle · adjuntos
+    (".boton", "border"),            # el botón, incluido Aprobar
+    (".decision", None),             # el formulario de decidir una entrega
+    (".menu-lateral", "border"),     # el menú, uno para los cuatro apartados
+)
+
+# Los trozos del menú lateral: si una plantilla los vuelve a estilar, vuelven las
+# cuatro webs con cuatro menús distintos que la 091 acaba de unificar.
+SELECTOR_DE_MENU = re.compile(r"\.menu-[a-z-]+|\.titulo-menu")
+
+
+class MenuLateralUnicoTest(BaseTest):
+    """Un solo menú para los cuatro apartados: el marcado lo dicen las plantillas,
+    el ESTILO lo dice `base.css` y sólo `base.css`."""
+
+    def test_las_cuatro_plantillas_montan_el_menu_compartido(self):
+        for nombre, plantilla in SECCIONES:
+            with self.subTest(web=nombre):
+                self.assertIn('class="menu-lateral"',
+                              plantilla.read_text(encoding="utf-8"),
+                              "%s no usa el menú compartido" % nombre)
+
+    def test_ninguna_plantilla_estila_el_menu_por_su_cuenta(self):
+        for nombre, plantilla in SECCIONES:
+            propio = sin_comentarios(style_propio(
+                plantilla.read_text(encoding="utf-8")))
+            for selector, _cuerpo in declaraciones(propio):
+                with self.subTest(web=nombre, selector=selector):
+                    self.assertIsNone(
+                        SELECTOR_DE_MENU.search(selector),
+                        "%s vuelve a estilar el menú (%s): eso vive en base.css"
+                        % (nombre, selector))
+
+    def test_el_menu_lo_declara_la_hoja_comun(self):
+        self.assertIn(".menu-lateral", self.css)
+
+
+class SinMayusculasForzadasTest(BaseTest):
+    """26-08: las mayúsculas forzadas y el tracking salieron de TODA la web.
+
+    Se leen peor y gritan; y `letter-spacing` sobre una pila monoespaciada
+    deshace justo la rejilla por la que se eligió. Ni una regla de ninguna de
+    las dos, ni en la hoja ni en las cuatro secciones.
+    """
+
+    def hojas(self):
+        salida = [("base.css", sin_comentarios(self.css))]
+        for nombre, plantilla in SECCIONES:
+            salida.append((nombre, sin_comentarios(
+                plantilla.read_text(encoding="utf-8"))))
+        return salida
+
+    def test_ninguna_regla_fuerza_mayusculas(self):
+        for nombre, css in self.hojas():
+            with self.subTest(web=nombre):
+                self.assertEqual(
+                    [], re.findall(r"text-transform\s*:\s*(?!none)[a-z-]+", css),
+                    "%s vuelve a forzar mayúsculas" % nombre)
+
+    def test_nadie_separa_las_letras(self):
+        for nombre, css in self.hojas():
+            with self.subTest(web=nombre):
+                self.assertEqual(
+                    [], re.findall(r"letter-spacing\s*:", css),
+                    "%s vuelve a tocar el tracking" % nombre)
+
+
+class ComponentesCompartidosTest(BaseTest):
+    """Los componentes que las cuatro webs comparten viven UNA vez, en la hoja."""
+
+    def test_la_hoja_declara_cada_componente(self):
+        selectores = {sel for selector, _ in declaraciones(self.css)
+                      for sel in selector.split(",")}
+        selectores = {s.strip() for s in selectores}
+        for componente, _propiedad in COMPONENTES:
+            with self.subTest(componente=componente):
+                self.assertTrue(
+                    any(s == componente or s.startswith(componente + " ")
+                        or s.startswith(componente + ".")
+                        or s.startswith(componente + ":")
+                        or s.startswith(componente + ">")
+                        for s in selectores),
+                    "falta %s en base.css" % componente)
+
+    def test_cada_componente_trae_su_pinta_puesta(self):
+        """Declarado no basta: un selector vacío es un componente que no existe."""
+        for componente, propiedad in COMPONENTES:
+            if propiedad is None:
+                continue
+            with self.subTest(componente=componente):
+                cuerpos = [cuerpo for selector, cuerpo in declaraciones(self.css)
+                           if componente in [s.strip()
+                                             for s in selector.split(",")]]
+                self.assertTrue(
+                    any(re.search(r"(?:^|;)\s*%s\s*:" % propiedad, cuerpo)
+                        for cuerpo in cuerpos),
+                    "%s no declara %s" % (componente, propiedad))
 
 
 if __name__ == "__main__":

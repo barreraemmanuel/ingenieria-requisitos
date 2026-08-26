@@ -114,12 +114,17 @@ def tamanos_px(css):
 
 
 def es_etiqueta(cuerpo):
-    """Una ETIQUETA: una palabra en mayúsculas, no un texto que se lee.
+    """Una ETIQUETA: un rótulo corto en negrita, no un texto que se lee.
 
     Es la única excusa que R2 admite para bajar del suelo, y se puede
-    comprobar: la regla tiene que declarar `text-transform: uppercase`.
+    comprobar. Hasta la 091 la marca era `text-transform: uppercase`; el
+    26-08 las mayúsculas forzadas salieron de TODA la web (se leen peor y
+    gritan), y la marca pasó a ser la que dejó esa iteración en cada rótulo:
+    negrita + `text-transform: none` explícito. Un texto corrido de 11px que
+    no lleve las dos sigue suspendiendo, que es lo que este suelo vigila.
     """
-    return "text-transform" in cuerpo and "uppercase" in cuerpo
+    negrita = re.search(r"font-weight\s*:\s*bold|font\s*:\s*bold", cuerpo)
+    return bool(negrita) and re.search(r"text-transform\s*:\s*none", cuerpo)
 
 
 def declaracion(css, selector, propiedad):
@@ -220,14 +225,18 @@ class LegibilidadTest(unittest.TestCase):
         self.assertLessEqual(tamano, 17)
 
     def test_el_texto_de_lectura_respira(self):
+        # 1.6 desde el 26-08 (commit 89f177a): un solo interlineado en toda la
+        # web, el mismo que el cuerpo, en vez de dos parecidos que se notaban.
         alto = resolver(self.css, declaracion(self.css, ".md", "line-height"))
-        self.assertEqual("1.55", (alto or "").strip())
+        self.assertEqual("1.6", (alto or "").strip())
 
-    def test_el_cuerpo_conserva_16px_y_line_height_1_5(self):
+    def test_el_cuerpo_conserva_16px_y_line_height_1_6(self):
+        # El cuerpo sigue siendo 16px; el interlineado subió a 1.6 el 26-08
+        # (commit 89f177a) y es el ÚNICO de la web (`.md` usa el mismo).
         fuente = resolver(self.css, declaracion(self.css, "body", "font"))
         self.assertIsNotNone(fuente, "`body` no declara font")
-        self.assertTrue(re.match(r"16px\s*/\s*1\.5(\s|$)", fuente.strip()),
-                        "el cuerpo ya no es 16px/1.5: %r" % fuente)
+        self.assertTrue(re.match(r"16px\s*/\s*1\.6(\s|$)", fuente.strip()),
+                        "el cuerpo ya no es 16px/1.6: %r" % fuente)
 
     def test_la_columna_de_texto_sigue_midiendose_en_ch(self):
         self.assertEqual("78ch", declaracion(self.css, ".md", "max-width"))
@@ -279,8 +288,10 @@ class LegibilidadTest(unittest.TestCase):
         bloque = px(valor_variable(self.css, "--e-bloque"))
         self.assertIsNotNone(parrafo, "falta --e-parrafo")
         self.assertIsNotNone(bloque, "falta --e-bloque")
+        # 16px desde el 26-08 (commit 0ad93d7): los párrafos pegados eran
+        # justo lo que se leía mal. El tope alto impide que se dispare.
         self.assertGreaterEqual(parrafo, 10)
-        self.assertLessEqual(parrafo, 12)
+        self.assertLessEqual(parrafo, 16)
         self.assertGreaterEqual(bloque, 16)
 
     def test_el_aire_se_usa_donde_se_ve(self):

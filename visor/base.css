@@ -100,22 +100,22 @@
   --t-h2: 20px;
   --t-h1: 25px;
   --t-cifra: 28px;
-  --lh-lectura: 1.55;
+  --lh-lectura: 1.6;
 
   /* ---------- aire (R2) ----------
      Entre párrafos, --e-parrafo. Entre BLOQUES (tabla, tarjeta, plegable,
      bloque de código), --e-bloque: un bloque necesita más aire que una línea. */
-  --e-parrafo: 12px;
-  --e-bloque: 22px;
+  --e-parrafo: 16px;
+  --e-bloque: 28px;
 
   /* ---------- espaciado interior (082) ----------
      La referencia respira por DENTRO: la tarjeta tiene más aire que borde, y
      lo que ordena la página son huecos iguales, no líneas. Tres medidas y ya. */
-  --hueco-chico: 10px;
-  --hueco: 16px;
-  --hueco-grande: 24px;
-  --aire-tarjeta: 22px 26px;
-  --aire-seccion: 40px;
+  --hueco-chico: 12px;
+  --hueco: 20px;
+  --hueco-grande: 28px;
+  --aire-tarjeta: 24px 28px;
+  --aire-seccion: 48px;
 
   /* El ancho de la PÁGINA. El de la COLUMNA DE TEXTO es otra cosa y se mide
      en `ch` (ver `.md`): 78 caracteres, la medida de Butterick. */
@@ -163,20 +163,20 @@
 * { margin: 0; padding: 0; box-sizing: border-box; }
 [hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
-body { background: var(--paper); color: var(--ink); font: 16px/1.5 var(--sans); }
+body { background: var(--paper); color: var(--ink); font: 16px/1.6 var(--sans); }
 .pagina { max-width: var(--ancho-pagina); margin: 0 auto; padding: 44px 32px 120px; }
 
 /* ---------- escala de títulos ----------
    Tres escalones que se distinguen de un vistazo (25 / 20 / 17) y valen igual
    para la interfaz y para el markdown renderizado dentro de `.md`. Misma
    familia que el cuerpo: en este sistema un título se nota por tamaño y peso. */
-h1 { font-size: var(--t-h1); line-height: 1.25; margin: 12px 0 6px; letter-spacing: -.015em; }
-h2 { font-size: var(--t-h2); line-height: 1.3; letter-spacing: -.01em; }
+h1 { font-size: var(--t-h1); line-height: 1.25; margin: 12px 0 6px; }
+h2 { font-size: var(--t-h2); line-height: 1.3; }
 h3 { font-size: var(--t-h3); line-height: 1.35; }
 
 /* ---------- cabecera e interruptor de tema ---------- */
 header { position: relative; padding-right: 44px; }
-header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .18em; text-transform: uppercase; color: var(--faint); }
+header .marca { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); }
 .boton-tema { position: absolute; top: -2px; right: 0; width: 38px; height: 38px; border-radius: 50%; border: 1px solid var(--line); background: var(--sheet); color: var(--muted); font-size: 15px; line-height: 1; cursor: pointer; }
 .boton-tema:hover { border-color: var(--accent); color: var(--ink); }
 .boton-tema:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -187,7 +187,7 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    actual va marcado con `.actual` + aria-current. Píldoras con borde de 1px,
    como los controles de la referencia. */
 .barra-webs { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: var(--hueco-grande); }
-.barra-webs a { font: bold var(--t-etiqueta) var(--sans); letter-spacing: .12em; text-transform: uppercase; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); }
+.barra-webs a { font: bold var(--t-etiqueta) var(--sans); text-transform: none; color: var(--muted); text-decoration: none; border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); }
 .barra-webs a:hover { border-color: var(--accent); color: var(--ink); }
 .barra-webs a.actual { background: var(--accent-bg); border-color: var(--accent); color: var(--accent); }
 .barra-webs a:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
@@ -200,15 +200,6 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 /* ---------- esqueleto: menú lateral + panel ---------- */
 .cuerpo { display: flex; gap: 32px; align-items: flex-start; margin-top: var(--aire-seccion); }
 
-.menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco); }
-.titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .16em; text-transform: uppercase; color: var(--faint); margin-bottom: var(--hueco-chico); }
-.menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 9px 12px; margin-bottom: var(--hueco); }
-.menu-unidades button { display: block; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 11px 12px; margin: 2px 0; cursor: pointer; line-height: 1.45; }
-.menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
-.menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-.menu-unidades button.activa { background: var(--accent-bg); border-color: var(--accent); }
-.menu-unidades button .nombre { display: block; font-weight: bold; margin-bottom: 2px; }
-.menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
 
 .panel { flex: 1 1 auto; min-width: 0; }
 .panel .vacio { border: 1px dashed var(--line); border-radius: var(--radio); padding: var(--hueco-grande); color: var(--muted); font-size: var(--t-medio); background: var(--sheet); }
@@ -217,7 +208,115 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    Una palabra en mayúsculas: es lo único que R2 deja bajar a --t-etiqueta.
    Delante, un glifo de punto — la firma de la referencia: el estado se ve
    antes de leerse, y no hace falta un color para distinguirlo. */
-.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .1em; text-transform: uppercase; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
+/* ---------- componentes compartidos (27-08): una sola definición para las cuatro webs ----------
+   Cifras (.tira/.dato), cabecera de sección (h2.seccion + .seccion-nota), subtítulo
+   (.subtitulo), tarjetas (.tarjetas/.tarjeta), lista plana, pestañas (nav.pestanas),
+   botones (.boton) y barra de progreso (.barra). Las plantillas sólo las usan. */
+.tira { display: flex; flex-wrap: wrap; gap: var(--hueco-chico); margin-top: var(--e-bloque); }
+.dato { flex: 1 1 190px; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
+.dato .etiqueta { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.dato .valor { font-size: var(--t-h2); line-height: 1.35; }
+.dato .valor small { color: var(--muted); font-size: 12.5px; font-weight: normal; }
+.dato .valor .detalle { font-size: var(--t-nota); line-height: 1.6; color: var(--muted); margin-top: 6px; }
+.dato.roto { border-color: var(--fail); background: var(--fail-bg); }
+.dato.roto .valor { color: var(--fail); font-size: 13.5px; }
+h2.seccion { margin: var(--aire-seccion) 0 var(--hueco-chico); }
+h2.seccion:first-child { margin-top: 0; }
+.seccion-nota { color: var(--faint); font-size: 12.5px; }
+.subtitulo, .dia { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+.tarjetas { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: var(--hueco); margin-top: var(--e-bloque); }
+.tarjeta { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
+.tarjeta.viva { border-color: var(--ok); }
+.tarjeta.quieta { color: var(--muted); }
+.tarjeta.bloqueada { border-color: var(--fail); }
+.tarjeta h3 { margin: 0 0 8px; line-height: 1.4; font-size: var(--t-h3); }
+.tarjeta .linea { font-size: var(--t-menor); line-height: 1.6; color: var(--muted); margin-top: 8px; }
+.tarjeta .linea + .linea { margin-top: 6px; }
+.tarjeta .rutas { font-size: var(--t-nota); line-height: 1.6; color: var(--faint); margin-top: var(--hueco); word-break: break-all; }
+.tarjeta a { color: var(--accent); }
+.tarjeta h3 a { text-decoration: none; }
+.tarjeta h3 a:hover { text-decoration: underline; }
+.tarjeta .acciones { margin-top: var(--hueco); }
+.lista-plana { list-style: none; margin-top: var(--e-bloque); }
+.lista-plana li { border-bottom: 1px solid var(--line-soft); padding: 14px 2px; font-size: 14px; line-height: 1.5; display: flex; gap: 10px; justify-content: space-between; align-items: center; }
+.lista-plana li:last-child { border-bottom: 0; }
+.lista-plana .espera { color: var(--faint); font-size: 12.5px; white-space: nowrap; }
+.lista-plana a { color: var(--accent); text-decoration: none; }
+.lista-plana a:hover { text-decoration: underline; }
+.vacio-corto { color: var(--faint); font-size: 13px; padding: 8px 2px; }
+.aviso-fuente { border: 1px solid var(--warn); border-radius: var(--radio); background: var(--warn-bg); padding: var(--hueco) var(--hueco-grande); font-size: var(--t-menor); margin-top: var(--e-bloque); color: var(--warn); }
+.barra { height: 8px; border-radius: var(--pildora); background-color: var(--line-soft); background-image: var(--textura-rayado); margin-top: var(--hueco-chico); overflow: hidden; }
+.barra span { display: block; height: 100%; background: var(--ink); }
+nav.pestanas { display: flex; gap: 8px; overflow-x: auto; margin: var(--e-bloque) 0 var(--hueco-grande); padding-bottom: var(--hueco-chico); border-bottom: 1px solid var(--line); }
+nav.pestanas button { white-space: nowrap; font: bold var(--t-menor) var(--sans); color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
+nav.pestanas button:hover { border-color: var(--muted); color: var(--ink); }
+nav.pestanas button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.boton { display: inline-block; font: bold var(--t-menor) var(--sans); padding: 9px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: transparent; color: var(--ink); cursor: pointer; text-decoration: none; }
+.boton:hover { border-color: var(--muted); background: var(--panel); }
+.boton:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.boton-ok { border-color: var(--ok); color: var(--ok); }
+.boton-ok:hover { background: var(--ok-bg); }
+.boton-primario { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.boton[disabled] { opacity: .5; cursor: default; }
+.acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
+.acciones .caja-cambios { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
+.acciones textarea { font: inherit; background: transparent; color: inherit; border: 1px solid var(--line); border-radius: var(--radio); padding: 10px; }
+.acciones .resultado { flex-basis: 100%; color: var(--faint); }
+/* formulario de decisión (validación guiada): un componente */
+.decision fieldset { margin: var(--e-bloque) 0 0; padding: 0; border: 0; }
+.decision legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
+.decision label { display: flex; gap: 10px; align-items: center; padding: 10px 12px; margin: 6px 0; border: 1px solid var(--line); border-radius: var(--radio-chico); cursor: pointer; }
+.decision label:has(input:checked) { border-color: var(--ink); background: var(--panel); }
+.decision label.comentario { display: block; border: 0; padding: 0; margin-top: var(--hueco); cursor: default; }
+.decision textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
+.decision .boton { margin-top: var(--hueco); }
+
+/* avatar + texto: el icono arriba a la izquierda, el texto con su propio ritmo */
+.con-avatar { display: flex; gap: 16px; align-items: flex-start; }
+.con-avatar > div:not(.avatar) { min-width: 0; flex: 1; }
+.con-avatar h3 { margin-top: 2px; }
+
+/* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
+   Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
+   presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y
+   entradas. Ninguna plantilla redefine nada de esto: sólo pone las clases. */
+.menu-lateral, .menu-unidades { flex: 0 0 268px; position: sticky; top: 16px; max-height: calc(100vh - 40px); overflow-y: auto; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco); }
+.menu-lateral .titulo-menu, .titulo-menu { font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); margin-bottom: var(--hueco-chico); }
+.menu-lateral input[type="search"], .menu-lateral select, .menu-unidades input[type="search"] { width: 100%; font: var(--t-menor) var(--sans); color: var(--ink); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); padding: 9px 12px; margin-bottom: var(--hueco-chico); }
+.menu-lateral select { appearance: none; -webkit-appearance: none; background-image: linear-gradient(45deg, transparent 50%, var(--faint) 50%), linear-gradient(135deg, var(--faint) 50%, transparent 50%); background-position: calc(100% - 18px) 50%, calc(100% - 13px) 50%; background-size: 5px 5px; background-repeat: no-repeat; }
+.menu-lateral input:focus, .menu-lateral select:focus { outline: none; border-color: var(--ink); }
+.menu-lateral .menu-filtros { display: grid; gap: 8px; margin-bottom: var(--hueco-chico); }
+.menu-lateral .menu-filtros > * { margin-bottom: 0; }
+.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; color: var(--faint); padding: 8px 4px 8px; margin: var(--hueco-grande) 0 8px; border-bottom: 1px solid var(--line); }
+.menu-lateral .menu-grupo:first-of-type, .menu-lateral .menu-filtros + .menu-grupo, .menu-lateral input + .menu-grupo { margin-top: var(--hueco); }
+.menu-lateral .menu-grupo .cuenta { color: var(--ink); }
+.menu-lateral details.menu-grupo { display: block; border-bottom: 0; padding: 0; }
+.menu-lateral details.menu-grupo { margin: var(--hueco-grande) 0 0; }
+.menu-lateral details.menu-grupo:first-of-type { margin-top: var(--hueco); }
+.menu-lateral details.menu-grupo > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; padding: 8px 4px 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.menu-lateral details.menu-grupo > summary::-webkit-details-marker { display: none; }
+.menu-lateral .menu-item, .menu-unidades button { display: flex; justify-content: flex-start; align-items: center; gap: 8px; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 10px 12px; margin-bottom: 4px; line-height: 1.5; cursor: pointer; text-decoration: none; }
+.menu-lateral .menu-item.con-chips, .menu-unidades button { display: block; }
+.menu-lateral .menu-item:hover, .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
+.menu-lateral .menu-item:focus-visible, .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.menu-lateral .menu-item.activa, .menu-unidades button.activa { background: var(--panel); border-color: var(--ink); }
+.menu-lateral .menu-item .nombre, .menu-unidades button .nombre { display: block; font-weight: bold; line-height: 1.5; }
+.menu-lateral .menu-item.con-chips { padding: 12px 12px 10px; line-height: 1.5; }
+.menu-lateral .menu-item.con-chips .nombre { margin-bottom: 6px; }
+.menu-lateral .menu-item .cuenta { font-size: var(--t-nota); color: var(--faint); flex: none; margin-left: auto; }
+.menu-lateral .menu-item.activa .cuenta { color: var(--ink); }
+.menu-lateral .menu-item .pm { flex: none; }
+.menu-lateral .vacio, .menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
+.menu-lateral .chip, .menu-unidades .chip { margin: 6px 6px 0 0; padding: 4px 10px; }
+.menu-lateral .chip::before, .menu-unidades .chip::before { margin-right: 5px; }
+/* punto de estado de una entrada (antes sólo en flujos) */
+.pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
+.pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
+.pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
+
+.meta { display: inline-block; margin: 8px 0 0 12px; font-size: var(--t-menor); color: var(--faint); vertical-align: middle; }
+.chip { display: inline-block; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; border-radius: var(--pildora); padding: 5px 12px; margin: 8px 6px 0 0; border: 1px solid var(--line); background: var(--line-soft); color: var(--muted); }
 /* El glifo NO es texto: es la marca de estado. Se mide en `em` para que
    crezca con su etiqueta y no compita con el suelo de la letra (R2/076). */
 .chip::before { content: "◼"; margin-right: 6px; font-size: .72em; vertical-align: 1px; }
@@ -227,8 +326,6 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 .chip-aprobado::before { content: "●"; }
 /* Dentro del menú lateral la etiqueta es una MARCA, no un titular: se aprieta
    para que la lista siga siendo una lista y quepan las unidades de un vistazo. */
-.menu-unidades .chip { margin: 5px 4px 0 0; padding: 3px 9px; letter-spacing: .06em; }
-.menu-unidades .chip::before { margin-right: 5px; }
 
 /* ---------- texturas, sueltas (R4) ----------
    Dos utilidades y ninguna imagen: cualquier bloque puede decir «esto va por
@@ -239,7 +336,7 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 /* ---------- cifra grande, con su variación al lado ----------
    Como en la referencia: el número manda y el cambio va pequeño a su vera,
    menta si sube, rojo si baja. */
-.cifra { font-size: var(--t-cifra); font-weight: bold; line-height: 1.1; letter-spacing: -.02em; }
+.cifra { font-size: var(--t-cifra); font-weight: bold; line-height: 1.1; }
 .variacion { font-size: var(--t-nota); font-weight: bold; color: var(--muted); margin-left: 6px; }
 .variacion.sube { color: var(--ok); }
 .variacion.baja { color: var(--fail); }
@@ -258,16 +355,17 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    distinguirlas; en la referencia no hay raíles ni bordes gordos — lo que
    ordena la página es el hueco entre tarjetas y una cabecera de sección
    pequeña en mayúsculas. Un borde de color era, además, un acento de más (R3). */
-.cabecera-contrato { border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
+/* se queda arriba al bajar: la acción (Aprobar) siempre a mano */
+.cabecera-contrato { position: sticky; top: 0; z-index: 4; border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
 .cabecera-contrato > h2 { margin-bottom: var(--hueco-chico); }
 .cabecera-contrato .ruta { font-size: var(--t-nota); color: var(--faint); margin-top: var(--hueco); word-break: break-all; }
 .bluf { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--aire-tarjeta); }
 /* La cabecera de sección de la referencia: etiqueta pequeña en mayúsculas,
    gris, separada de su contenido por una línea de pelo. */
-.bluf > h3 { font-size: var(--t-menor); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
+.bluf > h3 { font-size: var(--t-menor); font-weight: bold; text-transform: none; color: var(--faint); padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
 .bluf + .bluf { margin-top: var(--e-bloque); }
 .plegable { margin-top: var(--e-bloque); border: 1px solid var(--line); border-radius: var(--radio); background: var(--sheet); padding: var(--hueco) var(--hueco-grande); }
-.plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-menor); letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 4px 0; }
+.plegable > summary { cursor: pointer; font-weight: bold; font-size: var(--t-menor); text-transform: none; color: var(--faint); padding: 4px 0; }
 .plegable > summary:hover { color: var(--ink); }
 .plegable > summary:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; border-radius: 4px; }
 .plegable[open] > summary { padding-bottom: var(--hueco-chico); margin-bottom: var(--hueco); border-bottom: 1px solid var(--line-soft); }
@@ -275,12 +373,37 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
 /* ---------- texto de lectura (markdown renderizado) ----------
    Al tamaño del cuerpo y con más interlineado: es lo que de verdad se LEE.
    El ancho se mide en `ch` — 78 caracteres, la medida de Butterick. */
-.md { font-size: var(--t-lectura); line-height: 1.55; max-width: 78ch; }
+.md { font-size: var(--t-lectura); line-height: var(--lh-lectura); max-width: 78ch; }
 .md h4 { font-size: var(--t-cuerpo); margin: var(--e-bloque) 0 var(--hueco-chico); }
 .md h5 { font-size: var(--t-menor); color: var(--muted); margin: var(--e-parrafo) 0 6px; }
 .md h2, .md h3 { margin: var(--e-bloque) 0 var(--hueco-chico); }
 .md p { margin: var(--e-parrafo) 0; }
+.md p + p { margin-top: var(--e-parrafo); }
+/* lista de definiciones (vocabulario, datos): término arriba, definición debajo, una fila por entrada */
+dl.vocab { display: block; margin: var(--hueco-chico) 0 var(--e-bloque); font-size: var(--t-lectura); }
+dl.vocab > div, dl.vocab dt { display: block; }
+dl.vocab dt { font-weight: bold; padding-top: 12px; }
+dl.vocab dd { display: block; margin: 4px 0 12px; color: var(--muted); line-height: 1.6; border-bottom: 1px solid var(--line-soft); padding-bottom: 12px; }
+dl.vocab dd:last-child { border-bottom: 0; }
 .md ul, .md ol { margin: var(--e-parrafo) 0 var(--e-parrafo) 24px; }
+.md li { margin: 6px 0; }
+.md li + li { margin-top: 8px; }
+/* lista de pasos (validación guiada, evidencia): una fila por paso, numerada, con aire */
+.lista-pasos { list-style: none; counter-reset: paso; margin: 0 0 var(--e-bloque); }
+.lista-pasos li { counter-increment: paso; display: flex; gap: 14px; align-items: flex-start; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); font-size: var(--t-lectura); line-height: 1.6; }
+.lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); padding-top: 3px; }
+.lista-pasos li:last-child { border-bottom: 0; }
+.lista-pasos .paso-donde { flex: 0 0 150px; color: var(--faint); }
+.lista-pasos .paso-que { flex: 1 1 260px; }
+.lista-pasos .paso-ver { flex: 1 1 260px; color: var(--muted); }
+@media (max-width: 860px) { .lista-pasos li { flex-wrap: wrap; } .lista-pasos .paso-donde { flex-basis: 100%; } }
+/* lista de criterios (éxito, aceptación): una fila por criterio con casilla */
+.lista-criterios { list-style: none; margin: 0; }
+.lista-criterios li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); line-height: 1.6; }
+.lista-criterios li::before { content: "◻"; flex: none; color: var(--faint); }
+.lista-criterios li:last-child { border-bottom: 0; }
+.contrato .frase, .tarjeta > p { margin: 0 0 var(--e-parrafo); line-height: 1.65; }
+.contrato .subtitulo { margin-top: var(--hueco-grande); }
 .md li { margin: 8px 0; padding-left: 4px; }
 .md li::marker { color: var(--faint); }
 .md li.tarea { list-style: none; margin-left: -22px; margin-top: 10px; margin-bottom: 10px; }
@@ -298,13 +421,13 @@ header .marca { font-size: var(--t-etiqueta); font-weight: bold; letter-spacing:
    celda. Los cuatro bordes de la 076 apelmazaban el contrato entero. */
 .md table { border-collapse: collapse; margin: var(--e-bloque) 0; font-size: var(--t-menor); width: 100%; }
 .md th, .md td { border: 0; border-bottom: 1px solid var(--line-soft); padding: 12px 16px 12px 0; text-align: left; vertical-align: top; line-height: 1.5; }
-.md th { font-size: var(--t-nota); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line); padding-bottom: var(--hueco-chico); }
+.md th { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); border-bottom: 1px solid var(--line); padding-bottom: var(--hueco-chico); }
 .md tr:last-child td { border-bottom: 0; }
 .md a { color: var(--ink); text-decoration-color: var(--faint); text-underline-offset: 3px; }
 
 @media (max-width: 860px) {
+  .menu-lateral, .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: var(--hueco-grande); }
   .cuerpo { display: block; }
-  .menu-unidades { position: static; max-height: none; width: 100%; margin-bottom: var(--hueco-grande); }
 }
 @media (max-width: 760px) {
   :root { --aire-tarjeta: 18px 18px; --aire-seccion: 26px; }
