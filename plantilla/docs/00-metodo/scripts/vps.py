@@ -28,6 +28,7 @@ import json
 import os
 import re
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -524,6 +525,21 @@ def anotar_registro(nombre, lineas):
     return destino
 
 
+def exigir_docker_local():
+    """La imagen se construye AQUÍ, en el ordenador del usuario, y se manda hecha al VPS.
+
+    Sin Docker local no hay despliegue posible; pero un «no tienes Docker» a secas deja al
+    usuario sin camino, que es justo lo que la unidad 098 vino a quitar: se nombra el
+    comando que se lo instala enseñándole antes qué hace y pidiéndole permiso."""
+    if shutil.which("docker") is not None:
+        return
+    raise Rechazo(
+        "aquí no hay Docker, y la imagen se construye en ESTA máquina antes de mandarla",
+        salida="python3 docs/00-metodo/scripts/doctor.py instalar docker  (te enseña qué "
+               "instala y pregunta antes de tocar nada; en Windows, "
+               "python3 docs/00-metodo/scripts/doctor.py instalar wsl si además falta WSL)")
+
+
 def orden_desplegar(args):
     valores = leer_env()
     destino = destino_ssh(valores)
@@ -561,6 +577,9 @@ def orden_desplegar(args):
         if faltan:
             warn("falta el certificado de origen (" + ", ".join(faltan) +
                  f"): se crea en el paso 4 de {RUNBOOK}")
+
+    if not args.dry_run:
+        exigir_docker_local()
 
     sha = "<el commit de ahora>" if args.dry_run else commit_actual()
     tar = RAIZ / ".runtime" / "deploy" / "imagen.tar"

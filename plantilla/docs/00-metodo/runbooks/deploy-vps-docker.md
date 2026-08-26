@@ -45,8 +45,13 @@ verde, y una restauración de prueba fechada. A partir de ahí, cada despliegue 
 |---|---|---|
 | 1 | Un `Dockerfile` que arranca tu aplicación en el puerto 8000 | tu proyecto |
 | 2 | Un `/health` que responde 200 y devuelve `{"commit": "<sha>"}` | tu proyecto |
-| 3 | Docker corriendo en el ordenador del usuario (`docker --version`) | el usuario |
+| 3 | Docker corriendo en el ordenador del usuario (`docker --version`); si falta, `doctor.py instalar docker` | el usuario, con el agente |
 | 4 | Un dominio comprado (en cualquier registrador) | el usuario |
+
+**Si falta Docker aquí, esto no se para en un error**: `python3 docs/00-metodo/scripts/doctor.py instalar docker` le enseña al usuario qué se instalaría (fuente
+oficial, tamaño, qué cambia en su máquina y cómo se desinstala) y **pide su «sí» antes de tocar
+nada**; en Windows, `… instalar wsl` si además falta WSL. El VPS es otra cosa: allí Docker lo
+pone el paso 7 (`vps.py servidor preparar`), no este comando.
 
 El `/health` con el commit dentro no es un capricho: es lo que permite comprobar que lo que
 responde en internet es lo que se acaba de mandar. El `Dockerfile` recibe el commit como
