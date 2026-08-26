@@ -377,6 +377,10 @@ dl.vocab dd:last-child { border-bottom: 0; }
 .lista-pasos li { counter-increment: paso; display: flex; gap: 14px; align-items: flex-start; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); font-size: var(--t-lectura); line-height: 1.6; }
 .lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); padding-top: 3px; }
 .lista-pasos li:last-child { border-bottom: 0; }
+.lista-pasos .paso-donde { flex: 0 0 150px; color: var(--faint); }
+.lista-pasos .paso-que { flex: 1 1 260px; }
+.lista-pasos .paso-ver { flex: 1 1 260px; color: var(--muted); }
+@media (max-width: 860px) { .lista-pasos li { flex-wrap: wrap; } .lista-pasos .paso-donde { flex-basis: 100%; } }
 /* lista de criterios (éxito, aceptación): una fila por criterio con casilla */
 .lista-criterios { list-style: none; margin: 0; }
 .lista-criterios li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 2px; border-bottom: 1px solid var(--line-soft); line-height: 1.6; }

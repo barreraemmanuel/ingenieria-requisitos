@@ -250,7 +250,18 @@
     if (!valores || !valores.length) return "";
     // Lista de pasos como componente de la hoja común: una fila por paso, con aire.
     var html = '<div class="subtitulo">' + esc(titulo) + '</div><ol class="lista-pasos">';
-    valores.forEach(function (v) { html += "<li>" + esc(v) + "</li>"; });
+    valores.forEach(function (v) {
+      // «N · Dónde · Qué haces · Qué deberías ver»: la lista ya numera, así que el N
+      // sobra, y las tres partes se leen mejor en columnas que en una frase.
+      var partes = String(v).replace(/^\s*\d+\s*·\s*/, "").split(" · ");
+      if (partes.length >= 3) {
+        html += '<li><span class="paso-donde">' + esc(partes[0]) + '</span>' +
+                '<span class="paso-que">' + esc(partes[1]) + '</span>' +
+                '<span class="paso-ver">' + esc(partes.slice(2).join(" · ")) + "</span></li>";
+      } else {
+        html += "<li><span class=\"paso-que\">" + esc(partes.join(" · ")) + "</span></li>";
+      }
+    });
     return html + "</ol>";
   }
 
