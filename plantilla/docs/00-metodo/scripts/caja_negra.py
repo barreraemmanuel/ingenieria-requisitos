@@ -59,6 +59,61 @@ CREDENCIALES_RESIDUALES = (
 )
 
 
+# 074 · Clasificación del bloqueo que causó el incidente. El vocabulario y el criterio son
+# los de `lint_salidas.py` (la 049): se IMPORTA, nunca se copia, para que el mismo mensaje
+# reciba la misma etiqueta lo mire quien lo mire. `no_aplica` es el caso límite que importa:
+# un crash o un timeout no es el rechazo de un script y contarlo como `fuera_de_banda`
+# inflaría con ruido la métrica de «cuántas veces el método atrapa a quien lo conduce».
+CONTINUACIONES = ("en_banda", "por_diseño", "fuera_de_banda", "no_aplica")
+
+# De qué script habla el incidente. La `fase` es texto libre («despacho · unidad.py …»), así
+# que el nombre se saca de ahí y, si no aparece, del propio mensaje.
+RE_SCRIPT = re.compile(r"[\w.\-]+\.py")
+
+
+def _lint_salidas():
+    """El guardián de salidas, importado desde su misma carpeta. None si no está."""
+    carpeta = str(Path(__file__).resolve().parent)
+    if carpeta not in sys.path:
+        sys.path.insert(0, carpeta)
+    try:
+        import lint_salidas
+    except ImportError:
+        return None
+    return lint_salidas
+
+
+def clasificar_continuacion(texto):
+    """en_banda | por_diseño | fuera_de_banda | no_aplica para el mensaje de un incidente."""
+    texto = (texto or "").strip()
+    lint = _lint_salidas()
+    if not texto or lint is None:
+        return "no_aplica"
+    # `veredicto` pide el corro de mensajes y su ventana de código; aquí solo hay un texto,
+    # que hace de ambos: el criterio (comando > marcador > mudo) es exactamente el mismo.
+    clase, _forma = lint.veredicto({"corro": texto, "ventana": texto})
+    if clase == "fuera_de_banda" and not (
+        lint.BLOQUEO.search(texto) and not lint.NO_BLOQUEA.match(texto)
+    ):
+        return "no_aplica"
+    return clase
+
+
+def continuacion_de(datos):
+    """La clase guardada en el registro o, si es viejo y no la lleva, la derivada al vuelo."""
+    valor = str(datos.get("continuacion") or "")
+    return valor if valor in CONTINUACIONES else clasificar_continuacion(datos.get("actual"))
+
+
+def script_de(datos):
+    for campo in ("fase", "actual", "sintoma"):
+        encontrado = RE_SCRIPT.search(str(datos.get(campo) or ""))
+        if encontrado:
+            return encontrado.group(0)
+    fase = " ".join(str(datos.get("fase", "")).split())
+    return fase[:30] or "(sin script)"
+
+
 def morir(mensaje):
     raise SystemExit(f"caja_negra: {mensaje}")
 
@@ -165,6 +220,7 @@ def registrar(args):
     git_common = git(repo, "rev-parse", "--git-common-dir")
     if git_common and not Path(git_common).is_absolute():
         git_common = str((repo / git_common).resolve())
+    actual = redactar(args.actual)
     registro = {
         "schema": "incidente-metarepo-v1",
         "id": str(uuid.uuid4()),
@@ -183,7 +239,8 @@ def registrar(args):
         "branch": git(repo, "branch", "--show-current"),
         "sintoma": redactar(args.sintoma),
         "esperado": redactar(args.esperado),
-        "actual": redactar(args.actual),
+        "actual": actual,
+        "continuacion": args.continuacion or clasificar_continuacion(actual),
         "workaround": redactar(args.workaround),
         "evidencia": evidencias,
     }
@@ -207,9 +264,28 @@ def registrar(args):
     return 0
 
 
+def listar_bloqueos(incidentes):
+    """Cuántos incidentes de cada clase deja cada script, y cuántos dejaron atrapado al
+    agente. Los registros viejos, sin el campo, se clasifican al vuelo por su mensaje."""
+    conteo = {}
+    for datos in incidentes:
+        fila = conteo.setdefault(script_de(datos), dict.fromkeys(CONTINUACIONES, 0))
+        fila[continuacion_de(datos)] += 1
+    ancho = max([len("script")] + [len(nombre) for nombre in conteo])
+    print(f"{'script':<{ancho}}  " + "  ".join(f"{clase:>14}" for clase in CONTINUACIONES))
+    for nombre in sorted(conteo):
+        cuentas = "  ".join(f"{conteo[nombre][clase]:>14}" for clase in CONTINUACIONES)
+        print(f"{nombre:<{ancho}}  {cuentas}")
+    atrapados = sum(fila["fuera_de_banda"] for fila in conteo.values())
+    print(f"Total atrapado (fuera_de_banda): {atrapados} de {len(incidentes)} incidente(s)")
+    return 0
+
+
 def listar(args):
     repo = repo_valido(args)
     incidentes, malas = cargar_incidentes(repo, tolerar_malas=True)
+    if getattr(args, "bloqueos", False) and incidentes:
+        return listar_bloqueos(incidentes)
     if not incidentes and not malas:
         print("Caja negra vacía: sin incidentes registrados.")
         return 0
@@ -251,6 +327,11 @@ def validar(args):
             )
         if "version_metodo" in datos and not str(datos["version_metodo"] or "").strip():
             problemas.append(f"incidente {etiqueta}: version_metodo vacía")
+        if "continuacion" in datos and datos["continuacion"] not in CONTINUACIONES:
+            problemas.append(
+                f"incidente {etiqueta}: continuacion '{datos['continuacion']}' fuera de "
+                f"{'/'.join(CONTINUACIONES)}"
+            )
         if "evidencia" in datos and not isinstance(datos["evidencia"], list):
             problemas.append(f"incidente {etiqueta}: evidencia debe ser una lista")
     if problemas:
@@ -413,11 +494,17 @@ def main():
     p.add_argument("--actual", required=True)
     p.add_argument("--workaround", default="")
     p.add_argument("--evidencia", action="append", default=[])
+    p.add_argument("--continuacion", choices=CONTINUACIONES, default=None,
+                   help="si el bloqueo nombraba la salida. Sin esto se deriva del texto de "
+                        "--actual con el mismo criterio que lint_salidas.py")
     p.add_argument("--severidad", choices=SEVERIDADES, default="nota",
                    help="P0 bloquea, P1 duele, P2 molesta, nota es contexto (defecto)")
     p.set_defaults(func=registrar)
     p = sub.add_parser("listar", help="tabla compacta de los incidentes registrados")
     p.add_argument("--repo", default=".", help="raíz declarada del meta-repo")
+    p.add_argument("--bloqueos", action="store_true",
+                   help="en vez de la tabla, el reparto por script de en banda / por diseño "
+                        "/ fuera de banda y el total que dejó atrapado al agente")
     p.set_defaults(func=listar)
     p = sub.add_parser("validar", help="revisa el JSONL: líneas rotas o campos ausentes")
     p.add_argument("--repo", default=".", help="raíz declarada del meta-repo")
