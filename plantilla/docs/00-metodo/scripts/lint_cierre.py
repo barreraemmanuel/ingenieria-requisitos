@@ -19,6 +19,10 @@ Cuatro formas de mentir, y las cuatro se deniegan:
      las casillas según se hacen, el número cuadra solo, y solo se descuadra cuando se
      rellena de memoria.
   4. Se cita una ruta de `.runtime/` que no existe, o un hash que no corresponde al fichero.
+  5. Lo aprendido se rellena de memoria al cerrar, o no se rellena: la sección
+     `## Aprendizajes` de `hallazgos.md` tiene que traer, de quien construyó y de quien
+     revisó, 1-5 frases o un `ninguno` explícito. Un hallazgos.md anterior a esa sección no
+     se re-exige.
 
 Ni una comprobación más: juzgar si los tests son BUENOS no es de aquí, y reescribir partes
 antiguos tampoco — la cabecera se exige a partir de la unidad que trajo este script.
@@ -43,6 +47,7 @@ for _salida in (sys.stdout, sys.stderr):
 
 RAIZ = Path(__file__).resolve().parents[3]
 SALIDA = "salida:"
+FECHA_EJEMPLO = "2026-08-27"
 
 CABECERA = re.compile(r"```parte-de-cierre[ \t]*\r?\n(.*?)```", re.DOTALL)
 VERDICTOS_OK = {"entregada", "verde", "ok", "exito", "éxito"}
@@ -53,6 +58,12 @@ VERDICTOS_FALLO = {"fallo", "rojo", "bloqueada", "fail"}
 CLAVES = ("veredicto", "tests_cmd", "tests_exit", "tests_output", "tests_sha256",
           "build_cmd", "build_exit", "build_output", "build_sha256",
           "requisitos", "plan", "bloqueadores")
+# Unidad 071 — la sección `## Aprendizajes`: lo aprendido lo escribe quien lo aprendió, en el
+# momento. Se comprueba que esté RELLENA, no que sea buena: `ninguno` explícito vale, y una
+# unidad nacida con la plantilla anterior (sin sección) no se re-exige — ausencia ≠ vacío.
+APRENDIZAJES_SECCION = re.compile(r"^##\s+Aprendizajes\b", re.MULTILINE)
+APRENDIZAJES_QUIENES = ("constructor", "revisor")
+
 # Los marcadores con que la plantilla llega: dejarlos tal cual es no haber rellenado nada.
 MARCADORES = {"", "—", "-", "--", "...", "…", "n/a", "na", "pendiente", "tbd", "xxx",
               "nnn-slug", "?"}
@@ -98,6 +109,54 @@ def contar_reales(spec):
     return requisitos, marcadas, totales
 
 
+def bloque_aprendizajes(texto, quien):
+    """El contenido del bloque ```aprendizajes-<quien>```, o None si no está."""
+    m = re.search(r"```aprendizajes-" + quien + r"[ \t]*\r?\n(.*?)```", texto, re.DOTALL)
+    return None if m is None else m.group(1)
+
+
+def frases_de(bloque):
+    """Las viñetas del bloque que dicen algo. Un `—` no dice nada; `ninguno`, sí."""
+    frases = []
+    for linea in bloque.splitlines():
+        linea = linea.strip()
+        if not linea.startswith("-"):
+            continue
+        contenido = linea[1:].strip()
+        if not sin_rellenar(contenido):
+            frases.append(contenido)
+    return frases
+
+
+def revisar_aprendizajes(nombre, texto):
+    """Lista de (qué no cuadra, cómo se sale) sobre la sección `## Aprendizajes`.
+
+    Vacía si la sección no existe: los hallazgos.md nacidos antes de la 071 no se re-exigen
+    (mismo criterio que la 068 — ausencia de sección ≠ sección dejada vacía). Desde que la
+    sección está, tiene que estar RELLENA por los dos: el constructor y el revisor.
+    """
+    bloques = {q: bloque_aprendizajes(texto, q) for q in APRENDIZAJES_QUIENES}
+    if not APRENDIZAJES_SECCION.search(texto) and not any(b is not None
+                                                          for b in bloques.values()):
+        return []
+    problemas = []
+    for quien in APRENDIZAJES_QUIENES:
+        bloque = bloques[quien]
+        if bloque is None:
+            problemas.append((
+                f"{nombre}: la sección ## Aprendizajes no trae el bloque "
+                f"```aprendizajes-{quien}```",
+                "copia la sección entera de docs/00-metodo/plantillas/hallazgos.md y "
+                f"escribe ahí lo que aprendió el {quien}"))
+        elif not frases_de(bloque):
+            problemas.append((
+                f"{nombre}: ```aprendizajes-{quien}``` sigue con el marcador de la plantilla",
+                f"escribe 1-5 frases con fecha y quién (`- {FECHA_EJEMPLO} · {quien}: …`) en "
+                f"docs/05-trabajo/{nombre}/hallazgos.md, o `ninguno` explícito si de verdad no "
+                f"hubo — lo que se rellena de memoria al cerrar es inventado"))
+    return problemas
+
+
 def validar_parte(nombre, spec, hallazgos, raiz):
     """Lista de (qué no cuadra, comando que lo resuelve). Vacía = el parte cuadra.
 
@@ -113,7 +172,8 @@ def validar_parte(nombre, spec, hallazgos, raiz):
                  "lo crea  unidad.py nueva ; si falta, cópialo de "
                  "docs/00-metodo/plantillas/hallazgos.md")]
 
-    datos = leer_cabecera(hallazgos.read_text(encoding="utf-8", errors="replace"))
+    texto_hallazgos = hallazgos.read_text(encoding="utf-8", errors="replace")
+    datos = leer_cabecera(texto_hallazgos)
     if datos is None:
         return [(f"{nombre}: hallazgos.md no trae el bloque ```parte-de-cierre```",
                  "copia la cabecera de docs/00-metodo/plantillas/hallazgos.md y rellénala "
@@ -201,6 +261,9 @@ def validar_parte(nombre, spec, hallazgos, raiz):
                 f"{nombre}: el hash de {citada} no cuadra (declarado {declarado[:16]}…, "
                 f"real {real[:16]}…)",
                 f"vuelve a calcularlo con  shasum -a 256 {citada}"))
+
+    # (5) 071 — lo aprendido, escrito por quien lo aprendió y en el momento.
+    problemas += revisar_aprendizajes(nombre, texto_hallazgos)
     return problemas
 
 
