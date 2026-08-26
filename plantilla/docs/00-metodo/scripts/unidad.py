@@ -1882,10 +1882,12 @@ def _cmd_despachar(args, autoridad, snapshot=None):
     if not args.documental:
         motivo_tests = pide_tests_cruzados(texto_unidad)
         declaradas = [r for r, _ in rutas_declaradas(fm)]
-        if motivo_tests and declaradas and not any(
-                bajo_carpeta_de_tests(r) for r in declaradas):
+        # Sin `and declaradas`: una lista VACÍA no declara ninguna carpeta de tests, así que
+        # es el caso que más necesita el bloqueo, no una excepción a él (H1 del revisor).
+        if motivo_tests and not any(bajo_carpeta_de_tests(r) for r in declaradas):
             fail(f"{rel(ruta)}: {motivo_tests} pide tests que viven en una carpeta de tests, "
-                 f"y 'ficheros:' no declara ninguna: {', '.join(declaradas)}")
+                 f"y 'ficheros:' no declara ninguna: "
+                 f"{', '.join(declaradas) if declaradas else '(lista vacía)'}")
             err(f"\n  Lo que la unidad va a escribir es lo que la unidad POSEE (regla 5). Si\n"
                 f"  los tests crecen en una carpeta compartida y esa carpeta no está\n"
                 f"  declarada, dos unidades en paralelo escriben el mismo fichero de tests\n"

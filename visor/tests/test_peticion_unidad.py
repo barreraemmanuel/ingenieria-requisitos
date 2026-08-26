@@ -849,6 +849,24 @@ class PeticionUnidadTest(unittest.TestCase):
         salida = resultado.stdout + resultado.stderr
         self.assertEqual(resultado.returncode, 0, salida)
 
+    def test_integracion_con_ficheros_vacios_tambien_bloquea(self):
+        """H1 del revisor de la 089 (R2): con `ficheros: []` el bloqueo se saltaba, y ese
+        es justo el contrato que MÁS lo necesita — no declara nada y va a escribir tests
+        de integración donde le parezca."""
+        nombre = self.preparar_feature_aprobada("integracion-sin-ficheros")
+        ruta = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        self.assertIn("ficheros: []", ruta.read_text(encoding="utf-8"))
+        self.aprobar_para_despacho(
+            nombre, nivel="de integración, porque cruza la frontera del repo de código."
+        )
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("SALIDA:", salida)
+        self.assertIn("tests", salida.lower())
+
     def test_documental_no_se_cruza_contra_el_disco_del_repo_de_codigo(self):
         """089 R2 (caso límite): una unidad --documental no toca código, así que ni sus
         rutas se buscan en main/ ni se le exige carpeta de tests."""
