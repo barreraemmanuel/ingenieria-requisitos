@@ -122,6 +122,13 @@
   var ETIQUETAS_TIPO = {lector: "lectura", propuesta: "propuesta", validacion: "validación", bandeja: "bandeja"};
 
   var presentaciones = [];
+  var otras = [];   // el resto de validaciones del workspace (/presentaciones/indice.json)
+  fetch("/presentaciones/indice.json", {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {presentaciones: []}; })
+    .then(function (d) {
+      var actual = ((window.IR && window.IR.base) || "").split("/").pop();
+      otras = (d.presentaciones || []).filter(function (o) { return o.unidad !== actual; });
+      if (typeof pintarListado === "function" && presentaciones.length) pintarListado();
+    }).catch(function () {});
   var bandeja = null;
   var decididas = {};   // id de presentación -> true si ya tiene recibo
   var elegidaId = null;
@@ -224,6 +231,19 @@
     });
     // Una sola entrega y nada elegido: se abre sola, que es lo que se venía a ver.
     if (presentaciones.length === 1 && !elegidaId && !location.hash) irA(presentaciones[0].id, "detalle");
+    // Las demás validaciones del workspace, para saltar entre ellas sin volver al tablero.
+    if (otras.length) {
+      var cab = el("div", "menu-grupo", "Otras entregas");
+      cab.appendChild(el("span", "cuenta", String(otras.length)));
+      listado.appendChild(cab);
+      otras.forEach(function (o) {
+        var a = el("a", "menu-item con-chips");
+        a.href = "/presentaciones/" + encodeURIComponent(o.unidad);
+        a.appendChild(el("span", "nombre", o.unidad));
+        a.insertAdjacentHTML("beforeend", '<span class="chip' + (o.decidida ? " chip-aprobado" : " chip-pendiente") + '">' + (o.decidida ? "decidida" : "te toca") + "</span>");
+        listado.appendChild(a);
+      });
+    }
     if (!huboAlguna && filtro) {
       listado.appendChild(el("div", "vacio", "Ninguna presentación coincide."));
     }

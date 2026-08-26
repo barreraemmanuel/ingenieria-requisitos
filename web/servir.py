@@ -302,6 +302,24 @@ def unidad_por_defecto(workspace):
     return max(candidatas, key=lambda d: (d / "manifiesto.json").stat().st_mtime).name
 
 
+def indice_presentaciones(workspace):
+    """Una entrada por carpeta con manifiesto: unidad, si ya tiene decisión y cuándo se montó."""
+    raiz = carpeta_presentaciones(workspace)
+    salida = []
+    if not raiz.is_dir():
+        return salida
+    for d in sorted(raiz.glob("*")):
+        manifiesto = d / "manifiesto.json"
+        if not manifiesto.is_file():
+            continue
+        recibos = d / "recibos"
+        decidida = recibos.is_dir() and any(recibos.glob("*.json"))
+        salida.append({"unidad": d.name, "decidida": bool(decidida),
+                       "montada": int(manifiesto.stat().st_mtime)})
+    salida.sort(key=lambda x: x["montada"], reverse=True)
+    return salida
+
+
 # Atributos que un handler necesita para responder sin volver a parsear la petición.
 PRESTADOS = ("rfile", "wfile", "headers", "command", "request_version",
              "requestline", "client_address", "server", "close_connection",
@@ -415,6 +433,10 @@ def hacer_handler(workspace, estado=None, planos=None):
             """
             unidad = None
             resto = trozos[1:]
+            # `/presentaciones/indice.json`: TODAS las validaciones guiadas del workspace,
+            # para que el menú lateral enseñe las demás y no solo la más reciente (27-08).
+            if resto == ["indice.json"] and metodo == "GET":
+                return self._json(200, {"presentaciones": indice_presentaciones(workspace)})
             if resto and NOMBRE_UNIDAD.match(resto[0]):
                 unidad, resto = resto[0], resto[1:]
             if unidad is None:
