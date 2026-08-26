@@ -82,10 +82,10 @@
   .avatar[data-avatar="revisor"] .util { stroke: var(--alt); }
   .avatar[data-avatar="padre"] .util { stroke: var(--warn); }
   .avatar.vivo { border-color: var(--ok); animation: latido 2.4s ease-in-out infinite; }
-  .avatar.vivo .util { animation: trabajar 1.1s ease-in-out infinite; transform-origin: 12px 17px; }
+  .avatar.vivo .util { animation: trabajar 1.1s ease-in-out infinite; transform-origin: 12px 12px; }
   .avatar.vivo .ojo { animation: parpadeo 4.2s steps(1, end) infinite; }
   @keyframes latido { 0%, 100% { box-shadow: 0 0 0 0 var(--ok-bg); } 50% { box-shadow: 0 0 0 5px var(--ok-bg); } }
-  @keyframes trabajar { 0%, 100% { transform: rotate(-11deg); } 50% { transform: rotate(11deg); } }
+  @keyframes trabajar { 0%, 100% { transform: rotate(-8deg); } 50% { transform: rotate(8deg); } }
   @keyframes parpadeo { 0%, 92%, 100% { opacity: 1; } 95% { opacity: .1; } }
   @media (prefers-reduced-motion: reduce) {
     .avatar.vivo, .avatar.vivo .util, .avatar.vivo .ojo { animation: none; }
@@ -231,18 +231,16 @@
   /* Los avatares: tres siluetas distintas, cada una con su herramienta. El SVG
      va aquí dentro a propósito (nada externo, ni una petición más). */
   function avatar(rol, vivo) {
+    // Un solo icono de línea por rol, centrado (iteración 27-08: la cara con ojos
+    // quedaba DEBAJO del útil y la lupa del revisor parecía dos iconos montados).
     var util = {
-      constructor: '<path class="util" d="M7 17 L12 12 M12 12 L17 7 M14 4 L20 10"/>',
-      revisor: '<circle class="util" cx="12" cy="13" r="4.5"/><path class="util" d="M15.5 16.5 L19 20"/>',
-      padre: '<path class="util" d="M6 8 L12 4 L18 8 M6 8 V16 M18 8 V16 M6 16 H18"/>'
-    }[rol] || '<path class="util" d="M8 12 H16"/>';
+      constructor: '<path class="util" d="M5 19 L13 11 M13 11 L17 7 M15 5 L19 9 M17 7 L20 4"/>',
+      revisor: '<circle class="util" cx="10.5" cy="10.5" r="5.5"/><path class="util" d="M14.5 14.5 L20 20"/>',
+      padre: '<path class="util" d="M5 10 L12 4 L19 10 M6 9 V19 H18 V9 M10 19 V13 H14 V19"/>'
+    }[rol] || '<path class="util" d="M6 12 H18"/>';
     return '<div class="avatar' + (vivo ? " vivo" : "") + '" data-avatar="' +
       esc(rol) + '" title="' + esc(rol) + '" aria-label="' + esc(rol) + '">' +
-      '<svg viewBox="0 0 24 24" role="img" aria-hidden="true">' +
-      '<circle class="cara" cx="12" cy="8" r="4"/>' +
-      '<circle class="ojo" cx="10.6" cy="7.6" r=".9"/>' +
-      '<circle class="ojo" cx="13.4" cy="7.6" r=".9"/>' +
-      util + "</svg></div>";
+      '<svg viewBox="0 0 24 24" role="img" aria-hidden="true">' + util + "</svg></div>";
   }
 
   /* G-2302: una fuente que no se pudo leer se DICE. Un cero silencioso donde no
