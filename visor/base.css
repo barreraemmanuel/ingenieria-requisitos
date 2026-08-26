@@ -358,6 +358,13 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .md h2, .md h3 { margin: var(--e-bloque) 0 var(--hueco-chico); }
 .md p { margin: var(--e-parrafo) 0; }
 .md ul, .md ol { margin: var(--e-parrafo) 0 var(--e-parrafo) 24px; }
+.md li { margin: 6px 0; }
+.md li + li { margin-top: 8px; }
+/* lista de pasos (validación guiada, evidencia): una fila por paso, numerada, con aire */
+.lista-pasos { list-style: none; counter-reset: paso; margin: 0 0 var(--e-bloque); }
+.lista-pasos li { counter-increment: paso; display: flex; gap: 14px; align-items: flex-start; padding: 12px 2px; border-bottom: 1px solid var(--line-soft); font-size: var(--t-lectura); line-height: 1.6; }
+.lista-pasos li::before { content: counter(paso, decimal-leading-zero); flex: none; font-size: var(--t-nota); color: var(--faint); letter-spacing: .06em; padding-top: 3px; }
+.lista-pasos li:last-child { border-bottom: 0; }
 .md li { margin: 8px 0; padding-left: 4px; }
 .md li::marker { color: var(--faint); }
 .md li.tarea { list-style: none; margin-left: -22px; margin-top: 10px; margin-bottom: 10px; }

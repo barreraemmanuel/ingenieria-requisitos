@@ -248,9 +248,10 @@
 
   function listaSeccion(titulo, valores) {
     if (!valores || !valores.length) return "";
-    var html = "<h4>" + esc(titulo) + "</h4><ul>";
+    // Lista de pasos como componente de la hoja común: una fila por paso, con aire.
+    var html = '<div class="subtitulo">' + esc(titulo) + '</div><ol class="lista-pasos">';
     valores.forEach(function (v) { html += "<li>" + esc(v) + "</li>"; });
-    return html + "</ul>";
+    return html + "</ol>";
   }
 
   function pintarBandeja(p) {
