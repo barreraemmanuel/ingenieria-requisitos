@@ -277,6 +277,11 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .con-avatar > div:not(.avatar) { min-width: 0; flex: 1; }
 .con-avatar h3 { margin-top: 2px; }
 
+/* cabecera de la ficha de contrato: se queda arriba al bajar, con la acción a mano */
+.cabecera-contrato { position: sticky; top: 0; z-index: 4; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); margin-bottom: var(--e-bloque); }
+.cabecera-contrato h2 { margin: 0 0 12px; }
+.cabecera-contrato .ruta { margin-top: 12px; }
+
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
    Tarjeta fija a la izquierda con la misma anatomía en tablero, contratos,
    presentaciones y flujos: etiqueta, buscador/filtros, grupos con contador y

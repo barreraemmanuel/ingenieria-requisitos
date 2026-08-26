@@ -222,6 +222,8 @@
       listado.appendChild(cab);
       items.forEach(function (p) { listado.appendChild(pintarBotonMenu(p)); });
     });
+    // Una sola entrega y nada elegido: se abre sola, que es lo que se venía a ver.
+    if (presentaciones.length === 1 && !elegidaId && !location.hash) irA(presentaciones[0].id, "detalle");
     if (!huboAlguna && filtro) {
       listado.appendChild(el("div", "vacio", "Ninguna presentación coincide."));
     }
