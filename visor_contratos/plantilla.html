@@ -181,6 +181,16 @@
     return ordenadas;
   }
 
+  // En la LISTA solo el chip que decide (pendiente / aprobado) y, si no es normal, el carril:
+  // cuatro chips por entrada saturaban el menú. En la ficha van todos.
+  function chipsCompactos(u) {
+    var html = u.pendiente_de_aprobar
+      ? '<span class="chip chip-pendiente">te toca</span>'
+      : '<span class="chip chip-aprobado">aprobado</span>';
+    if (u.estado && u.estado !== "planificada") html += '<span class="chip">' + esc(u.estado.replace("_", " ")) + "</span>";
+    return html;
+  }
+
   function chipsDe(u) {
     var html = "";
     if (u.pendiente_de_aprobar) {
@@ -328,7 +338,7 @@
         return '<button type="button" class="menu-item con-chips' + (u.carpeta === elegida ? ' activa" aria-current="true"' : '"') +
                ' data-carpeta="' + esc(u.carpeta) + '"' +
                '><span class="nombre">' + esc(u.unidad) + "</span>" +
-               chipsDe(u) + "</button>";
+               chipsCompactos(u) + "</button>";
       }).join("");
       html += "</details>";
     });
