@@ -210,7 +210,7 @@
   function pintarContrato(u, texto) {
     var doc = trocear(texto);
     var html = '<div class="cabecera-contrato"><h2>' +
-               esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
+               esc(doc.titulo || u.unidad).replace(/`([^`]+)`/g, "<code>$1</code>") + "</h2>" + chipsDe(u) +
                '<div class="ruta">' + esc(rutaDe(u)) + "</div>" + accionesDe(u) + "</div>";
     var secciones = ordenBluf(doc.secciones);
     for (var i = 0; i < secciones.length; i++) {
