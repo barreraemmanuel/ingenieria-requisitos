@@ -135,6 +135,99 @@ def rutas_sucias(workspace):
     )
 
 
+# Bug 088: el árbol sucio que detiene la actualización casi siempre lo dejó el PROPIO
+# método — `peticion.py capturar` escribe en docs/05-trabajo/peticiones/, `setup.py`
+# actualiza el conocimiento de la máquina y el despliegue deja su ficha— y en un
+# workspace de usuario nadie hace git por él. El aviso reparte por dueño y da el
+# comando exacto; `git stash` nunca es opción (la pila es única y compartida).
+CARPETAS_DEL_METODO = ("docs/05-trabajo/peticiones/",)
+FICHEROS_DEL_METODO = ("docs/conocimiento/entorno-de-esta-maquina.md",)
+PREFIJOS_DEL_METODO = ("docs/05-trabajo/despliegue",)
+MENSAJE_COLA_DEL_METODO = "docs: cola y conocimiento del método"
+
+
+def raiz_del_metodo(ruta):
+    """Con qué ruta se confirma `ruta` si la dejó el método; None si es del usuario.
+
+    Lista CERRADA a propósito: lo que no esté aquí es trabajo del usuario y Modo D
+    no lo stagea ni lo commitea jamás.
+    """
+    for carpeta in CARPETAS_DEL_METODO:
+        if ruta.startswith(carpeta):
+            return carpeta
+    if ruta in FICHEROS_DEL_METODO:
+        return ruta
+    for prefijo in PREFIJOS_DEL_METODO:
+        if ruta.startswith(prefijo):
+            return ruta
+    return None
+
+
+def repartir_por_dueno(sucias):
+    """(lo del método, lo del usuario, las rutas con las que se confirma lo del método)."""
+    metodo, usuario, raices = [], [], []
+    for ruta in sucias:
+        raiz = raiz_del_metodo(ruta)
+        if raiz is None:
+            usuario.append(ruta)
+            continue
+        metodo.append(ruta)
+        if raiz not in raices:
+            raices.append(raiz)
+    return metodo, usuario, sorted(raices)
+
+
+def comando_confirmar(raices):
+    return (f"git add {' '.join(raices)} "
+            f'&& git commit -m "{MENSAJE_COLA_DEL_METODO}"')
+
+
+def _lista(rutas, tope=10):
+    lineas = [f"          {r}" for r in rutas[:tope]]
+    if len(rutas) > tope:
+        lineas.append(f"          … y {len(rutas) - tope} más")
+    return lineas
+
+
+def aviso_arbol_sucio(sucias):
+    """El motivo del bloqueo, con quién dejó cada fichero y qué desbloquea cada grupo."""
+    metodo, usuario, raices = repartir_por_dueno(sucias)
+    lineas = ["el árbol o el índice Git está sucio; Modo D no stagea ni commitea "
+              "trabajo ajeno."]
+    if metodo:
+        lineas.append("    Lo dejó el método (cola de peticiones, conocimiento de esta "
+                      "máquina, fichas de despliegue):")
+        lineas += _lista(metodo)
+        lineas.append(f"      Confírmalo tal cual:  {comando_confirmar(raices)}")
+        lineas.append("      O repite esto mismo con --confirmar-lo-del-metodo y lo "
+                      "confirmo yo por ti.")
+    if usuario:
+        lineas.append("    Tuyo (Modo D no lo toca; decides tú):")
+        lineas += _lista(usuario)
+        lineas.append("      Guarda (git add <ruta> && git commit -m \"...\") o descarta "
+                      "(git checkout -- <ruta>) y reintenta.")
+    return "\n".join(lineas)
+
+
+def confirmar_lo_del_metodo(workspace):
+    """Confirma SOLO lo que dejó el método. Si queda algo del usuario, no toca nada.
+
+    Devuelve el mensaje de lo que hizo (o "" si no había nada del método que confirmar).
+    """
+    metodo, usuario, raices = repartir_por_dueno(rutas_sucias(workspace))
+    if usuario or not metodo:
+        return ""
+    codigo, salida = stage_explicit(workspace, raices)
+    if codigo:
+        return ""
+    codigo, salida = git(workspace, "commit", "-m", MENSAJE_COLA_DEL_METODO, "--", *raices)
+    if codigo:
+        git(workspace, "reset", "--", *raices)
+        return ""
+    return (f"confirmo {len(metodo)} fichero(s) que dejó el método en "
+            f"{', '.join(raices)} como \"{MENSAJE_COLA_DEL_METODO}\".")
+
+
 def colision_tardia(workspace, rutas_tocadas):
     """Rutas del método que Modo D va a sobrescribir y que HAN ENSUCIADO desde que
     se declaró el árbol limpio. Reejecuta la comprobación de suciedad justo antes de
@@ -480,10 +573,7 @@ def punto_de_retorno(workspace):
         return None, "el workspace no es un repositorio git con un punto de retorno"
     sucias = rutas_sucias(workspace)
     if sucias:
-        muestra = ", ".join(sucias[:5])
-        resto = f" (+{len(sucias) - 5})" if len(sucias) > 5 else ""
-        return None, ("el árbol o el índice Git está sucio; Modo D no stagea ni commitea "
-                      f"trabajo ajeno: {muestra}{resto}")
+        return None, aviso_arbol_sucio(sucias)
     codigo, sha = git(workspace, "rev-parse", "HEAD")
     if codigo:
         return None, f"el repositorio no tiene ni un commit:\n{sha}"
@@ -950,7 +1040,7 @@ def preparar_publicado(workspace, cambios, retirados, esperado, snapshot, sha, o
     return publicado
 
 
-def _aplicar_bajo_lease(workspace, titulo, autoridad):
+def _aplicar_bajo_lease(workspace, titulo, autoridad, confirmar_metodo=False):
     repo_config.repo_code(workspace)
     # El método compara BYTES (huellas sha256, journal, reversión exacta): en el
     # meta-repo git no convierte finales de línea jamás. Config del repo, no
@@ -968,6 +1058,10 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad):
         print("\n    OJO, trabajo en vuelo declarado: " + ", ".join(activas))
         print("    Actualizo igualmente: tu trabajo queda intacto y esas unidades "
               "cerrarán ya con el método nuevo.")
+    if confirmar_metodo:
+        hecho = confirmar_lo_del_metodo(workspace)
+        if hecho:
+            print(f"\n    {hecho}")
     sha, motivo = punto_de_retorno(workspace)
     if sha is None:
         print(f"\n    NO TOCO NADA: {motivo}")
@@ -1143,12 +1237,13 @@ def sembrar_ganchos_locales(workspace):
         pass
 
 
-def aplicar(workspace, titulo):
+def aplicar(workspace, titulo, confirmar_metodo=False):
     try:
         ruta_workspace(workspace, JOURNAL.as_posix())
         manager = gestion_leases.LeaseManager(workspace)
         with manager.acquire(("workspace", "git-index")) as autoridad:
-            codigo = _aplicar_bajo_lease(workspace, titulo, autoridad)
+            codigo = _aplicar_bajo_lease(
+                workspace, titulo, autoridad, confirmar_metodo)
         if codigo == 0:
             sembrar_ganchos_locales(workspace)
         return codigo
@@ -1397,6 +1492,14 @@ def main():
         grupo = p.add_mutually_exclusive_group(required=True)
         grupo.add_argument("ruta", nargs="?", help="carpeta del workspace <proyecto>-agents")
         grupo.add_argument("--todos", action="store_true", help="todos los registrados")
+        if nombre == "aplicar":
+            p.add_argument(
+                "--confirmar-lo-del-metodo", action="store_true",
+                help="si lo único sin confirmar lo dejó el método (cola de peticiones, "
+                     "conocimiento de esta máquina, fichas de despliegue), lo commitea "
+                     f'como "{MENSAJE_COLA_DEL_METODO}" y sigue. Si queda algo tuyo, para '
+                     "igual y te lo nombra",
+            )
     p_avisar = sub.add_parser(
         "avisar",
         help="canal proactivo del arranque: ¿hay método más nuevo para este workspace? "
@@ -1436,7 +1539,9 @@ def main():
                 informe(ruta, titulo, cambios, retirados, sobrantes, avisos)
                 pendientes += 1 if cambios or retirados else 0
             else:
-                salida |= aplicar(ruta, titulo)
+                salida |= aplicar(
+                    ruta, titulo,
+                    getattr(args, "confirmar_lo_del_metodo", False))
         except (OSError, repo_config.RepoConfigError) as e:
             # Un proyecto roto no puede llevarse por delante la revisión de los demás.
             print(f"\n=== {titulo} ===\n    {ruta}\n    NO PUDE LEERLO: {e}")

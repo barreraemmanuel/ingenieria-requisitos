@@ -1191,6 +1191,132 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertIn("avís", agents)
         self.assertIn("sin bloque", agents)
 
+    # --- bug 088: el aviso de árbol sucio dice QUIÉN lo dejó y CÓMO desbloquear ---
+
+    MENSAJE_COLA = "docs: cola y conocimiento del método"
+
+    def ensuciar_con_cola_del_metodo(self, ws, peticiones=6):
+        """Deja el árbol como lo deja el propio método en un workspace de usuario:
+        peticiones capturadas sin seguimiento y el conocimiento de la máquina tocado
+        por setup.py. Nada de esto lo escribió el usuario."""
+        cola = ws / "docs/05-trabajo/peticiones"
+        cola.mkdir(parents=True, exist_ok=True)
+        for indice in range(peticiones):
+            carpeta = cola / f"P-20260825-{indice:08x}"
+            carpeta.mkdir(parents=True, exist_ok=True)
+            (carpeta / "peticion.json").write_text(
+                json.dumps({"id": carpeta.name, "revision": 1}) + "\n", encoding="utf-8")
+        conocimiento = ws / "docs/conocimiento/entorno-de-esta-maquina.md"
+        conocimiento.parent.mkdir(parents=True, exist_ok=True)
+        conocimiento.write_text("# Entorno\n", encoding="utf-8")
+        subprocess.run(["git", "add", "--", "docs/conocimiento/entorno-de-esta-maquina.md"],
+                       cwd=ws, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "conocimiento"], cwd=ws, check=True,
+                       capture_output=True)
+        conocimiento.write_text("# Entorno\n\npython3.13\n", encoding="utf-8")
+        despliegue = ws / "docs/05-trabajo/despliegue-2026-08-25.md"
+        despliegue.write_text("# Despliegue\n", encoding="utf-8")
+
+    def asuntos(self, ws):
+        return subprocess.run(
+            ["git", "log", "--format=%s"], cwd=ws, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=True).stdout.splitlines()
+
+    def ficheros_del_commit(self, ws, asunto):
+        sha = subprocess.run(
+            ["git", "log", "--format=%H %s"], cwd=ws, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=True).stdout
+        linea = [l for l in sha.splitlines() if l.split(" ", 1)[1:] == [asunto]]
+        self.assertTrue(linea, f"no hay commit con asunto {asunto!r}:\n{sha}")
+        return subprocess.run(
+            ["git", "show", "--format=", "--name-only", linea[0].split(" ", 1)[0]],
+            cwd=ws, text=True, encoding="utf-8", errors="replace",
+            capture_output=True, check=True).stdout.splitlines()
+
+    def test_arbol_sucio_agrupa_por_dueno_y_nombra_el_commit_que_desbloquea(self):
+        """Bug 088: el alumno veía «trabajo sin confirmar» sin saber que era del propio
+        método ni qué teclear. El aviso reparte por dueño y da el comando exacto."""
+        ws = self.workspace_antiguo()
+        self.ensuciar_con_cola_del_metodo(ws)
+
+        resultado = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+        salida = resultado.stdout + resultado.stderr
+
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("lo dejó el método", salida.lower())
+        self.assertIn("docs/05-trabajo/peticiones/", salida)
+        self.assertIn("docs/conocimiento/entorno-de-esta-maquina.md", salida)
+        self.assertIn("docs/05-trabajo/despliegue-2026-08-25.md", salida)
+        self.assertIn(
+            'git add docs/05-trabajo/despliegue-2026-08-25.md '
+            'docs/05-trabajo/peticiones/ docs/conocimiento/entorno-de-esta-maquina.md '
+            f'&& git commit -m "{self.MENSAJE_COLA}"',
+            salida)
+        self.assertIn("--confirmar-lo-del-metodo", salida)
+        self.assertNotIn("stash", salida.lower())
+
+    def test_aviso_separa_lo_del_usuario_y_no_le_ofrece_confirmarlo(self):
+        ws = self.workspace_antiguo()
+        self.ensuciar_con_cola_del_metodo(ws)
+        (ws / "docs/05-trabajo/nota-ajena.md").write_text("mío\n", encoding="utf-8")
+
+        resultado = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+        salida = resultado.stdout + resultado.stderr
+
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        tuyo = salida.lower().split("tuyo", 1)
+        self.assertEqual(len(tuyo), 2, "el aviso no separa lo del usuario:\n" + salida)
+        self.assertIn("docs/05-trabajo/nota-ajena.md", tuyo[1])
+        self.assertNotIn("docs/05-trabajo/nota-ajena.md",
+                         tuyo[0].split("lo dejó el método", 1)[-1])
+        self.assertIn("guarda", tuyo[1])
+        self.assertIn("descarta", tuyo[1])
+
+    def test_confirmar_lo_del_metodo_commitea_solo_esas_rutas_y_actualiza(self):
+        ws = self.workspace_antiguo()
+        self.ensuciar_con_cola_del_metodo(ws)
+
+        resultado = self.ejecutar(
+            ACTUALIZAR, "aplicar", str(ws), "--confirmar-lo-del-metodo")
+        salida = resultado.stdout + resultado.stderr
+
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn(self.MENSAJE_COLA, self.asuntos(ws))
+        tocados = self.ficheros_del_commit(ws, self.MENSAJE_COLA)
+        self.assertIn("docs/conocimiento/entorno-de-esta-maquina.md", tocados)
+        self.assertIn("docs/05-trabajo/despliegue-2026-08-25.md", tocados)
+        self.assertEqual(
+            6, len([t for t in tocados if t.startswith("docs/05-trabajo/peticiones/")]),
+            tocados)
+        self.assertTrue((ws / "docs/00-metodo/scripts/peticion.py").is_file(), salida)
+        self.assertEqual(subprocess.run(
+            ["git", "status", "--porcelain"], cwd=ws, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=True).stdout, "")
+
+    def test_confirmar_lo_del_metodo_para_igual_si_queda_algo_del_usuario(self):
+        ws = self.workspace_antiguo()
+        self.ensuciar_con_cola_del_metodo(ws)
+        (ws / "docs/05-trabajo/nota-ajena.md").write_text("mío\n", encoding="utf-8")
+        head = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=True).stdout.strip()
+
+        resultado = self.ejecutar(
+            ACTUALIZAR, "aplicar", str(ws), "--confirmar-lo-del-metodo")
+        salida = resultado.stdout + resultado.stderr
+
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("docs/05-trabajo/nota-ajena.md", salida)
+        self.assertNotIn(self.MENSAJE_COLA, self.asuntos(ws))
+        self.assertEqual(subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ws, text=True, encoding="utf-8",
+            errors="replace", capture_output=True, check=True).stdout.strip(), head)
+        self.assertEqual(subprocess.run(
+            ["git", "diff", "--cached", "--name-only"], cwd=ws, text=True,
+            encoding="utf-8", errors="replace",
+            capture_output=True, check=True).stdout, "")
+
+
 
 if __name__ == "__main__":
     unittest.main()
