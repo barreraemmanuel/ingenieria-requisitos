@@ -147,6 +147,7 @@ METODO_RAIZ = (
     # Y el inventario de puertas duras (unidad 050), por el mismo motivo: es la memoria del
     # trinquete. Sin él, `lint_juntas.py` llega al workspace sin saber qué está congelado.
     "puertas.json",
+    "reglas.json",
 )
 ARCHIVOS_METODO = tuple(
     [*METODO_RAIZ]

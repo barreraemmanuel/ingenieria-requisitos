@@ -106,6 +106,30 @@ una a una, bajo esta misma doctrina: ejecutor, declaración de inejecutable, o r
 motivo. Retirarlas en bloque sería sustituir un método que no se cumple por uno que no dice
 nada, y esta unidad quedaría además imposible de revisar.
 
+## Y quién ejecuta ESTE ADR (unidad 073, 27-08-2026)
+
+Esta doctrina tenía el mismo defecto que denuncia: estaba escrita y no la hacía cumplir nadie.
+El recuento del 22-08 vivía en una petición, que es un sitio que ningún script lee, así que
+nada impedía escribir mañana una regla nueva sin ejecutor y volver al punto de partida.
+
+Su ejecutor es la junta **(d)** de `lint_juntas.py`, con `docs/00-metodo/reglas.json` como
+memoria. Cada regla del método —los numerales de `AGENTS.md`, las viñetas de «Reglas de oro»
+y las puertas duras marcadas en la prosa— tiene ahí su ancla y su casilla: `ejecutor`
+(`script.py:función`), `por_diseno` con el motivo, o ninguna de las dos. Y entonces:
+
+- una regla nueva sin entrada en el inventario es **FAIL**, con su ancla y el comando;
+- el número de reglas sin ejecutor está **congelado y solo puede bajar**: si sube, FAIL;
+- una función declarada como ejecutor que ya no existe es **FAIL** —arreglada y perdida son
+  indistinguibles desde fuera, igual que en la 049 y en la 050—;
+- la base la reescribe `lint_juntas.py --congelar-reglas`, con su fecha y su commit. Bajar el
+  número a mano en el JSON no cuenta: sin fecha ni commit, la base se rechaza.
+
+Punto de partida honesto del 27-08-2026, medido y no estimado: **31 reglas** inventariadas,
+**16 con ejecutor**, **4 declaradas inejecutables** y **11 huérfanas**. Es un trinquete y no
+un gate limpio por el mismo motivo que en la 049 y la 050: exigir cero al nacer significa que
+el guardián no existe nunca. Las 11 que quedan se atacan una a una por `P-20260822-3c2e49f6`,
+y cada una que encuentre dueño baja la base sin que nadie tenga que acordarse.
+
 ## Consecuencias aplicadas
 
 - `ejecucion.py` guarda el modelo en el recibo: llegaba por argumento, gobernaba qué modelo
