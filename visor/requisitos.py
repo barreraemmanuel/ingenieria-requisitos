@@ -13,6 +13,7 @@ Uso desde la raíz de ``<nombre>-agents``:
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import socket
@@ -180,67 +181,68 @@ def destino_actividad(mapa, actividad):
     return "#%s::resumen" % actividad
 
 
-def cmd_abrir(workspace, mapa, args):
-    destino = destino_actividad(mapa, getattr(args, "actividad", None))
-    puerto, reutilizado = elegir_puerto(
-        workspace, mapa, getattr(args, "puerto", None)
-    )
-    if reutilizado:
-        anotar_apertura(workspace, puerto)
-        url = "http://127.0.0.1:%d/%s" % (puerto, destino)
-        print("Visor ya activo: %s" % url)
-        if not args.sin_navegador:
-            webbrowser.open(url)
-        return 0
-    if puerto == 0:
-        # El hijo elegiría un puerto que este proceso no podría conocer:
-        # se resuelve aquí para poder imprimir la URL igualmente.
-        puerto = puerto_libre()
-    registro = anotar_apertura(workspace, puerto)
-    comando = [
-        sys.executable,
-        str(BASE / "servir.py"),
-        "--datos",
-        str(mapa),
-        "--puerto",
-        str(puerto),
-        "--minutos",
-        str(args.minutos),
-        # El navegador lo abre este proceso, no el hijo: así la URL se
-        # imprime aquí SIEMPRE y el servidor queda desahogado en segundo
-        # plano en vez de colgar la terminal (sesión estable, ADR del visor).
-        "--sin-navegador",
-    ]
-    with open(registro, "ab") as salida:
-        proceso = subprocess.Popen(
-            comando,
-            cwd=workspace,
-            stdin=subprocess.DEVNULL,
-            stdout=salida,
-            stderr=subprocess.STDOUT,
-            start_new_session=True,
-        )
-    url = "http://127.0.0.1:%d/%s" % (puerto, destino)
-    for _ in range(50):  # hasta ~10 s a que el servidor conteste
-        meta = meta_puerto(puerto)
-        if meta and Path(meta.get("datos", "")).resolve() == mapa.resolve():
-            print("Visor abierto: %s" % url)
-            print(
-                "Queda corriendo en segundo plano (registro: %s)."
-                % registro
-            )
-            if not args.sin_navegador:
-                webbrowser.open(url)
-            return 0
-        if proceso.poll() is not None:
-            break
-        time.sleep(0.2)
-    print("ERROR: el visor no llegó a arrancar. Su registro dice:")
+def carpeta_web():
+    """La carpeta de la web del método, en los dos layouts (081).
+
+    En el workspace del alumno este fichero vive en `docs/00-metodo/requisitos/`
+    y la web, en su subcarpeta `web/`. En el repo de código, en `visor/` y la web
+    en `main/web/` — es decir, el hermano `web/` de `visor/`.
+    """
+    for candidata in (BASE / "web", BASE.parent / "web"):
+        if (candidata / "abrir.py").is_file() and (candidata / "servir.py").is_file():
+            return candidata
+    return None
+
+
+def modulo_abrir(carpeta):
+    """`abrir.py` de la web, cargado de SU sitio: una sola verdad del puerto."""
+    sys.path.insert(0, str(carpeta))
     try:
-        print(registro.read_text(encoding="utf-8").strip()[-2000:])
-    except OSError:
-        pass
-    return 1
+        spec = importlib.util.spec_from_file_location(
+            "web_metodo_abrir", carpeta / "abrir.py")
+        modulo = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = modulo
+        spec.loader.exec_module(modulo)
+        return modulo
+    finally:
+        try:
+            sys.path.remove(str(carpeta))
+        except ValueError:
+            pass
+
+
+def cmd_abrir(workspace, mapa, args):
+    """Abre el apartado FLUJOS de la web del método (081).
+
+    Ya no hay un visor de flujos en su propio puerto: hay una sola web con cuatro
+    apartados, y `web/abrir.py` reutiliza la que ya esté en pie sobre este
+    workspace. El rastro que `aprobar` exige (`.runtime/visor-<puerto>.log`,
+    unidad 033 R3) lo sigue dejando esta llamada, y también la web cada vez que
+    sirve `/flujos`: mirar los planos hoy cuenta como haberlos visto hoy.
+    """
+    # Una actividad que no existe REVIENTA aquí, antes de levantar nada: abrir la
+    # portada «por si acaso» es enseñar otra cosa de la que se pidió.
+    destino = destino_actividad(mapa, getattr(args, "actividad", None))
+    carpeta = carpeta_web()
+    if carpeta is None:
+        print("ERROR: no encuentro la web del método (falta web/abrir.py). "
+              "Vuelve a repartirla con `python3 main/visor/actualizar.py`.")
+        return 1
+    mod_abrir = modulo_abrir(carpeta)
+    apartado = "flujos" + (destino if destino.startswith("#") else "")
+    argumentos = argparse.Namespace(
+        apartado=apartado, puerto=getattr(args, "puerto", None),
+        minutos=getattr(args, "minutos", 0), sin_navegador=args.sin_navegador)
+    try:
+        resultado = mod_abrir.abrir(workspace, argumentos)
+    except (OSError, RuntimeError, ValueError) as exc:
+        print("ERROR: no pude abrir la web del método (%s)" % exc)
+        return 1
+    anotar_apertura(workspace, mod_abrir.puerto_de(Path(workspace).resolve()))
+    print("Apartado Flujos de la web del método: %s" % resultado.url)
+    if not resultado.navegador and not args.sin_navegador:
+        print("(no he podido abrir el navegador; pásale esa dirección)")
+    return 0
 
 
 def main():

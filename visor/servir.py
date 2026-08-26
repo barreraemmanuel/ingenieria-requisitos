@@ -1,23 +1,26 @@
 #!/usr/bin/env python3
 """Visor local de los planos (ingeniería de requisitos).
 
-Sirve la plantilla fija (plantilla.html, junto a este script) y los datos del
-proyecto (planos.json) en 127.0.0.1. Es estrictamente de sólo lectura: expone
-planos, documentos, historial y comparación, pero nunca recibe feedback ni
-aprobaciones. No caduca por defecto; ``--minutos`` permite un cierre opcional.
+Desde la unidad 081 esto NO es un servidor: es el módulo de datos del apartado
+«Flujos» de la web única. `web/servir.py` importa `hacer_handler` y monta estas
+rutas bajo `/flujos/`. Sigue siendo estrictamente de sólo lectura: expone planos,
+documentos, historial y comparación, pero nunca recibe feedback ni aprobaciones.
 
-Uso:
-    python3 servir.py --datos <ruta/planos.json> [--minutos 0] [--puerto 8765]
+Rutas (bajo `/flujos/` en la web; sueltas, en los tests de datos):
+
+    GET /datos.json         los planos del proyecto
+    GET /historial.json     el historial de revisiones
+    GET /comparacion.json   contra la última aprobación
+    GET /spec.md /encargo.md    los documentos de salida, si existen
+    GET /actividades/<id>/…     los planos de cada actividad
 """
 
-import argparse
 import http.server
 import json
 import os
 import re
 import socket
 import sys
-import threading
 import time
 
 
@@ -43,7 +46,6 @@ class ServidorVisor(http.server.ThreadingHTTPServer):
         else:
             self.socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
         http.server.HTTPServer.server_bind(self)
-import webbrowser
 from urllib.parse import urlsplit
 
 try:
@@ -156,68 +158,7 @@ def hacer_handler(ruta_datos, estado):
 
     return Visor
 
-
-def main():
-    p = argparse.ArgumentParser(description="Visor local de los planos")
-    p.add_argument("--datos", required=True, help="Ruta al planos.json del proyecto")
-    p.add_argument("--minutos", type=float, default=0,
-                   help="minutos sin actividad antes de apagarse; 0 = no caduca")
-    p.add_argument("--puerto", type=int, default=8765,
-                   help="puerto local; 0 pide uno libre (defecto: 8765)")
-    p.add_argument("--sin-navegador", action="store_true", help="No abrir el navegador")
-    args = p.parse_args()
-
-    if not (0 <= args.minutos <= 1440):
-        sys.exit("--minutos debe estar entre 0 y 1440")
-    if not (0 <= args.puerto <= 65535):
-        sys.exit("--puerto debe estar entre 0 y 65535")
-
-    ruta_datos = os.path.abspath(args.datos)
-    if not os.path.isfile(ruta_datos):
-        sys.exit("No existe el fichero de datos: " + ruta_datos)
-    if not os.path.isfile(PLANTILLA):
-        sys.exit("Falta la plantilla fija: " + PLANTILLA)
-    try:
-        with open(ruta_datos, "r", encoding="utf-8") as f:
-            json.load(f)
-    except (OSError, ValueError) as e:
-        sys.exit("El fichero de datos no es JSON válido: " + str(e))
-
-    estado = {"ultimo": time.time()}
-    try:
-        servidor = ServidorVisor(
-            ("127.0.0.1", args.puerto), hacer_handler(ruta_datos, estado)
-        )
-    except OSError as exc:
-        sys.exit("No pude abrir el puerto %d: %s" % (args.puerto, exc))
-    puerto = servidor.server_address[1]
-    hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
-    hilo.start()
-
-    url = "http://127.0.0.1:%d/" % puerto
-    print("Visor levantado: %s" % url, flush=True)
-    print("Datos: %s (se releen al recargar la página)" % ruta_datos, flush=True)
-    if args.minutos:
-        print("Se apaga tras %g minutos sin actividad." % args.minutos, flush=True)
-    else:
-        print("Sesión estable: no se apaga sola.", flush=True)
-    if not args.sin_navegador:
-        webbrowser.open(url)
-
-    try:
-        while True:
-            if not args.minutos:
-                time.sleep(15)
-                continue
-            restante = args.minutos * 60 - (time.time() - estado["ultimo"])
-            if restante <= 0:
-                break
-            time.sleep(min(restante, 15))
-    except KeyboardInterrupt:
-        pass
-    servidor.shutdown()
-    print("Visor cerrado.", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+# 081: este fichero dejó de ser un programa. Es el MÓDULO DE DATOS del apartado
+# «Flujos» de la web única: `web/servir.py` importa `hacer_handler` y le monta
+# estas mismas rutas bajo `/flujos/`. Ya no abre puerto, ya no abre navegador y
+# ya no tiene `main()`: sólo hay un servidor en el método.

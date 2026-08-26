@@ -266,10 +266,11 @@ class VersionMetodoTest(unittest.TestCase):
         """Copia funcional de la herramienta cuyo método introduce un rojo NUEVO:
         su linter falla si expres.md trae MARCADOR_ROJO, y su plantilla lo trae."""
         copia = self.base / "herramienta-doctorada"
-        # La copia lleva TODO lo que la herramienta reparte: desde el bug 064,
-        # `actualizar.py` también coloca `visor_presentaciones/` (y su `render.js`,
-        # que vive en `visor_contratos/`), igual que ya hacía `bootstrap.py`.
-        for carpeta in ("visor", "plantilla", "visor_presentaciones", "visor_contratos"):
+        # La copia lleva TODO lo que la herramienta reparte. Desde la unidad 081
+        # eso es la web entera (`ARCHIVOS_WEB`): la cáscara de `web/` y los cuatro
+        # módulos de datos, que siguen viviendo en la carpeta de su visor.
+        for carpeta in ("visor", "plantilla", "web", "visor_presentaciones",
+                        "visor_contratos", "visor_tablero"):
             shutil.copytree(RAIZ / carpeta, copia / carpeta,
                             ignore=shutil.ignore_patterns("tests", "__pycache__"))
         for nombre in ("RUNBOOK.md", "requirements-dev.txt"):

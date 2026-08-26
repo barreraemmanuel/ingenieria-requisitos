@@ -385,18 +385,21 @@ class MinimoSinHojaTest(unittest.TestCase):
 class RepartidaAlWorkspaceTest(unittest.TestCase):
     """R1 — la hoja viaja al workspace, como `render.js` desde el bug 064.
 
-    En un workspace, el visor de flujos vive en `docs/00-metodo/requisitos/` y
-    el de presentaciones en su subcarpeta. Los dos piden `/base.css`: si
-    `bootstrap.py` no la reparte, la web nace sin estilos (justo el bug que la
-    064 aprendió con `render.js`) y sólo queda el mínimo de R5.
+    Desde la unidad 081 la web del workspace es UNA y vive en
+    `docs/00-metodo/requisitos/web/`: la hoja viaja en su misma lista
+    (`ARCHIVOS_WEB`) y a su lado. Si no se repartiera, la web nacería sin
+    estilos —justo el bug que la 064 aprendió con `render.js`— y sólo quedaría
+    el mínimo de R5.
     """
 
     def setUp(self):
         from visor import bootstrap
         self.bootstrap = bootstrap
 
-    def test_el_manifiesto_del_metodo_la_incluye(self):
-        self.assertIn("base.css", self.bootstrap.ARCHIVOS_REQUISITOS)
+    def test_el_manifiesto_de_la_web_la_incluye(self):
+        self.assertIn("base.css", self.bootstrap.ARCHIVOS_WEB)
+        self.assertEqual(RAIZ / "visor" / "base.css",
+                         self.bootstrap.origen_web("base.css"))
 
     def test_un_workspace_recien_montado_la_tiene_donde_la_piden(self):
         """Bootstrap de verdad: se monta un workspace y se mira el árbol."""
@@ -419,18 +422,23 @@ class RepartidaAlWorkspaceTest(unittest.TestCase):
             capture_output=True, text=True, encoding="utf-8", errors="replace")
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
 
-        repartida = destino / "docs" / "00-metodo" / "requisitos" / "base.css"
+        repartida = (destino / "docs" / "00-metodo" / "requisitos" / "web"
+                     / "base.css")
         self.assertTrue(repartida.is_file(),
                         "la hoja común no viajó al workspace")
         self.assertEqual(BASE_CSS.read_text(encoding="utf-8"),
                          repartida.read_text(encoding="utf-8"))
 
-    def test_el_visor_de_presentaciones_la_busca_primero_ahi(self):
-        """En el workspace, `visor_presentaciones/` cuelga de `requisitos/`:
-        su primer candidato tiene que ser el `base.css` del padre."""
-        from visor_presentaciones import servir
-        self.assertEqual(servir.BASE.parent / "base.css",
-                         servir.BASE_CSS_LAYOUTS[0])
+    def test_la_web_la_busca_primero_al_lado_y_luego_en_el_repo(self):
+        """Los dos layouts: en el workspace la hoja está DENTRO de `web/`; en el
+        repo de código, en `visor/base.css`. Se busca, no se adivina."""
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "web_servir_base_css", RAIZ / "web" / "servir.py")
+        servir = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = servir
+        spec.loader.exec_module(servir)
+        self.assertEqual(RAIZ / "web" / "base.css", servir.BASE_CSS_LAYOUTS[0])
         self.assertEqual(RAIZ / "visor" / "base.css", servir.ruta_base_css())
 
 
@@ -480,7 +488,7 @@ class ServidoPorLosCuatroTest(unittest.TestCase):
                 conexion = http.client.HTTPConnection("127.0.0.1", puerto,
                                                       timeout=2)
                 conexion.request("GET", "/base.css")
-                return conexion.getresponse()
+                return conexion.getresponse(), puerto
             except OSError:
                 time.sleep(0.2)
         self.fail("el servidor no levantó a tiempo")
@@ -513,22 +521,27 @@ class ServidoPorLosCuatroTest(unittest.TestCase):
         self.assertIn("text/css", respuesta.getheader("Content-Type") or "")
         return respuesta.read().decode("utf-8")
 
-    def test_los_cuatro_sirven_la_misma_hoja(self):
+    def test_la_web_unica_sirve_la_hoja_a_los_cuatro_apartados(self):
+        """081: ya no hay cuatro servidores que puedan servir cuatro hojas
+        distintas. Hay uno, y `/base.css` es la misma para los cuatro
+        apartados — que es lo que la 076 quería asegurar."""
         esperado = BASE_CSS.read_text(encoding="utf-8")
-        servidores = {
-            "flujos": ["visor/servir.py", "--datos", str(self._planos())],
-            "contratos": ["visor_contratos/servir.py", "--workspace",
-                          str(self._workspace())],
-            "presentaciones": ["visor_presentaciones/servir.py", "--datos",
-                               str(self._datos_presentaciones())],
-            "tablero": ["visor_tablero/servir.py", "--workspace",
-                        str(self._workspace())],
-        }
-        for nombre, argumentos in servidores.items():
-            with self.subTest(web=nombre):
-                cuerpo = self._comprobar(self._arrancar(argumentos))
-                self.assertEqual(esperado, cuerpo,
-                                 "%s sirve otra hoja" % nombre)
+        respuesta, puerto = self._arrancar(
+            ["web/servir.py", "--workspace", str(self._workspace())])
+        self.assertEqual(esperado, self._comprobar(respuesta),
+                         "la web sirve otra hoja")
+        for apartado in ("/", "/contratos", "/presentaciones", "/flujos"):
+            with self.subTest(apartado=apartado):
+                conexion = http.client.HTTPConnection("127.0.0.1", puerto,
+                                                      timeout=5)
+                try:
+                    conexion.request("GET", apartado)
+                    pagina = conexion.getresponse()
+                    self.assertEqual(200, pagina.status)
+                    self.assertIn('<link rel="stylesheet" href="/base.css">',
+                                  pagina.read().decode("utf-8"))
+                finally:
+                    conexion.close()
 
 
 if __name__ == "__main__":

@@ -13,6 +13,7 @@
   @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
 </style>
 <link rel="stylesheet" href="/base.css">
+<!-- apartado:estilos -->
 <style>
   /* PLANTILLA FIJA v2.2 (lateral obligatorio + pestañas). Los proyectos solo
      aportan datos (planos.json). Colores validados para daltonismo.
@@ -159,6 +160,7 @@
   .error { margin-top: 30px; border: 2px solid var(--fail); border-radius: 10px; padding: 16px 18px; background: var(--fail-bg); color: var(--fail); font-size: 14px; }
   footer { margin-top: 60px; font-size: var(--t-nota); color: var(--faint); text-align: center; }
 </style>
+<!-- /apartado:estilos -->
 </head>
 <body class="con-menu">
 <script>
@@ -196,9 +198,11 @@
     });
   })();
 </script>
+<!-- apartado:cuerpo -->
   <div class="pagina">
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
+      <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos · planos del proyecto</div>
       <h1 id="titulo">Cargando…</h1>
       <div class="sub" id="proyecto"></div>
@@ -244,7 +248,15 @@
     el proceso.</footer>
   </div>
 
+<!-- /apartado:cuerpo -->
+<!-- apartado:guion -->
 <script>
+/* Unidad 081: los datos de este apartado cuelgan de su prefijo (`/flujos/...`)
+   porque los cuatro visores comparten un solo servidor. `RUTA` es el único sitio
+   que lo sabe; servida suelta (sin cáscara) devuelve la ruta de siempre. */
+function RUTA(sufijo) {
+  return ((window.IR && window.IR.base) || "") + sufijo;
+}
 "use strict";
 const TIPOS_ACCION = ["humano", "estatico", "ia", "externo"];
 let ultimaFoto = "";
@@ -1200,7 +1212,7 @@ async function cargar() {
   try {
     let textoRoot;
     try {
-      const r = await fetch("datos.json", { cache: "no-store" });
+      const r = await fetch(RUTA("/datos.json"), { cache: "no-store" });
       if (!r.ok) throw new Error("HTTP " + r.status);
       textoRoot = await r.text();
     } catch (e) {
@@ -1229,7 +1241,7 @@ async function cargar() {
     let textoAct = null;
     let dSel = dRoot;
     if (base) {
-      textoAct = await txtOpcional(base + "datos.json");
+      textoAct = await txtOpcional(RUTA("/" + base + "datos.json"));
       if (textoAct === null) {
         dSel = null; // la actividad aún no tiene planos
       } else {
@@ -1243,8 +1255,8 @@ async function cargar() {
         }
       }
     }
-    const spec = await txtOpcional(base + "spec.md");
-    const encargo = await txtOpcional(base + "encargo.md");
+    const spec = await txtOpcional(RUTA("/" + base + "spec.md"));
+    const encargo = await txtOpcional(RUTA("/" + base + "encargo.md"));
     const [historial, comparacion] =
       await Promise.all([
         apiJSON("historial.json").catch(() => []),
@@ -1290,5 +1302,6 @@ document.getElementById("filtroFlujos").addEventListener(
 cargar();
 setInterval(cargar, 3000);
 </script>
+<!-- /apartado:guion -->
 </body>
 </html>

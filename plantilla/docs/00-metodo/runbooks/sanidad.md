@@ -101,10 +101,10 @@ los hallazgos nuevos en vez de crear otra. Por defecto solo entra la confianza a
 
 ## Paso 5 · El usuario decide (puerta obligatoria)
 
-El padre levanta el visor de contratos **en el mismo turno** en que pide decidir:
+El padre abre el apartado de contratos de la web **en el mismo turno** en que pide decidir:
 
 ```bash
-python3 visor_contratos/servir.py     # o el comando que declare AGENTS.md
+python3 main/web/abrir.py --workspace . --apartado contratos   # o el que declare AGENTS.md
 ```
 
 Se le presenta cada petición en su idioma (`comunicacion.md`: esto es «la revisión de limpieza

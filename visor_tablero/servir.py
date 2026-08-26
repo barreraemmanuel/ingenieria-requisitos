@@ -1,37 +1,27 @@
 #!/usr/bin/env python3
 """El tablero de control: qué hay en curso, qué falta, quién trabaja y qué te toca.
 
-Cuarta web local del método, y la única de OBSERVACIÓN: aquí no se aprueba, no
-se decide y no se cierra nada — eso vive en las otras tres. Mismo patrón que
-`visor_contratos/servir.py` (ThreadingHTTPServer en 127.0.0.1, sin caché de
-navegador) y mismo motor de bloques: `render.js` se sirve LEÍDO de
-`visor_contratos/`, no copiado (bug 055).
+La PORTADA de la web del método, y el único apartado de OBSERVACIÓN: aquí no se
+aprueba, no se decide y no se cierra nada — eso vive en los otros tres.
+
+Desde la unidad 081 esto NO es un servidor: es el módulo de datos que `web/servir.py`
+monta bajo `/tablero/`, y cuya página sirve en `/`.
 
 Rutas, todas de lectura:
 
-    GET /                 la plantilla
     GET /estado.json      la foto entera del workspace (la página la sondea)
     GET /doc/<ruta>.md    un markdown de dentro del meta-repo (con guarda)
-    GET /render.js        el motor de bloques del visor de contratos
-    GET /base.css         la hoja de estilos común de las cuatro webs
-    GET /meta.json        identidad del servicio, para `abrir.py`
 
 Cualquier POST responde 405: el tablero no escribe (R8).
-
-Uso:
-    python3 visor_tablero/servir.py --workspace <ruta del meta-repo>
 """
 
-import argparse
 import hashlib
 import http.server
 import json
 import os
 import socket
 import sys
-import threading
 import time
-import webbrowser
 from pathlib import Path
 from urllib.parse import unquote, urlsplit
 
@@ -184,68 +174,7 @@ def anotar_apertura(workspace):
         return None
     return registro
 
-
-def main():
-    p = argparse.ArgumentParser(description="Tablero de control del workspace")
-    p.add_argument("--workspace", required=True,
-                   help="Ruta del meta-repo (el que tiene docs/05-trabajo/)")
-    p.add_argument("--puerto", type=int, default=8768,
-                   help="puerto local; 0 pide uno libre (defecto: 8768)")
-    p.add_argument("--minutos", type=float, default=0,
-                   help="minutos sin actividad antes de apagarse; 0 = no caduca")
-    p.add_argument("--sin-navegador", action="store_true",
-                   help="No abrir el navegador")
-    args = p.parse_args()
-
-    if not (0 <= args.minutos <= 1440):
-        sys.exit("--minutos debe estar entre 0 y 1440")
-    if not (0 <= args.puerto <= 65535):
-        sys.exit("--puerto debe estar entre 0 y 65535")
-
-    workspace = os.path.abspath(args.workspace)
-    trabajo = os.path.join(workspace, "docs", "05-trabajo")
-    if not os.path.isdir(trabajo):
-        sys.exit("No existe la carpeta de unidades: " + trabajo)
-    if not PLANTILLA.is_file():
-        sys.exit("Falta la plantilla: %s" % PLANTILLA)
-    if not RENDER_JS.is_file():
-        sys.exit("Falta el motor de render del visor de contratos: %s" % RENDER_JS)
-
-    estado = {"ultimo": time.time()}
-    try:
-        servidor = ServidorTablero(("127.0.0.1", args.puerto),
-                                   hacer_handler(workspace, estado))
-    except OSError as exc:
-        sys.exit("No pude abrir el puerto %d: %s" % (args.puerto, exc))
-    puerto = servidor.server_address[1]
-    hilo = threading.Thread(target=servidor.serve_forever, daemon=True)
-    hilo.start()
-    anotar_apertura(workspace)
-
-    url = "http://127.0.0.1:%d/" % puerto
-    print("Tablero de control levantado: %s" % url, flush=True)
-    print("Workspace: %s" % workspace, flush=True)
-    if args.minutos:
-        print("Se apaga tras %g minutos sin actividad." % args.minutos, flush=True)
-    else:
-        print("Sesión estable: no se apaga sola.", flush=True)
-    if not args.sin_navegador:
-        webbrowser.open(url)
-
-    try:
-        while True:
-            if not args.minutos:
-                time.sleep(15)
-                continue
-            restante = args.minutos * 60 - (time.time() - estado["ultimo"])
-            if restante <= 0:
-                break
-            time.sleep(min(restante, 15))
-    except KeyboardInterrupt:
-        pass
-    servidor.shutdown()
-    print("Tablero de control cerrado.", flush=True)
-
-
-if __name__ == "__main__":
-    main()
+# 081: este fichero dejó de ser un programa. Es el MÓDULO DE DATOS de la PORTADA
+# de la web única: `web/servir.py` importa `hacer_handler` y le monta estas rutas
+# bajo `/tablero/`, y la página en `/`. El rastro `.runtime/tablero.log` lo
+# escribe ahora la web al levantarse.

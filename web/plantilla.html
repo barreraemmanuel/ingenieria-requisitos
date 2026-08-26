@@ -1,0 +1,125 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" href="data:,">
+<title><!--{TITULO}--> · ingeniería de requisitos</title>
+<style id="minimo-sin-base-css">
+  /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
+     familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
+     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue. */
+  body { background: #F3F5F1; color: #16202A; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+  @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
+</style>
+<link rel="stylesheet" href="/base.css">
+<!-- LA CÁSCARA de la web del método (unidad 081). Una sola web, un solo puerto y
+     cuatro apartados: el tablero (la portada), los contratos, las presentaciones
+     y los flujos. Aquí vive lo COMÚN — la barra de los cuatro apartados, la marca
+     y el interruptor de tema — y `web/servir.py` encaja debajo la sección del
+     apartado que toca, recortada por marcadores de su propia plantilla. Los
+     estilos siguen viviendo enteros en `visor/base.css`, que se sirve en
+     `/base.css`: aquí no se copia ni una regla. -->
+<!--{ESTILOS}-->
+</head>
+<body>
+<!-- LA BARRA COMÚN, en su único sitio (R2). Son rutas relativas del mismo
+     origen: navegar entre apartados ya no cambia de puerto ni de pestaña.
+     `web/servir.py` la saca de aquí y le marca el apartado que está sirviendo. -->
+<template id="barra-comun">
+      <nav class="barra-webs" aria-label="Los cuatro apartados de la web">
+        <a href="/" data-web="tablero">Tablero</a>
+        <a href="/contratos" data-web="contratos">Contratos</a>
+        <a href="/presentaciones" data-web="presentaciones">Presentaciones</a>
+        <a href="/flujos" data-web="flujos">Flujos</a>
+      </nav>
+</template>
+<!--{CONTEXTO}-->
+<script>
+  /* Tema: por defecto manda el sistema (prefers-color-scheme). Si el usuario toca el botón,
+     su elección manda y se recuerda. Se aplica ANTES de pintar para no dar un fogonazo.
+     Bloque literal del visor de flujos (misma clave de memoria: el ajuste viaja entre las
+     dos webs); un test lo compara línea a línea. */
+  (function () {
+    var GUARDADO = "visor-tema";
+    var raiz = document.documentElement;
+    var elegido = null;
+    try { elegido = localStorage.getItem(GUARDADO); } catch (e) { elegido = null; }
+    if (elegido === "dark" || elegido === "light") raiz.dataset.theme = elegido;
+
+    function oscuroAhora() {
+      if (raiz.dataset.theme) return raiz.dataset.theme === "dark";
+      return window.matchMedia("(prefers-color-scheme: dark)").matches;
+    }
+    function pintarBoton(boton) {
+      var oscuro = oscuroAhora();
+      boton.textContent = oscuro ? "☀" : "☾";
+      boton.title = oscuro ? "Cambiar a claro" : "Cambiar a oscuro";
+    }
+    document.addEventListener("DOMContentLoaded", function () {
+      var boton = document.getElementById("boton-tema");
+      if (!boton) return;
+      pintarBoton(boton);
+      boton.addEventListener("click", function () {
+        var nuevo = oscuroAhora() ? "light" : "dark";
+        raiz.dataset.theme = nuevo;
+        try { localStorage.setItem(GUARDADO, nuevo); } catch (e) { /* sin memoria, da igual */ }
+        pintarBoton(boton);
+      });
+      window.matchMedia("(prefers-color-scheme: dark)").addEventListener("change", function () {
+        if (!raiz.dataset.theme) pintarBoton(boton);
+      });
+    });
+  })();
+</script>
+<script>
+  /* R2 (unidad 081): la navegación de la web única.
+
+     Los cuatro apartados son RUTAS REALES del mismo origen (`/`, `/contratos`,
+     `/presentaciones`, `/flujos`), no cuatro puertos: la barra son enlaces de
+     verdad y la flecha atrás del navegador recorre el historial de apartados
+     sola, sin que este guion tenga que interceptar nada.
+
+     Dentro de un apartado el estado vive en el hash (qué contrato, qué flujo,
+     qué sección) y `pushState`/el hash lo van dejando en el historial. Cuando la
+     flecha atrás vuelve a una de esas entradas el navegador NO recarga: manda un
+     `popstate`, y es aquí donde se le dice al apartado que se repinte con el
+     estado al que se ha vuelto. Sin esto, atrás dentro de un apartado no haría
+     nada visible. */
+  (function () {
+    var IR = window.IR || (window.IR = {});
+
+    /* La ruta de un dato de ESTE apartado: `/contratos` + `/unidades.json`. Las
+       secciones la usan en vez de escribir la ruta absoluta, que es lo que las
+       ataba a su antiguo puerto. */
+    IR.ruta = function (sufijo) { return (IR.base || "") + sufijo; };
+
+    IR.apartadoDe = function (camino) {
+      var primero = (camino || "/").replace(/^\/+/, "").split("/")[0];
+      if (!primero) return "tablero";
+      if (primero === "contratos" || primero === "presentaciones" ||
+          primero === "flujos" || primero === "tablero") return primero;
+      return null;
+    };
+
+    /* Un apartado registra aquí cómo se repinta al volver atrás. */
+    IR.alVolver = null;
+
+    window.addEventListener("popstate", function () {
+      if (IR.apartadoDe(location.pathname) !== IR.apartado) {
+        /* Se volvió a OTRO apartado por una entrada que no era una carga real
+           (sólo puede pasar si alguien hizo pushState cruzado): se carga. */
+        location.reload();
+        return;
+      }
+      if (typeof IR.alVolver === "function") {
+        IR.alVolver(decodeURIComponent((location.hash || "").replace(/^#/, "")));
+      }
+    });
+  })();
+</script>
+<!--{CUERPO}-->
+<script src="/render.js"></script>
+<!--{GUION}-->
+</body>
+</html>

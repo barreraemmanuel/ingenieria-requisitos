@@ -48,12 +48,26 @@ from test_visor_tablero import (            # noqa: E402  (mismo directorio)
 
 # --------------------------------------------------------------------------- utilidades
 
+# Unidad 081: los cuatro apartados son rutas del MISMO origen, no cuatro puertos.
 WEBS = (
-    ("tablero", "http://127.0.0.1:8768/", "Tablero"),
-    ("contratos", "http://127.0.0.1:8766/", "Contratos"),
-    ("presentaciones", "http://127.0.0.1:9043/", "Presentaciones"),
-    ("flujos", "http://127.0.0.1:8765/", "Flujos"),
+    ("tablero", "/", "Tablero"),
+    ("contratos", "/contratos", "Contratos"),
+    ("presentaciones", "/presentaciones", "Presentaciones"),
+    ("flujos", "/flujos", "Flujos"),
 )
+
+
+def _cargar_web_servir():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "web_servir_navegacion", RAIZ / "web" / "servir.py")
+    modulo = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = modulo
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+web_servir = _cargar_web_servir()
 
 
 class _Barra(html.parser.HTMLParser):
@@ -299,15 +313,9 @@ class BarraComunTest(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        cls.tmp = tempfile.mkdtemp(prefix="tablero-067b-")
-        cls.raiz = workspace_sintetico(cls.tmp)
-        cls.servidor = ServidorDePrueba(cls.raiz)
-        _, _, cls.html = cls.servidor.pedir("/")
-
-    @classmethod
-    def tearDownClass(cls):
-        cls.servidor.parar()
-        shutil.rmtree(cls.tmp, ignore_errors=True)
+        # 081: la página del tablero es la cáscara de la web única con la sección
+        # del tablero encajada dentro; la barra la pone la cáscara.
+        cls.html = web_servir.pagina("tablero", "/tablero").decode("utf-8")
 
     def test_el_html_servido_trae_las_cuatro_webs_en_orden(self):
         enlaces = barra_de(self.html)
@@ -324,11 +332,11 @@ class BarraComunTest(unittest.TestCase):
         self.assertEqual("tablero", marcados[0].get("data-web"))
         self.assertIn("actual", (marcados[0].get("class") or ""))
 
-    def test_las_otras_dos_plantillas_llevan_la_misma_barra(self):
-        for plantilla, quien in ((PLANTILLA_CONTRATOS, "contratos"),
-                                 (PLANTILLA_056, "presentaciones")):
+    def test_los_otros_apartados_reciben_la_misma_barra_marcada_en_ellos(self):
+        """081: una sola barra, escrita una vez, marcada por el servidor."""
+        for quien in ("contratos", "presentaciones", "flujos"):
             with self.subTest(web=quien):
-                enlaces = barra_de(plantilla.read_text(encoding="utf-8"))
+                enlaces = barra_de(web_servir.barra(quien))
                 self.assertEqual([w[0] for w in WEBS],
                                  [e.get("data-web") for e in enlaces])
                 self.assertEqual([w[1] for w in WEBS],
@@ -336,6 +344,15 @@ class BarraComunTest(unittest.TestCase):
                 marcados = [e for e in enlaces if e.get("aria-current") == "page"]
                 self.assertEqual(1, len(marcados))
                 self.assertEqual(quien, marcados[0].get("data-web"))
+
+    def test_ninguna_plantilla_de_apartado_conserva_su_propia_barra(self):
+        for plantilla in (PLANTILLA, PLANTILLA_CONTRATOS, PLANTILLA_056,
+                          RAIZ / "visor" / "plantilla.html"):
+            with self.subTest(apartado=plantilla.parent.name):
+                texto = plantilla.read_text(encoding="utf-8")
+                self.assertIn("<!-- apartado:barra -->", texto)
+                self.assertEqual([], barra_de(texto))
+                self.assertNotIn("127.0.0.1:", texto)
 
     def test_la_marca_y_el_interruptor_son_los_de_siempre(self):
         self.assertTrue("ingeniería de requisitos · tablero de control" in self.html,
@@ -419,14 +436,13 @@ def _recuentos(texto):
 class CadaCosaLlevaASuWebTest(unittest.TestCase):
     """R2 — enlaces a la web donde se hace, y aviso si esa web está apagada."""
 
-    def test_el_contrato_por_aprobar_enlaza_al_visor_de_contratos(self):
+    def test_el_contrato_por_aprobar_enlaza_al_apartado_de_contratos(self):
         pintado = pintar("pintarTeToca", foto_sintetica())
-        self.assertIn('href="http://127.0.0.1:8766/contrato/103-sin-aprobar.md"',
-                      pintado)
+        self.assertIn('href="/contratos#103-sin-aprobar"', pintado)
 
     def test_la_entrega_en_validacion_enlaza_a_presentaciones(self):
         pintado = pintar("pintarTeToca", foto_sintetica())
-        self.assertIn('href="http://127.0.0.1:9043/', pintado)
+        self.assertIn('href="/presentaciones/', pintado)
 
     def test_ninguna_linea_apunta_ya_al_lector_de_documentos_del_tablero(self):
         for funcion in ("pintarTeToca", "pintarPorHacer"):
@@ -435,27 +451,22 @@ class CadaCosaLlevaASuWebTest(unittest.TestCase):
 
     def test_por_hacer_enlaza_la_unidad_a_su_contrato_y_su_flujo(self):
         pintado = pintar("pintarPorHacer", foto_sintetica())
-        self.assertIn('href="http://127.0.0.1:8766/contrato/101-planificada.md"',
-                      pintado)
-        self.assertIn('href="http://127.0.0.1:8765/', pintado)
+        self.assertIn('href="/contratos#101-planificada"', pintado)
+        self.assertIn('href="/flujos#', pintado)
 
-    def test_con_las_webs_vivas_no_se_avisa_de_nada(self):
-        self.assertNotIn("web apagada", pintar("pintarTeToca", foto_sintetica()))
+    def test_ningun_enlace_se_va_a_otro_puerto(self):
+        """081: hay una sola web. Un enlace a `http://127.0.0.1:<otro>` sería
+        exactamente el salto de servidor que esta unidad quita."""
+        for funcion in ("pintarTeToca", "pintarPorHacer"):
+            with self.subTest(funcion=funcion):
+                pintado = pintar(funcion, foto_sintetica())
+                self.assertNotIn("127.0.0.1", pintado)
+                self.assertNotIn("http://", pintado)
 
-    def test_la_web_apagada_se_dice_al_lado_en_vez_de_dejar_el_enlace_muerto(self):
-        foto = foto_sintetica(vivas=("visor de presentaciones",))
-        pintado = pintar("pintarTeToca", foto)
-        self.assertIn("web apagada", pintado)
-        self.assertIn("pídele a tu IA que la abra", pintado)
-        # la que sí está levantada no se marca como apagada
-        self.assertEqual(1, pintado.count("web apagada"))
-
-    def test_si_no_se_pudo_mirar_los_puertos_no_se_declara_nada_apagado(self):
-        foto = foto_sintetica()
-        foto["cabecera"]["servidores"] = {"estado": "no_comprobable",
-                                          "lista": [],
-                                          "detalle": "no pude mirar los puertos"}
-        self.assertNotIn("web apagada", pintar("pintarTeToca", foto))
+    def test_ya_no_se_avisa_de_webs_apagadas_porque_no_hay_otras_webs(self):
+        for funcion in ("pintarTeToca", "pintarPorHacer"):
+            with self.subTest(funcion=funcion):
+                self.assertNotIn("web apagada", pintar(funcion, foto_sintetica()))
 
 
 # --------------------------------------------------------------------------- R5
@@ -504,8 +515,8 @@ class LaFotoRealSePintaTest(unittest.TestCase):
 
     def test_el_contrato_sin_aprobar_del_workspace_real_apunta_al_visor(self):
         pintado = pintar("pintarTeToca", self.foto)
-        self.assertIn("/contrato/103-sin-aprobar.md", pintado)
-        self.assertIn("/contrato/200-bug-abierto.md", pintado)
+        self.assertIn("/contratos#103-sin-aprobar", pintado)
+        self.assertIn("/contratos#200-bug-abierto", pintado)
 
 
 if __name__ == "__main__":

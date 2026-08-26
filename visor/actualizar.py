@@ -59,7 +59,24 @@ HOY = datetime.date.today().isoformat()
 
 RE_TITULO = re.compile(r"^#\s*AGENTS\.md\s*—\s*(.+?)\s*\(meta-repo\)", re.M)
 HISTORIAL = "docs/00-metodo/HISTORIAL.md"
-RETIRADOS_METODO = ("docs/00-metodo/scripts/sandbox_lanzar.py",)
+RETIRADOS_METODO = (
+    "docs/00-metodo/scripts/sandbox_lanzar.py",
+    # Unidad 081: las cuatro webs pasaron a ser los cuatro apartados de una sola,
+    # que vive en `requisitos/web/`. Lo que dejó de existir se RETIRA del
+    # workspace: si se quedara, `unidad.py` podría volver a encontrar un visor
+    # viejo y levantar un quinto puerto.
+    "docs/00-metodo/requisitos/servir.py",
+    "docs/00-metodo/requisitos/plantilla.html",
+    "docs/00-metodo/requisitos/base.css",
+    "docs/00-metodo/requisitos/visor_presentaciones/abrir.py",
+    "docs/00-metodo/requisitos/visor_presentaciones/manifestar.py",
+    "docs/00-metodo/requisitos/visor_presentaciones/servir.py",
+    "docs/00-metodo/requisitos/visor_presentaciones/plantilla.html",
+    "docs/00-metodo/requisitos/visor_presentaciones/render.js",
+    "docs/00-metodo/requisitos/visor_contratos/servir.py",
+    "docs/00-metodo/requisitos/visor_contratos/plantilla.html",
+    "docs/00-metodo/requisitos/visor_contratos/render.js",
+)
 CABECERA_HISTORIAL = (
     "# Historial de actualizaciones del método\n"
     "\n"
@@ -289,17 +306,13 @@ def contenido_esperado(workspace):
                   if nombre == "requirements-dev.txt" or nombre.startswith("RUNBOOK")
                   else BASE / nombre)
         esperado[f"docs/00-metodo/requisitos/{nombre}"] = origen.read_text(encoding="utf-8")
-    # La web de presentaciones (051/056) la coloca el bootstrap y hasta ahora nadie la
-    # actualizaba: los workspaces ya creados se quedaban con la versión del día que
-    # nacieron y, sobre todo, SIN `render.js` — la web abría en blanco (bug 064).
-    for nombre in bootstrap.ARCHIVOS_PRESENTACIONES:
-        esperado[f"docs/00-metodo/requisitos/visor_presentaciones/{nombre}"] = (
-            bootstrap.origen_presentacion(nombre).read_text(encoding="utf-8"))
-    # El visor de contratos (bug 080): la puerta de despacho del 054 lo exige y hasta
-    # ahora no llegaba a ningún workspace. Mismo trato que el de presentaciones.
-    for nombre in bootstrap.ARCHIVOS_CONTRATOS:
-        esperado[f"docs/00-metodo/requisitos/visor_contratos/{nombre}"] = (
-            HERRAMIENTA / "visor_contratos" / nombre).read_text(encoding="utf-8")
+    # La web del método, entera y de una sola lista (unidad 081, R5). Antes eran
+    # tres listas por visor y cada olvido fue un bug: el 064 (sin `render.js` la
+    # web nacía en blanco) y el 080 (el visor de contratos no viajaba y la puerta
+    # de despacho llegaba sin la llave). Misma fuente que el bootstrap.
+    for nombre in bootstrap.ARCHIVOS_WEB:
+        esperado[f"docs/00-metodo/requisitos/web/{nombre}"] = (
+            bootstrap.origen_web(nombre).read_text(encoding="utf-8"))
     for origen in sorted((PLANTILLA / "githooks").rglob("*")):
         if origen.is_file():
             rel = origen.relative_to(PLANTILLA / "githooks")

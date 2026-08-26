@@ -46,8 +46,19 @@ FALTA_PLAYWRIGHT = (
 )
 
 
-SERVIR = BASE / "servir.py"
+# 081: los planos se miran en el apartado «Flujos» de la web del método, que es un
+# solo servidor. En el repo de código la web es hermana de `visor/`; en el workspace
+# cuelga de `requisitos/web/`. Se busca en los dos layouts, como todo lo demás.
+SERVIR_LAYOUTS = (BASE / "web" / "servir.py", BASE.parent / "web" / "servir.py")
+APARTADO_FLUJOS = "flujos"
 ANCHOS = (1280, 700)
+
+
+def ruta_servir():
+    for candidata in SERVIR_LAYOUTS:
+        if candidata.is_file():
+            return candidata
+    return SERVIR_LAYOUTS[0]
 
 
 def encontrar_chrome():
@@ -81,11 +92,18 @@ def encontrar_chrome():
 
 
 def arrancar_visor(datos):
+    """Levanta la web del método sobre ESTE mapa y devuelve la URL del apartado.
+
+    `--planos` es lo que permite validar el mapa de un proyecto que todavía no es un
+    workspace montado: la carpeta de planos existe antes que `docs/05-trabajo/`.
+    """
     proceso = subprocess.Popen(
         [
             sys.executable,
-            str(SERVIR),
-            "--datos",
+            str(ruta_servir()),
+            "--workspace",
+            str(Path(datos).parent),
+            "--planos",
             str(datos),
             "--minutos",
             "2",
@@ -100,14 +118,14 @@ def arrancar_visor(datos):
     )
     for _ in range(20):
         linea = proceso.stdout.readline()
-        encontrada = re.search(r"Visor levantado: (http://\S+/)", linea)
+        encontrada = re.search(r"en pie: (http://\S+/)", linea)
         if encontrada:
-            return proceso, encontrada.group(1)
+            return proceso, encontrada.group(1) + APARTADO_FLUJOS
         if proceso.poll() is not None:
             break
     salida = proceso.stdout.read()
     proceso.terminate()
-    raise RuntimeError("el visor no arrancó: " + salida)
+    raise RuntimeError("la web del método no arrancó: " + salida)
 
 
 def comprobar_lateral(page, datos, ancho):

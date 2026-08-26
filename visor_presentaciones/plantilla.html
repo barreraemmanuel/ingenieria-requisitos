@@ -13,6 +13,7 @@
   @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
 </style>
 <link rel="stylesheet" href="/base.css">
+<!-- apartado:estilos -->
 <style>
   /* PLANTILLA FIJA del visor de PRESENTACIONES (unidad 056). Mismo esqueleto
      que el visor de contratos (cabecera, menú lateral, panel derecho,
@@ -40,6 +41,7 @@
   button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
   @media (max-width: 700px) { button:not(.boton-tema) { width: 100%; } }
 </style>
+<!-- /apartado:estilos -->
 </head>
 <body>
 <script>
@@ -79,15 +81,11 @@
     });
   })();
 </script>
+<!-- apartado:cuerpo -->
   <div class="pagina">
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
-      <nav class="barra-webs" aria-label="Las cuatro webs del método">
-        <a href="http://127.0.0.1:8768/" data-web="tablero">Tablero</a>
-        <a href="http://127.0.0.1:8766/" data-web="contratos">Contratos</a>
-        <a href="http://127.0.0.1:9043/" data-web="presentaciones" class="actual" aria-current="page">Presentaciones</a>
-        <a href="http://127.0.0.1:8765/" data-web="flujos">Flujos</a>
-      </nav>
+      <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos · presentaciones</div>
       <h1>Presentaciones</h1>
       <div class="sub" id="sub">Cargando…</div>
@@ -109,10 +107,18 @@
     </div>
   </div>
 
-<script src="/render.js"></script>
+<!-- /apartado:cuerpo -->
+<!-- apartado:guion -->
 <script>
 (function () {
   "use strict";
+
+  /* Unidad 081: los datos de este apartado cuelgan de su prefijo porque los
+     cuatro visores comparten un solo servidor. `RUTA` es el único sitio que lo
+     sabe; servida suelta (sin cáscara) devuelve la ruta de siempre. */
+  function RUTA(sufijo) {
+    return ((window.IR && window.IR.base) || "") + sufijo;
+  }
 
   /* Grupos del menú, en este orden; "bandeja" no aparece aquí porque tiene
      su propio botón fijo arriba del todo (R3: «bandeja» siempre a mano). */
@@ -297,7 +303,7 @@
     if (!p.adjuntos || !p.adjuntos.length) return;
     document.querySelectorAll("#panel-adjuntos .adjunto").forEach(function (bloque) {
       var ruta = bloque.dataset.ruta;
-      fetch("/adjunto/" + ruta.split("/").map(encodeURIComponent).join("/"), {cache: "no-store"})
+      fetch(RUTA("/adjunto/" + ruta.split("/").map(encodeURIComponent).join("/")), {cache: "no-store"})
         .then(function (r) {
           if (!r.ok) throw new Error("no se pudo leer " + ruta);
           return r.text();
@@ -378,7 +384,7 @@
     var elegida = form.querySelector('input[name="eleccion"]:checked');
     var mensaje = form.querySelector("#mensaje");
     if (!elegida) { mensaje.textContent = "Elige una opción antes de confirmar."; return; }
-    fetch("/decisiones", {
+    fetch(RUTA("/decisiones"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
       body: JSON.stringify({
@@ -403,8 +409,8 @@
 
   function cargar() {
     return Promise.all([
-      fetch("/manifiesto.json", {cache: "no-store"}).then(function (r) { return r.json(); }),
-      fetch("/recibos.json", {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {recibos: []}; })
+      fetch(RUTA("/manifiesto.json"), {cache: "no-store"}).then(function (r) { return r.json(); }),
+      fetch(RUTA("/recibos.json"), {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {recibos: []}; })
     ]).then(function (resultados) {
       banner.classList.remove("visible");
       var manifiesto = resultados[0];
@@ -426,12 +432,13 @@
 
   // Ruta directa /presentacion/<id>: abre esa presentación de entrada, como
   // un enlace a un hash concreto (R6, compatible con la 051).
-  var directa = /^\/presentacion\/([^/]+)$/.exec(location.pathname);
+  var directa = /\/presentacion\/([^/]+)$/.exec(location.pathname);
   if (directa && !location.hash) location.hash = "#" + decodeURIComponent(directa[1]);
 
   cargar();
   setInterval(cargar, 10000);
 })();
 </script>
+<!-- /apartado:guion -->
 </body>
 </html>

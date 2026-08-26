@@ -155,39 +155,52 @@ ARCHIVOS_METODO = tuple(
     + [f"plantillas/vps/{nombre}" for nombre in PLANTILLAS_VPS]
     + [f"scripts/{nombre}" for nombre in SCRIPTS]
 )
+# Las herramientas de requisitos que NO son la web. Desde la 081 el servidor, la
+# plantilla y la hoja de estilos salen de aquí y viajan en ARCHIVOS_WEB: la web
+# es una sola y se reparte de una sola lista.
 ARCHIVOS_REQUISITOS = (
-    "RUNBOOK.md", "servir.py", "validar.py", "validar_web.py", "generar_spec.py",
-    "compilar.py", "finalizar.py", "requisitos.py", "revision.py", "plantilla.html",
-    # La hoja de estilos común de las cuatro webs (unidad 076). Viaja al lado de
-    # `plantilla.html` porque las plantillas la piden como `/base.css` y los dos
-    # servidores del workspace (el de flujos, aquí; el de presentaciones, en su
-    # subcarpeta) la leen de esta misma ruta. Si no se reparte, la web del
-    # workspace nace sin estilos — la misma lección que `render.js` en el 064.
-    "base.css",
+    "RUNBOOK.md", "validar.py", "validar_web.py", "generar_spec.py",
+    "compilar.py", "finalizar.py", "requisitos.py", "revision.py",
     "esquema.json", "requirements-dev.txt",
     "RUNBOOK/arranque.md", "RUNBOOK/fases.md", "RUNBOOK/comun.md",
     "RUNBOOK/modo-c.md", "RUNBOOK/modo-d.md",
 )
-# El motor de bloques (`render.js`) vive en visor_contratos/ desde la 056 — un solo
-# fichero, sin copia — pero al workspace sólo viaja `visor_presentaciones/`: si no se
-# reparte AQUÍ, `GET /render.js` no encuentra nada y la web nace en blanco (bug 064).
-# Por eso el destino es la carpeta de presentaciones y el origen, el del visor que lo
-# guarda: `origen_presentacion` es la única fuente de esa correspondencia.
-ARCHIVOS_PRESENTACIONES = ("abrir.py", "manifestar.py", "servir.py", "plantilla.html",
-                           "render.js")
-ORIGEN_PRESENTACIONES = {"render.js": ("visor_contratos", "render.js")}
-# El visor de contratos (unidad 009) es OBLIGATORIO desde el 054: `unidad.py despachar`
-# exige el rastro de que mostró el contrato. Hasta el bug 080 no viajaba al workspace —
-# solo su `render.js`, y a la carpeta de presentaciones—: la puerta llegaba sin la llave y
-# ningún proyecto ajeno a la herramienta podía despachar. Viaja entero, a la ruta que
-# `unidad.py` (CARPETAS_CONTRATOS) ya buscaba: `requisitos/visor_contratos/`.
-ARCHIVOS_CONTRATOS = ("servir.py", "plantilla.html", "render.js")
+# --------------------------------------------------------------- la web (unidad 081)
+# UNA lista con todo lo que la web del método necesita para funcionar en el
+# workspace del alumno: el servidor, el lanzador, la cáscara, los cuatro módulos
+# de datos con sus plantillas, sus dos dependencias sueltas y los dos ficheros
+# compartidos. Antes había una lista por visor y cada olvido fue un bug (064: sin
+# `render.js` la web nacía en blanco; 080: el visor de contratos no viajaba y la
+# puerta de despacho llegaba sin la llave). Ahora, o viaja todo, o no viaja nada.
+#
+# Destino (dentro de `docs/00-metodo/requisitos/web/`) → origen en el repo de código.
+# Los módulos de datos se aplanan con nombre propio porque en el workspace no hay
+# cuatro carpetas de visor: hay una sola carpeta `web/`.
+ARCHIVOS_WEB = {
+    "servir.py": ("web", "servir.py"),
+    "abrir.py": ("web", "abrir.py"),
+    "plantilla.html": ("web", "plantilla.html"),
+    "datos_tablero.py": ("visor_tablero", "servir.py"),
+    "tablero.html": ("visor_tablero", "plantilla.html"),
+    "estado.py": ("visor_tablero", "estado.py"),
+    "datos_contratos.py": ("visor_contratos", "servir.py"),
+    "contratos.html": ("visor_contratos", "plantilla.html"),
+    "datos_presentaciones.py": ("visor_presentaciones", "servir.py"),
+    "presentaciones.html": ("visor_presentaciones", "plantilla.html"),
+    "manifestar.py": ("visor_presentaciones", "manifestar.py"),
+    "datos_flujos.py": ("visor", "servir.py"),
+    "flujos.html": ("visor", "plantilla.html"),
+    # El motor de bloques (056) y la hoja común (076): un solo fichero vivo de
+    # cada uno, leído de su sitio y copiado aquí porque el workspace no tiene
+    # `visor_contratos/` ni `visor/` (bugs 055 y 064).
+    "render.js": ("visor_contratos", "render.js"),
+    "base.css": ("visor", "base.css"),
+}
 
 
-def origen_presentacion(nombre):
-    """Fichero del repo de código del que sale `visor_presentaciones/<nombre>`."""
-    return BASE.parent.joinpath(*ORIGEN_PRESENTACIONES.get(nombre,
-                                                           ("visor_presentaciones", nombre)))
+def origen_web(nombre):
+    """Fichero del repo de código del que sale `requisitos/web/<nombre>`."""
+    return BASE.parent.joinpath(*ARCHIVOS_WEB[nombre])
 
 
 def version_metodo():
@@ -509,6 +522,8 @@ def huella_plantilla():
                   if nombre == "requirements-dev.txt" or nombre.startswith("RUNBOOK")
                   else BASE / nombre)
         piezas.append(("docs/00-metodo/requisitos/" + nombre, origen))
+    for nombre in ARCHIVOS_WEB:
+        piezas.append(("docs/00-metodo/requisitos/web/" + nombre, origen_web(nombre)))
     for nombre in ("AGENTS.md", "setup.py"):
         piezas.append((nombre, PLANTILLA / nombre))
     for origen in sorted((PLANTILLA / "githooks").rglob("*")):
@@ -1138,21 +1153,18 @@ def main():
     for nombre in ("arranque.md", "fases.md", "comun.md", "modo-c.md", "modo-d.md"):
         shutil.copyfile(BASE.parent / "RUNBOOK" / nombre, requisitos / "RUNBOOK" / nombre)
     for nombre in (
-        "servir.py", "validar.py", "validar_web.py", "generar_spec.py",
+        "validar.py", "validar_web.py", "generar_spec.py",
         "compilar.py", "finalizar.py", "requisitos.py", "revision.py",
-        "plantilla.html", "base.css", "esquema.json",
+        "esquema.json",
     ):
         shutil.copyfile(BASE / nombre, requisitos / nombre)
     shutil.copyfile(BASE.parent / "requirements-dev.txt",
                     requisitos / "requirements-dev.txt")
-    presentaciones = requisitos / "visor_presentaciones"
-    presentaciones.mkdir()
-    for nombre in ARCHIVOS_PRESENTACIONES:
-        shutil.copyfile(origen_presentacion(nombre), presentaciones / nombre)
-    contratos = requisitos / "visor_contratos"
-    contratos.mkdir()
-    for nombre in ARCHIVOS_CONTRATOS:
-        shutil.copyfile(BASE.parent / "visor_contratos" / nombre, contratos / nombre)
+    # La web entera, de una sola lista (unidad 081, R5).
+    web = requisitos / "web"
+    web.mkdir()
+    for nombre in ARCHIVOS_WEB:
+        shutil.copyfile(origen_web(nombre), web / nombre)
     (docs / "01-constitucion").mkdir()
     shutil.copyfile(constitucion, docs / "01-constitucion" / "manifiesto.md")
     shutil.copyfile(PLANTILLA / "bias" / fichero_bias,

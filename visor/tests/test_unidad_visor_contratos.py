@@ -21,7 +21,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
 PLANTILLAS = RAIZ / "plantilla/docs/00-metodo/plantillas"
 HOY = datetime.date.today().isoformat()
-COMANDO_VISOR = "python3 main/visor_contratos/servir.py --workspace . --minutos 0"
+COMANDO_VISOR = "python3 main/web/abrir.py --workspace . --apartado contratos"
 
 
 class WorkspaceBase(unittest.TestCase):

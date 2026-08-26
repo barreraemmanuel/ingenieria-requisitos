@@ -50,7 +50,7 @@ enlaza. La cola decide qué se pidió; cada proceso conserva su contrato de cier
    `peticion.py abrir-expres P-ID <slug>`. Bugs, auditorías, flujos y despliegues conservan el
    mismo P-ID; no inventan otra cola.
    Pedirle al usuario el OK sobre ese contrato exige levantar antes el visor de contratos EN
-   EL MISMO TURNO: `python3 main/visor_contratos/servir.py --workspace . --minutos 0`. Sin su
+   EL MISMO TURNO: `python3 main/web/abrir.py --workspace . --apartado contratos`. Sin su
    rastro, `unidad.py despachar` bloquea aunque el frontmatter ya tenga `aprobado: FECHA`.
 8. **Revalidar durante la obra.** El despacho, push y cierre comprueban `P-ID@revision`. Una
    aclaración material incrementa la revisión y para la orden. Tras reevaluar, el padre usa
