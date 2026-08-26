@@ -274,7 +274,7 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 
 /* avatar + texto: el icono arriba a la izquierda, el texto con su propio ritmo */
 .con-avatar { display: flex; gap: 16px; align-items: flex-start; }
-.con-avatar > div { min-width: 0; flex: 1; }
+.con-avatar > div:not(.avatar) { min-width: 0; flex: 1; }
 .con-avatar h3 { margin-top: 2px; }
 
 /* ---------- menú lateral: UN componente para los cuatro apartados (27-08) ----------
