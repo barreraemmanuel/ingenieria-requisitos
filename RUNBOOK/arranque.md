@@ -175,14 +175,28 @@ pida "dame la documentación"), compila la carpeta de especificaciones:
 
 `python3 RUTA_HERRAMIENTA/visor/compilar.py --mapa CARPETA_PROYECTO/planos.json`
 
-Deja `CARPETA_PROYECTO/especificaciones/` con estructura fija de dos piezas:
-`01-constitution/constitution.md` (lo que vale para toda la aplicación:
-propósito, actores, vocabulario, el mapa, datos compartidos, compromisos y
-fuera de alcance) y `02-flows/` (un documento por actividad con planos,
-agrupados por área), más el índice README.md. Es la documentación completa
-y al día de la aplicación, lista para leer, versionar, entregar, o darle a
-una cadena de Spec-Driven Development como el /specify ya hecho. Se
-regenera entera en cada compilación: no se edita a mano jamás.
+Sobre una carpeta NUEVA deja `CARPETA_PROYECTO/especificaciones/` con dos
+piezas: `01-constitution/constitution.md` (lo que vale para toda la
+aplicación: propósito, actores, vocabulario, el mapa, datos compartidos,
+compromisos y fuera de alcance) y `02-flows/` (un documento por actividad
+con planos, agrupados por área), más el índice README.md. Es la
+documentación completa y al día de la aplicación, lista para leer,
+versionar, entregar, o darle a una cadena de Spec-Driven Development como
+el /specify ya hecho. Se regenera entera en cada compilación: no se edita a
+mano jamás.
+
+Esa estructura no es la única, y el script no la impone a ciegas: antes de
+escribir mira qué hay en la salida. Si es un `docs/02-flujos` ya aplanado
+(un `<actividad>.md` por actividad, hermanos del `INDICE.md` — el formato
+que deja `finalizar.py` en el workspace), recompila esos `.md` y NO toca ni
+el índice ni el manifiesto, que ahí los mantiene el padre del workspace; si
+encuentra `01-constitution/`/`02-flows/`, o la carpeta está vacía, usa la
+estructura de dos piezas de siempre. Cuando no puede decidirlo (conviven los
+dos formatos, o hay documentación que no sale del mapa) **no escribe nada** y
+pide que elijas con `--formato plano` o `--formato carpetas`, que mandan
+sobre la detección. `finalizar.py` usa ese mismo `--formato plano` para
+volcar los documentos al workspace: el formato plano se escribe en un solo
+sitio.
 
 
 ## Finalizar el proyecto de trabajo
