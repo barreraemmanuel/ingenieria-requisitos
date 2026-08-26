@@ -1,0 +1,115 @@
+{
+ "_porque": "El riesgo de un cambio no se lee en cuántas líneas tiene, sino en QUÉ toca: cinco líneas en la autorización pesan más que un rename mecánico de cinco mil. Esta tabla nombra lo delicado —acceso, dinero, borrado de datos, secretos, comandos de sistema— y los cuatro hotspots que `runbooks/directo.md` listaba en prosa y nadie medía (migraciones, rutas, modelos compartidos, lockfiles). Dos consumidores: `unidad.py` cierra el carril directo cuando una señal ALTA aparece, y `ejecucion.py` se las pone delante al revisor como foco. Los patrones son expresiones regulares de Python, sin distinguir mayúsculas: `rutas` casa contra la ruta del fichero (con `/` como separador), `contenido` contra las líneas AÑADIDAS del diff.",
+ "version": 1,
+ "senales": [
+  {
+   "id": "acceso",
+   "nombre": "acceso y autenticación",
+   "nivel": "alta",
+   "porque": "quien entra y qué puede hacer: el fallo aquí no se ve en la pantalla, se ve en el registro de accesos de otro",
+   "rutas": [
+    "(^|/)(auth|autenticacion|autorizacion|login|logout|signin|signup|sesion|session|sessions|permisos|permissions|roles|rbac|oauth|jwt|guard|guards|middleware)([/._-]|$)"
+   ],
+   "contenido": [
+    "\\b(check_password|verify_password|set_password|hash_password|is_admin|is_superuser|require_(?:auth|login|role|permission)|has_perm|check_permission|authoriz\\w*|autoriz\\w*|login_required|set_cookie|session\\[)"
+   ]
+  },
+  {
+   "id": "dinero",
+   "nombre": "dinero y cobros",
+   "nivel": "alta",
+   "porque": "un cambio que se deshace revirtiendo no deshace un cargo ya emitido",
+   "rutas": [
+    "(^|/)(pagos?|payments?|cobros?|billing|facturas?|invoices?|checkout|carrito|cart|precios?|pricing|stripe|paypal|suscripciones?|subscriptions?)([/._-]|$)"
+   ],
+   "contenido": [
+    "\\b(stripe|paypal|charge_amount|create_charge|payment_intent|refund|importe_total|cobrar|reembolso)\\b"
+   ]
+  },
+  {
+   "id": "borrado-de-datos",
+   "nombre": "borrado o pérdida de datos",
+   "nivel": "alta",
+   "porque": "revertir el commit no devuelve las filas: el criterio de entrada del directo («se deshace revirtiendo») no se cumple",
+   "rutas": [],
+   "contenido": [
+    "\\b(DROP\\s+(?:TABLE|DATABASE|COLUMN|SCHEMA)|TRUNCATE\\s+TABLE|DELETE\\s+FROM)\\b",
+    "\\.(?:delete|destroy|drop)_all\\b",
+    "\\b(?:shutil\\.rmtree|os\\.remove|os\\.unlink)\\s*\\(",
+    "\\brm\\s+-[a-zA-Z]*[rR][a-zA-Z]*f|\\brm\\s+-[a-zA-Z]*f[a-zA-Z]*[rR]"
+   ]
+  },
+  {
+   "id": "secretos",
+   "nombre": "secretos y credenciales",
+   "nivel": "alta",
+   "porque": "lo que se filtra aquí ya no se puede recoger; y el método prohíbe que un secreto salga de `.private/`",
+   "rutas": [
+    "(^|/)(\\.env(?:\\.\\w+)?|secrets?|credenciales|credentials|\\.netrc|id_rsa|.*\\.pem|.*\\.key)$",
+    "(^|/)(secretos?|secrets?|credenciales|credentials|keys?)([/._-]|$)"
+   ],
+   "contenido": [
+    "\\b(API_KEY|SECRET_KEY|CLIENT_SECRET|ACCESS_TOKEN|PRIVATE_KEY|PASSWORD)\\b",
+    "BEGIN\\s+(?:RSA\\s+|EC\\s+|OPENSSH\\s+)?PRIVATE\\s+KEY"
+   ]
+  },
+  {
+   "id": "comandos-de-sistema",
+   "nombre": "comandos de sistema y ejecución dinámica",
+   "nivel": "alta",
+   "porque": "una línea aquí convierte un dato de usuario en un comando del servidor",
+   "rutas": [],
+   "contenido": [
+    "\\bos\\.system\\s*\\(",
+    "\\bos\\.(?:popen|execv?p?e?)\\s*\\(",
+    "\\bsubprocess\\.(?:run|call|check_output|check_call|Popen)\\s*\\(",
+    "\\bshell\\s*=\\s*True\\b",
+    "\\b(?:eval|exec)\\s*\\(",
+    "\\bchild_process\\b"
+   ]
+  },
+  {
+   "id": "migraciones",
+   "nombre": "migraciones de base de datos (hotspot)",
+   "nivel": "alta",
+   "porque": "hotspot de `runbooks/directo.md`: una migración no se deshace revirtiendo el commit",
+   "rutas": [
+    "(^|/)(migrations?|migraciones|alembic|db/migrate|schema_migrations)([/._-]|$)"
+   ],
+   "contenido": [
+    "\\b(?:ALTER\\s+TABLE|CREATE\\s+TABLE)\\b",
+    "\\bop\\.(?:drop_column|drop_table|alter_column)\\s*\\("
+   ]
+  },
+  {
+   "id": "rutas",
+   "nombre": "rutas y puntos de entrada de la aplicación (hotspot)",
+   "nivel": "alta",
+   "porque": "hotspot de `runbooks/directo.md`: es el fichero que TODAS las unidades en vuelo tocan a la vez",
+   "rutas": [
+    "(^|/)(routes?|rutas?|router|routers|urls?|urlconf|endpoints?|controllers?|api)([/._-]|$)"
+   ],
+   "contenido": []
+  },
+  {
+   "id": "modelos-compartidos",
+   "nombre": "modelos y esquemas compartidos (hotspot)",
+   "nivel": "alta",
+   "porque": "hotspot de `runbooks/directo.md`: lo que cambia aquí cambia debajo de todo el que lee ese modelo",
+   "rutas": [
+    "(^|/)(models?|modelos?|schemas?|esquemas?|entities|entidades|dominio|domain)([/._-]|$)"
+   ],
+   "contenido": []
+  },
+  {
+   "id": "lockfiles",
+   "nombre": "ficheros de bloqueo de dependencias (hotspot)",
+   "nivel": "alta",
+   "porque": "hotspot de `runbooks/directo.md`: un lockfile mueve el árbol entero de dependencias, y el diff no dice cuánto",
+   "rutas": [
+    "(^|/)(package-lock\\.json|npm-shrinkwrap\\.json|yarn\\.lock|pnpm-lock\\.yaml|poetry\\.lock|uv\\.lock|Pipfile\\.lock|Cargo\\.lock|Gemfile\\.lock|composer\\.lock|go\\.sum)$"
+   ],
+   "contenido": []
+  }
+ ]
+}
