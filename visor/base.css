@@ -274,12 +274,15 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .menu-lateral input:focus, .menu-lateral select:focus { outline: none; border-color: var(--ink); }
 .menu-lateral .menu-filtros { display: grid; gap: 8px; margin-bottom: var(--hueco-chico); }
 .menu-lateral .menu-filtros > * { margin-bottom: 0; }
-.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 12px 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-lateral .menu-grupo { display: flex; justify-content: space-between; align-items: baseline; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .14em; text-transform: uppercase; color: var(--faint); padding: 8px 4px 8px; margin: var(--hueco-grande) 0 8px; border-bottom: 1px solid var(--line); }
+.menu-lateral .menu-grupo:first-of-type, .menu-lateral .menu-filtros + .menu-grupo, .menu-lateral input + .menu-grupo { margin-top: var(--hueco); }
 .menu-lateral .menu-grupo .cuenta { color: var(--ink); letter-spacing: 0; }
 .menu-lateral details.menu-grupo { display: block; border-bottom: 0; padding: 0; }
-.menu-lateral details.menu-grupo > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; padding: 12px 4px 6px; margin-bottom: 4px; border-bottom: 1px solid var(--line); }
+.menu-lateral details.menu-grupo { margin: var(--hueco-grande) 0 0; }
+.menu-lateral details.menu-grupo:first-of-type { margin-top: var(--hueco); }
+.menu-lateral details.menu-grupo > summary { list-style: none; cursor: pointer; display: flex; justify-content: space-between; align-items: baseline; padding: 8px 4px 8px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
 .menu-lateral details.menu-grupo > summary::-webkit-details-marker { display: none; }
-.menu-lateral .menu-item, .menu-unidades button { display: flex; justify-content: flex-start; align-items: center; gap: 8px; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 10px 12px; margin-bottom: 2px; cursor: pointer; text-decoration: none; }
+.menu-lateral .menu-item, .menu-unidades button { display: flex; justify-content: flex-start; align-items: center; gap: 8px; width: 100%; text-align: left; font: var(--t-menor) var(--sans); color: var(--ink); background: transparent; border: 1px solid transparent; border-radius: var(--radio-chico); padding: 10px 12px; margin-bottom: 4px; line-height: 1.5; cursor: pointer; text-decoration: none; }
 .menu-lateral .menu-item.con-chips, .menu-unidades button { display: block; }
 .menu-lateral .menu-item:hover, .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
 .menu-lateral .menu-item:focus-visible, .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
