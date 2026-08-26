@@ -2089,9 +2089,46 @@ def encargo_subagente_del_padre(nombre, fm, destino, ruta_ficha):
     )
 
 
+def lanzamiento_interrumpido(manager, nombre):
+    """Mensaje que describe un lanzamiento a medias de `nombre`, o None si no lo hay.
+
+    Bug 077 · R2: `kill -9`, la terminal cerrada de golpe o un cuelgue no dejan correr
+    ningún manejador, así que lo que queda atrás es un lease a nombre de un PID muerto y,
+    detrás, un harness huérfano que puede seguir escribiendo en el worktree y la ficha de
+    la unidad congelada en 0444. `acquire` retira ese lease **por el camino** —correcto
+    para adquirir, pésimo para enterarse—, así que quien despacha se lo llevaba por
+    delante en silencio y el desastre seguía ahí, invisible. Se mira ANTES de adquirir,
+    con `inspeccionar` (que no retira nada), y se nombra el comando que lo deshace.
+
+    Un dueño VIVO no cae por aquí: eso sigue siendo el "ya tiene propietario" de siempre
+    (P-20260818-3ad156c4: un lease no se roba nunca)."""
+    scope = f"unit:{nombre}"
+    try:
+        hallado = manager.inspeccionar(scope)
+    except gestion_leases.LeaseError:
+        return None            # lease corrupto o ilegible: que lo diagnostique `acquire`
+    if hallado is None:
+        return None
+    registro, vivo = hallado
+    if vivo is not False:
+        return None
+    owner = registro.get("owner", {})
+    return (
+        f"la unidad {nombre} tiene un lanzamiento INTERRUMPIDO: el lease {scope} sigue a "
+        f"nombre de la sesión {owner.get('session_id', '?')} (PID "
+        f"{owner.get('pid', '?')}), que ya no existe. Puede haber quedado un harness vivo "
+        f"y la ficha en solo lectura, así que no se despacha encima. "
+        f"SALIDA: python3 {rel(Path(__file__).with_name('lease.py'))} desbloquear {nombre}"
+    )
+
+
 def cmd_despachar(args):
     nombre = args.unidad.strip("/")
     manager = gestion_leases.LeaseManager(RAIZ)
+    aviso = lanzamiento_interrumpido(manager, nombre)
+    if aviso:
+        fail(aviso)
+        return 1
     try:
         # Orden TOCTOU: la ficha queda serializada antes de decidir qué recursos posee.
         with manager.acquire(f"unit:{nombre}") as autoridad_unidad:

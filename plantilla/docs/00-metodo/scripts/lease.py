@@ -19,6 +19,7 @@ import json
 import os
 import socket
 import subprocess
+import sys
 import tempfile
 import time
 import uuid
@@ -34,6 +35,13 @@ try:
     import msvcrt
 except ImportError:
     msvcrt = None
+
+# Bug 077: desde que este módulo tiene línea de órdenes (`desbloquear`) también IMPRIME, y
+# en Windows una salida redirigida a un pipe pasa a cp1252: un `ñ` o un `·` matarían el
+# comando de recuperación justo cuando alguien lo necesita.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
 
 # Tope de espera al candado del coordinador, en las DOS plataformas: esperar sin límite a
 # un candado huérfano dejaba a todas las sesiones colgadas en silencio (ADR-026). Los
@@ -63,7 +71,17 @@ def _pid_vivo(pid):
     En Windows NO vale os.kill(pid, 0): allí cualquier señal que no sea de
     consola TERMINA el proceso vía TerminateProcess en vez de sondearlo.
     (Duplicado de control_plane.pid_vivo: este módulo se carga standalone.)
+
+    Un PID que no es un entero positivo es "no vive", y se filtra ANTES de tocar el
+    sistema: `os.kill(-1, 0)` no pregunta por un proceso, se dirige a TODOS los del
+    usuario (bug 077, al sondear el lanzador de un recibo sin ese campo).
     """
+    try:
+        pid = int(pid)
+    except (TypeError, ValueError):
+        return False
+    if pid < 1:
+        return False
     if os.name == "nt":  # pragma: no cover - rama Windows, la ejercita su CI
         import ctypes
 
@@ -572,6 +590,45 @@ class LeaseManager:
             and current.get("integrity") == expected.get("integrity")
         )
 
+    def inspeccionar(self, scope):
+        """(registro, ¿el dueño sigue vivo?) para `scope`, SIN retirar nada.
+
+        Bug 077 · R2: `_active_records` retira los leases de dueño muerto por el camino,
+        que es lo correcto para adquirir pero lo peor posible para DIAGNOSTICAR — quien
+        quiere saber si quedó un lanzamiento a medias necesita ver el lease huérfano, no
+        que desaparezca al mirarlo. Devuelve None si no hay lease; el segundo elemento es
+        el mismo tri-estado de `_owner_alive`: True vivo, False muerto, None "no lo sé"
+        (host remoto o marcador de arranque indeterminable), que se trata como vivo."""
+        with self._coordinator():
+            record = self._read(self._path(scope))
+        if record is None:
+            return None
+        return record, self._owner_alive(record.get("owner", {}))
+
+    def retirar_huerfano(self, scope):
+        """Retira el lease de `scope` SOLO si su dueño ya no vive. Devuelve el registro
+        retirado, o None si no había lease.
+
+        Nunca se le roba un lease a un dueño vivo (P-20260818-3ad156c4): con el dueño
+        vivo —o simplemente no comprobable— esto levanta `LeaseBusy`."""
+        with self._coordinator():
+            path = self._path(scope)
+            record = self._read(path)
+            if record is None:
+                return None
+            if self._owner_alive(record.get("owner", {})) is not False:
+                owner = record.get("owner", {})
+                raise LeaseBusy(
+                    f"el lease {scope} tiene dueño VIVO (sesión "
+                    f"{owner.get('session_id', '?')} en {owner.get('host', '?')}, PID "
+                    f"{owner.get('pid', '?')}): no se retira. SALIDA: comprueba ese "
+                    f"proceso (`ps -p {owner.get('pid', '?')}` en POSIX, "
+                    f"`tasklist /FI \"PID eq {owner.get('pid', '?')}\"` en Windows) y, "
+                    f"cuando ya no exista, repite `lease.py desbloquear`."
+                )
+            self._unlink_durable(path)
+            return record
+
     def _assert_records(self, records):
         with self._coordinator():
             for expected in records:
@@ -587,3 +644,198 @@ class LeaseManager:
                 path = self._path(expected["scope"])
                 if self._same_record(self._read(path), expected):
                     self._unlink_durable(path)
+
+
+# --- Recuperación de un lanzamiento interrumpido (bug 077 · R2) -----------------------
+#
+# `ejecucion.py` limpia solo cuando le llega una señal. `kill -9`, el cierre brusco de la
+# terminal o un cuelgue del sistema no dan esa oportunidad: lo que queda es un lease a
+# nombre de un PID muerto, un harness huérfano que puede seguir escribiendo en el worktree
+# y la ficha de la unidad congelada en 0444. Esto es el comando que lo deshace, y vive
+# aquí porque el lease es el rastro que SIEMPRE queda; lo demás (qué hijo, qué ficha) lo
+# dice el recibo del lanzamiento, que es un artefacto documentado del método.
+#
+# La regla que no se toca: NUNCA se le quita el lease a un dueño vivo.
+
+
+def _recibos_pendientes(workspace, unidad):
+    """Recibos de `unidad` que nunca llegaron a cerrarse (sin `exit_code`)."""
+    carpeta = Path(workspace) / ".runtime/ejecuciones"
+    pendientes = []
+    if not carpeta.is_dir():
+        return pendientes
+    for ruta in sorted(carpeta.glob(f"{unidad}-*.json")):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(datos, dict) or datos.get("exit_code") is not None:
+            continue
+        if datos.get("resultado") in ("interrumpido", "recuperado"):
+            continue
+        pendientes.append((ruta, datos))
+    return pendientes
+
+
+def _rematar_harness(info):
+    """Termina el harness huérfano descrito por el recibo. Devuelve qué se hizo."""
+    if not isinstance(info, dict) or not isinstance(info.get("pid"), int):
+        return "el recibo no anotó ningún proceso de harness"
+    pid = info["pid"]
+    if not _pid_vivo(pid):
+        return f"el harness (PID {pid}) ya no estaba vivo"
+    esperado = info.get("process_started")
+    actual = process_start_marker(pid)
+    if esperado and actual != "desconocido" and actual != esperado:
+        # Fail-closed contra la reutilización de PID: ese número lo ocupa ahora otro
+        # proceso, que no tiene nada que ver con el lanzamiento interrumpido.
+        return f"el PID {pid} lo ocupa ahora otro proceso: no se toca"
+    if os.name == "nt":  # pragma: no cover - rama Windows, la ejercita su CI
+        subprocess.run(
+            ["taskkill", "/T", "/F", "/PID", str(pid)], capture_output=True
+        )
+        return f"taskkill /T /F sobre el harness (PID {pid})"
+    import signal as senales
+
+    grupo = info.get("pgid")
+    if not isinstance(grupo, int):
+        try:
+            grupo = os.getpgid(pid)
+        except OSError:
+            grupo = None
+
+    def golpear(numero):
+        try:
+            if grupo is not None and grupo != os.getpgrp():
+                os.killpg(grupo, numero)
+            else:
+                os.kill(pid, numero)
+        except OSError:
+            return
+
+    golpear(senales.SIGTERM)
+    limite = time.monotonic() + 5
+    while _pid_vivo(pid) and time.monotonic() < limite:
+        time.sleep(0.05)
+    if not _pid_vivo(pid):
+        return f"harness huérfano (PID {pid}) terminado con SIGTERM"
+    golpear(senales.SIGKILL)
+    limite = time.monotonic() + 5
+    while _pid_vivo(pid) and time.monotonic() < limite:
+        time.sleep(0.05)
+    return f"harness huérfano (PID {pid}) terminado con SIGKILL"
+
+
+def _descongelar_ficha(info):
+    """Devuelve la escritura a la ficha que el lanzamiento dejó en 0444."""
+    if not isinstance(info, dict) or not info.get("ruta"):
+        return "el recibo no dejó ninguna ficha congelada"
+    ruta = Path(info["ruta"])
+    modo = info.get("modo_previo")
+    destino = (modo | 0o200) if isinstance(modo, int) else 0o644
+    try:
+        ruta.chmod(destino)
+    except OSError as exc:
+        return f"no pude devolver la escritura a {ruta}: {exc}"
+    return f"{ruta} devuelta a {oct(destino)}"
+
+
+def desbloquear(workspace, unidad):
+    """Retira lo que dejó un lanzamiento interrumpido de `unidad`. Devuelve las líneas
+    de lo que ha hecho; levanta `LeaseBusy` si el dueño sigue vivo."""
+    workspace = Path(workspace).resolve()
+    manager = LeaseManager(workspace)
+    pendientes = _recibos_pendientes(workspace, unidad)
+    scopes = [f"unit:{unidad}"]
+    for _, recibo in pendientes:
+        for scope in (recibo.get("lease") or {}).get("fencing") or {}:
+            if isinstance(scope, str) and scope not in scopes:
+                scopes.append(scope)
+
+    # Antes de tocar NADA: si alguno de esos leases tiene dueño vivo, aquí no hay ningún
+    # huérfano que recuperar — hay un lanzamiento en marcha. Se comprueba primero, porque
+    # matar al harness y luego descubrirlo sería exactamente el robo que esto prohíbe.
+    for scope in scopes:
+        hallado = manager.inspeccionar(scope)
+        if hallado is not None and hallado[1] is not False:
+            owner = hallado[0].get("owner", {})
+            raise LeaseBusy(
+                f"el lease {scope} tiene dueño VIVO (sesión "
+                f"{owner.get('session_id', '?')} en {owner.get('host', '?')}, PID "
+                f"{owner.get('pid', '?')}): no hay nada interrumpido que recuperar. "
+                f"SALIDA: comprueba ese proceso (`ps -p {owner.get('pid', '?')}` en POSIX, "
+                f"`tasklist /FI \"PID eq {owner.get('pid', '?')}\"` en Windows) y, cuando "
+                f"ya no exista, repite `lease.py desbloquear {unidad}`."
+            )
+    # Un recibo cuyo lanzador SIGUE VIVO tampoco se toca: puede ser otra unidad del mismo
+    # taller corriendo sin lease sobre este scope.
+    pendientes = [
+        (ruta, recibo) for ruta, recibo in pendientes
+        if not _pid_vivo((recibo.get("lanzador") or {}).get("pid", -1))
+    ]
+
+    hecho = []
+    # 1) el hijo primero: mientras siga vivo puede escribir en el worktree de la unidad,
+    #    y soltar la autoridad antes que él dejaría entrar a un segundo lanzamiento con
+    #    el primero todavía tecleando. Mismo orden que R1.
+    for ruta, recibo in pendientes:
+        hecho.append(_rematar_harness(recibo.get("harness_proceso")))
+    # 2) los leases: solo los huérfanos, y solo tras comprobar que el dueño no vive.
+    for scope in scopes:
+        registro = manager.retirar_huerfano(scope)
+        if registro is not None:
+            hecho.append(f"lease {scope} retirado (dueño muerto)")
+    # 3) la ficha, lo último: es lo que devuelve la unidad a estado trabajable.
+    for ruta, recibo in pendientes:
+        hecho.append(_descongelar_ficha(recibo.get("ficha_bloqueada")))
+        recibo["resultado"] = "recuperado"
+        recibo.setdefault("checkpoints", []).append({
+            "nombre": "recuperado",
+            "estado": "fail",
+            "detalle": f"lanzamiento interrumpido, recuperado por `lease.py desbloquear {unidad}`",
+        })
+        with contextlib.suppress(OSError, TypeError, ValueError):
+            _write_json_atomic(ruta, recibo)
+        hecho.append(f"recibo {ruta.name} marcado como recuperado")
+    if not pendientes and len(hecho) == 0:
+        hecho.append(f"no había nada interrumpido en {unidad}")
+    return hecho
+
+
+def main(argv=None):
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Autoridad local de leases del método.")
+    sub = parser.add_subparsers(dest="comando", required=True)
+    p = sub.add_parser(
+        "desbloquear",
+        help="retira lo que dejó un lanzamiento interrumpido de una unidad: harness "
+             "huérfano, leases de dueño muerto y ficha en solo lectura",
+    )
+    p.add_argument("unidad")
+    p.add_argument(
+        "--workspace", default=str(Path(__file__).resolve().parents[3]),
+        help="raíz del workspace (por defecto, la que cuelga de este script)",
+    )
+    args = parser.parse_args(argv)
+    try:
+        for linea in desbloquear(args.workspace, args.unidad):
+            print(linea)
+    except LeaseError as exc:
+        print(
+            f"lease: FAIL {exc}\n"
+            f"  Reintento, cuando el dueño ya no exista: "
+            f"python3 {Path(__file__)} desbloquear {args.unidad}",
+            file=sys.stderr,
+        )
+        return 3
+    print(
+        f"lease: {args.unidad} vuelve a estar libre. Sigue con: "
+        f"python3 {Path(__file__).with_name('ejecucion.py')} lanzar {args.unidad} "
+        f"--harness … --prompt …"
+    )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

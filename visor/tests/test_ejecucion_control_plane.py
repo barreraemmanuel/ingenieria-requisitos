@@ -1,6 +1,8 @@
+import contextlib
 import json
 import os
 import shutil
+import signal
 import stat
 import subprocess
 import sys
@@ -1237,6 +1239,201 @@ pathlib.Path(DESTINO).write_text(json.dumps({
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn("SALIDA:", resultado.stdout + resultado.stderr)
         self.assertTrue((self.destino_documental / "algo.txt").is_file())
+
+
+# --- Bug 077: el lanzador interrumpido tiene que limpiar lo que dejó -----------------
+
+
+@unittest.skipIf(os.name == "nt", "señales POSIX: en Windows lo cubre R3 (taskkill) y `desbloquear`")
+class LanzadorInterrumpidoTest(ControlPlaneE2ETest):
+    """Ctrl-C, `kill` o terminal cerrada a mitad de un lanzamiento.
+
+    Bug 077 (Fernando, Windows 11 · Manuel, macOS): al interrumpir, el lanzador dejaba
+    el harness hijo VIVO reteniendo los leases de la unidad y la ficha en 0444. R1 exige
+    el orden matar-hijo → soltar-leases → devolver-la-ficha, salida != 0 y un checkpoint
+    `interrumpido` en el recibo; R2, que lo que quede tras un `kill -9` se detecte y se
+    recupere por comando sin robarle nunca el lease a un dueño vivo.
+    """
+
+    def doble_que_no_se_muere_solo(self, nombre="claude"):
+        """Hijo que IGNORA SIGTERM (R4) y anota su PID donde el test lo ve.
+
+        Ignorar SIGTERM es el caso real que importa: un harness ocupado no atiende la
+        señal amable, así que el lanzador tiene que escalar. El PID se escribe en el
+        worktree porque el entorno del hijo es una allowlist (no cruza ninguna variable
+        del test) y su TMPDIR lo borra el propio lanzador al salir.
+        """
+        cuerpo = """import json, pathlib, signal, time
+signal.signal(signal.SIGTERM, signal.SIG_IGN)
+signal.signal(signal.SIGINT, signal.SIG_IGN)
+signal.signal(signal.SIGHUP, signal.SIG_IGN)
+pathlib.Path('.hijo-vivo.json').write_text(
+    json.dumps({'pid': os.getpid(), 'pgid': os.getpgrp()}), encoding='utf-8')
+time.sleep(120)
+"""
+        self.instalar_doble(nombre, cuerpo)
+
+    def lanzador_con_hijo_vivo(self, env=None):
+        """Arranca el lanzador de verdad y espera a que el harness hijo esté corriendo."""
+        proceso = subprocess.Popen(
+            self.argumentos(), cwd=self.main, env=env or self.env, text=True,
+            encoding="utf-8", errors="replace",
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        )
+        self.addCleanup(self.rematar, proceso)
+        rastro = self.worktree / ".hijo-vivo.json"
+        limite = time.monotonic() + 20
+        while not rastro.exists():
+            self.assertIsNone(proceso.poll(), self.salida_de(proceso))
+            self.assertLess(time.monotonic(), limite, "el harness hijo no llegó a arrancar")
+            time.sleep(0.02)
+        hijo = json.loads(rastro.read_text(encoding="utf-8"))
+        self.addCleanup(self.rematar_pid, hijo["pid"])
+        return proceso, hijo
+
+    def salida_de(self, proceso):
+        try:
+            salida, error = proceso.communicate(timeout=5)
+        except subprocess.TimeoutExpired:
+            return "(el lanzador sigue vivo)"
+        return salida + error
+
+    def rematar(self, proceso):
+        if proceso.poll() is None:
+            proceso.kill()
+            proceso.wait(timeout=10)
+
+    def rematar_pid(self, pid):
+        with contextlib.suppress(OSError):
+            os.kill(pid, signal.SIGKILL)
+
+    def vivo(self, pid):
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        return True
+
+    def esperar_muerto(self, pid, tope=15):
+        limite = time.monotonic() + tope
+        while self.vivo(pid):
+            if time.monotonic() >= limite:
+                return False
+            time.sleep(0.05)
+        return True
+
+    def leases_activos(self):
+        return sorted((self.ws / ".runtime/leases/active").glob("*.json"))
+
+    def recibo_unico(self):
+        recibos = sorted((self.ws / ".runtime/ejecuciones").glob(f"{self.unidad}-*.json"))
+        self.assertEqual(len(recibos), 1, recibos)
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    @property
+    def ficha(self):
+        return self.ws / "docs/05-trabajo" / self.unidad / "especificacion.md"
+
+    def test_sigterm_mata_al_hijo_suelta_los_leases_y_devuelve_la_ficha(self):
+        # EL BUG: hoy el lanzador muere y deja detrás hijo + leases + ficha en 0444.
+        self.doble_que_no_se_muere_solo()
+        proceso, hijo = self.lanzador_con_hijo_vivo()
+        self.assertEqual(stat.S_IMODE(self.ficha.stat().st_mode), 0o444,
+                         "precondición: la ficha está congelada mientras corre el harness")
+
+        os.kill(proceso.pid, signal.SIGTERM)
+        salida, error = proceso.communicate(timeout=30)
+
+        traza = salida + error
+        self.assertNotEqual(proceso.returncode, 0, f"R1: salida != 0 · {traza}")
+        self.assertTrue(self.esperar_muerto(hijo["pid"]),
+                        f"R1: el harness hijo (PID {hijo['pid']}) sobrevivió al lanzador · {traza}")
+        self.assertEqual(self.leases_activos(), [],
+                         f"R1: los leases de la unidad quedaron retenidos · {traza}")
+        self.assertTrue(os.access(self.ficha, os.W_OK),
+                        f"R1: la ficha quedó en solo lectura · "
+                        f"{oct(stat.S_IMODE(self.ficha.stat().st_mode))}")
+        recibo = self.recibo_unico()
+        self.assertIn("interrumpido", [item["nombre"] for item in recibo["checkpoints"]],
+                      f"R1: el recibo no acredita la interrupción · {recibo['checkpoints']}")
+
+    def test_ctrl_c_limpia_igual_que_sigterm(self):
+        # Caso límite del reporte de campo: Ctrl-C es SIGINT, no SIGTERM.
+        self.doble_que_no_se_muere_solo()
+        proceso, hijo = self.lanzador_con_hijo_vivo()
+
+        os.kill(proceso.pid, signal.SIGINT)
+        salida, error = proceso.communicate(timeout=30)
+
+        self.assertNotEqual(proceso.returncode, 0, salida + error)
+        self.assertTrue(self.esperar_muerto(hijo["pid"]), "SIGINT dejó al hijo vivo")
+        self.assertEqual(self.leases_activos(), [])
+        self.assertTrue(os.access(self.ficha, os.W_OK))
+        # Sin el arreglo, el Ctrl-C salía por KeyboardInterrupt: la pila SÍ se desenrollaba
+        # (por eso los leases y la ficha se salvaban por casualidad) pero el recibo se
+        # quedaba mudo — un traceback en la terminal y un recibo que parecía a medio hacer,
+        # sin decir en ningún sitio que aquello lo había parado una persona.
+        recibo = self.recibo_unico()
+        self.assertEqual(recibo["resultado"], "interrumpido",
+                         f"el recibo no acredita la interrupción · {recibo}")
+        self.assertIn("interrumpido", [item["nombre"] for item in recibo["checkpoints"]])
+
+    def test_padre_muerto_a_lo_bruto_deja_huerfano_y_el_siguiente_lanzar_lo_dice(self):
+        # R2: `kill -9` no admite manejador; lo que queda lo tiene que ver el siguiente.
+        self.doble_que_no_se_muere_solo()
+        proceso, hijo = self.lanzador_con_hijo_vivo()
+        os.kill(proceso.pid, signal.SIGKILL)
+        proceso.wait(timeout=10)
+        self.crear_doble_harness("claude")   # el siguiente lanzamiento sería uno normal
+
+        segundo = self.ejecutar(env={**self.env, "IR_SESSION_ID": "ejecucion-b"})
+
+        traza = segundo.stdout + segundo.stderr
+        self.assertNotEqual(segundo.returncode, 0, traza)
+        self.assertIn("desbloquear", traza,
+                      f"R2: no dice CÓMO salir del lease huérfano · {traza}")
+        self.assertIn(self.unidad, traza)
+
+    def test_desbloquear_retira_el_huerfano_mata_al_hijo_y_devuelve_la_ficha(self):
+        # R2: el comando de recuperación deja la unidad lanzable otra vez.
+        self.doble_que_no_se_muere_solo()
+        proceso, hijo = self.lanzador_con_hijo_vivo()
+        os.kill(proceso.pid, signal.SIGKILL)
+        proceso.wait(timeout=10)
+
+        recuperacion = subprocess.run(
+            [sys.executable, str(self.launcher.with_name("lease.py")), "desbloquear",
+             self.unidad, "--workspace", str(self.ws)],
+            cwd=self.main, env=self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True,
+        )
+
+        traza = recuperacion.stdout + recuperacion.stderr
+        self.assertEqual(recuperacion.returncode, 0, traza)
+        self.assertTrue(self.esperar_muerto(hijo["pid"]), f"el hijo huérfano sigue vivo · {traza}")
+        self.assertEqual(self.leases_activos(), [], traza)
+        self.assertTrue(os.access(self.ficha, os.W_OK), traza)
+        self.crear_doble_harness("claude")
+        tercero = self.ejecutar(env={**self.env, "IR_SESSION_ID": "ejecucion-c"})
+        self.assertEqual(tercero.returncode, 0, tercero.stdout + tercero.stderr)
+
+    def test_desbloquear_no_le_roba_el_lease_a_un_dueno_vivo(self):
+        # P-20260818-3ad156c4: la recuperación jamás desaloja a un lanzador que sigue ahí.
+        self.doble_que_no_se_muere_solo()
+        proceso, hijo = self.lanzador_con_hijo_vivo()
+
+        recuperacion = subprocess.run(
+            [sys.executable, str(self.launcher.with_name("lease.py")), "desbloquear",
+             self.unidad, "--workspace", str(self.ws)],
+            cwd=self.main, env=self.env, text=True,
+            encoding="utf-8", errors="replace", capture_output=True,
+        )
+
+        traza = recuperacion.stdout + recuperacion.stderr
+        self.assertNotEqual(recuperacion.returncode, 0, traza)
+        self.assertIn("vivo", traza.lower())
+        self.assertNotEqual(self.leases_activos(), [], "le robó el lease a un dueño vivo")
+        self.assertTrue(self.vivo(hijo["pid"]), "mató al hijo de un lanzador vivo")
 
 
 if __name__ == "__main__":
