@@ -74,6 +74,10 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    `python3 docs/00-metodo/scripts/lint_ci.py --repo worktrees/NNN-slug`. La primera unidad
    materializa el contrato; las siguientes demuestran que no lo han roto. Una unidad
    documental, que no tiene worktree de código, no ejecuta esta puerta.
+   **Los tests se corren aquí, en local, y aquí acaba la puerta** (ADR-035): no se espera a
+   ningún CI remoto ni se monta uno para cerrar. El repo de código declara sus checks locales
+   en su `AGENTS.md`; solo si el proyecto pidió CI remoto (`ci_remoto: sí` en
+   `01-constitucion/bias.md`) `lint_ci.py` echa además en falta los workflows.
 
    **El parte de cierre tiene que cuadrar** (`lint_cierre.py`, lo llama `unidad.py cerrar`
    antes que ninguna otra puerta). Comprueba cuatro cosas sobre el bloque

@@ -1,5 +1,12 @@
 #!/usr/bin/env python3
-"""Valida que el repo de código materializó un CI real para SU stack.
+"""Valida que el repo de código acredita cómo se comprueba a sí mismo.
+
+Por defecto esa comprobación es LOCAL (ADR-035): la suite y los lints se corren en la
+máquina de quien construye, antes de fusionar, y basta con que el repo declare esos
+comandos en su `AGENTS.md`. Un CI remoto solo se exige si el proyecto lo pidió en
+`01-constitucion/bias.md` (`ci_remoto: sí`); si además lo tiene montado, se valida entero.
+
+Lo que sigue vale para ese caso: un CI real para SU stack.
 
 No ejecuta tests ni escáneres: comprueba la interfaz común que la primera unidad crea cuando
 ya conoce lenguaje, framework y gestor de paquetes. El repo vacío es válido; un repo con
@@ -52,6 +59,13 @@ WORKFLOWS_METODO = (
     ".github/dependabot.yml",
 )
 MARCADOR_DEUDA = "DEUDA-CI: contrato sin materializar"
+BIAS_RELATIVA = "docs/01-constitucion/bias.md"
+# ADR-035: la verificación del método es LOCAL. La clave `ci_remoto` del bias es la
+# ÚNICA forma de pedir un CI remoto, y su ausencia significa «no»: un proyecto que solo
+# corre su suite en la máquina de quien construye no le debe nada a nadie.
+RE_CI_REMOTO = re.compile(
+    r"(?mi)^[\s>*+-]*`?ci[_ ]remoto`?\s*:\s*\**\s*(s[ií]|no|yes|true|false)\b"
+)
 RE_PLACEHOLDER = re.compile(r"<[^<>\n]{2,}>")
 RE_ACTION = re.compile(r"\buses:\s*([^\s#]+)")
 RE_SHA = re.compile(r"^[0-9a-fA-F]{40}$")
@@ -570,6 +584,21 @@ def revisar_control_plane(repo, required=False, trusted_allow_hosts=()):
     return []
 
 
+def ci_remoto_pedido(workspace):
+    """¿La constitución del proyecto pide un CI remoto? Ausente = no (ADR-035).
+
+    Se lee del bias porque ahí es donde el proyecto decide con qué se construye, y porque
+    esa decisión tiene que sobrevivir a la sesión que la tomó: si vive solo en la memoria
+    del agente, el guardián vuelve a empujar hacia workflows que nadie pidió.
+    """
+    try:
+        texto = (Path(workspace) / BIAS_RELATIVA).read_text(encoding="utf-8")
+    except OSError:
+        return False
+    encaje = RE_CI_REMOTO.search(texto)
+    return bool(encaje) and encaje.group(1).lower() in ("sí", "si", "yes", "true")
+
+
 def contrato_ci_materializado(repo):
     """¿El repo empezó a construir su contrato de CI, aunque sea a medias?
 
@@ -592,7 +621,12 @@ def checks_declarados_en_agents(repo):
     texto = leer(repo, "AGENTS.md")
     if not texto.strip():
         return None
-    palabras = re.compile(r"\b(test|lint|ci|seguridad|security|check|build)\b", re.I)
+    # `test` y `suite` van SIN frontera por la derecha a propósito: la línea que más
+    # importa —la de la suite— casi nunca dice "test", dice `pytest`, `unittest` o
+    # `npm test`. Con \b la declaración más importante del repo se perdía en silencio.
+    palabras = re.compile(
+        r"(test|suite|prueba|lint|\bci\b|seguridad|security|check|build)", re.I
+    )
     comandos = []
     for linea in texto.splitlines():
         if palabras.search(linea):
@@ -601,7 +635,7 @@ def checks_declarados_en_agents(repo):
 
 
 def revisar(repo, require_e2e=False, require_control_plane=False,
-            control_plane_allow_hosts=()):
+            control_plane_allow_hosts=(), workspace=RAIZ):
     if not repo.is_dir():
         return [f"el repo no existe o no es una carpeta: {repo}"]
     if not repo_tiene_codigo(repo):
@@ -612,11 +646,25 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
         # R6: las puertas explícitas siempre exigen su pieza; sin ellas, un contrato
         # completamente ausente es deuda nombrada (R1/R5), no un FAIL eterno.
         checks = checks_declarados_en_agents(repo)
-        detalle = (f"los checks reales son: {checks}" if checks
-                   else "su AGENTS.md tampoco declara checks alternativos: decláralos ahí")
-        print(f"  WARN {MARCADOR_DEUDA}: este repo no tiene el contrato de CI del método "
-              f"(sin scripts/ci/ ni workflows); {detalle}. Para materializarlo: abre una "
-              "unidad que siga plantillas/agents-repo-codigo.md y runbooks/planificacion.md")
+        if not ci_remoto_pedido(workspace):
+            # ADR-035: no tener CI remoto es la NORMA, no una deuda. Lo que sí se exige es
+            # que los checks que de verdad se corren estén escritos donde el siguiente
+            # agente los encuentre.
+            if checks:
+                print("  OK   verificación local declarada en AGENTS.md y sin CI remoto "
+                      f"pedido en el bias (ADR-035); los checks son: {checks}")
+                return []
+            print(f"  WARN {MARCADOR_DEUDA}: este repo no declara en su AGENTS.md los checks "
+                  "que corre en local antes de fusionar (tests, lint, seguridad). SALIDA: "
+                  "escríbelos ahí con el comando exacto entre comillas invertidas, siguiendo "
+                  "plantillas/agents-repo-codigo.md")
+            return []
+        detalle = (f"los checks locales declarados son: {checks}" if checks
+                   else "su AGENTS.md tampoco declara los checks locales: decláralos ahí")
+        print(f"  WARN {MARCADOR_DEUDA}: `ci_remoto: sí` en {BIAS_RELATIVA} pide un CI remoto "
+              f"que este repo no tiene (sin scripts/ci/ ni workflows); {detalle}. SALIDA: o "
+              "abre una unidad que lo materialice siguiendo runbooks/planificacion.md, o pon "
+              "`ci_remoto: no` en el bias y quédate con la verificación local (ADR-035)")
         return []
     requeridos = REQUERIDOS + (("scripts/ci/e2e", "scripts/ci/provision-e2e")
                               if require_e2e else ())
@@ -657,6 +705,10 @@ def main():
         default=[],
         help="host E2E remoto confiado por CI, fuera del manifiesto; repetible",
     )
+    ap.add_argument(
+        "--workspace", default=str(RAIZ),
+        help="raíz del meta-repo cuyo bias decide si se pidió CI remoto (ADR-035)",
+    )
     args = ap.parse_args()
     repo = Path(args.repo).expanduser().resolve()
     print("== Contrato CI del repo de código ==")
@@ -665,6 +717,7 @@ def main():
         require_e2e=args.require_e2e,
         require_control_plane=args.require_control_plane,
         control_plane_allow_hosts=args.control_plane_allow_host,
+        workspace=Path(args.workspace).expanduser().resolve(),
     )
     for fallo in fallos:
         print(f"  FAIL {fallo}")
