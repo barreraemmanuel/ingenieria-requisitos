@@ -8,9 +8,12 @@
 <style id="minimo-sin-base-css">
   /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
      familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
-     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue. */
-  body { background: #F3F5F1; color: #16202A; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-  @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
+     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue.
+     Unidad 082: son los MISMOS valores que los tokens por defecto (`--paper`,
+     `--ink` y la pila mono), copiados a mano porque aquí no puede haber
+     `var()`. Un test los compara: si el token cambia y esto no, hay fogonazo.
+     Ya no hay variante clara: la web es oscura por defecto. */
+  body { background: #0B0B0B; color: #EDEDED; font: 16px/1.5 "SF Mono", SFMono-Regular, ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
 </style>
 <link rel="stylesheet" href="/base.css">
 <!-- apartado:estilos -->
@@ -23,21 +26,21 @@
      SÓLO lo propio de presentaciones: pestañas, adjuntos y decisión. */
 
   /* ---------- propio del visor de presentaciones: pestañas, adjuntos, decisión ---------- */
-  nav.pestanas { display: flex; gap: 6px; margin: var(--e-bloque) 0; }
-  nav.pestanas button { font: bold var(--t-menor) var(--sans); color: var(--muted); border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; background: var(--sheet); cursor: pointer; }
+  nav.pestanas { display: flex; gap: 8px; margin: var(--e-bloque) 0 var(--hueco-grande); }
+  nav.pestanas button { font: bold var(--t-menor) var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
   nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
   nav.pestanas button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
   .boton-bandeja { border-bottom: 1px solid var(--line-soft) !important; margin-bottom: 8px !important; padding-bottom: 10px !important; }
   .adjunto { margin: 0 0 var(--e-bloque); }
-  .adjunto h4 { font-size: var(--t-menor); color: var(--muted); font-family: var(--mono); margin-bottom: 6px; word-break: break-all; }
-  pre.codigo { margin: 0; padding: 12px 14px; overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: 8px; font: var(--t-menor)/1.5 var(--mono); }
+  .adjunto h4 { font-size: var(--t-nota); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); font-family: var(--mono); margin-bottom: var(--hueco-chico); word-break: break-all; }
+  pre.codigo { margin: 0; padding: var(--hueco) var(--hueco-grande); overflow-x: auto; background: var(--panel); border: 1px solid var(--line); border-radius: var(--radio-chico); font: var(--t-menor)/1.5 var(--mono); }
   pre.codigo .num { display: inline-block; width: 3em; color: var(--faint); user-select: none; text-align: right; margin-right: 12px; }
   fieldset { margin: var(--e-bloque) 0 0; padding: 0; border: 0; }
-  legend { margin-bottom: 10px; font-size: var(--t-h3); font-weight: bold; }
-  label { display: block; margin: 10px 0; }
-  textarea { display: block; width: 100%; min-height: 90px; margin-top: 5px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--panel); color: var(--ink); font: inherit; }
-  button:not(.boton-tema):not(.ir-detalle) { padding: 9px 14px; border: 1px solid var(--accent); border-radius: 7px; background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
-  button.ir-detalle { padding: 6px 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--sheet); color: var(--ink); font: inherit; cursor: pointer; }
+  legend { margin-bottom: var(--hueco); font-size: var(--t-h3); font-weight: bold; }
+  label { display: block; margin: var(--hueco) 0; }
+  textarea { display: block; width: 100%; min-height: 110px; margin-top: var(--hueco-chico); padding: var(--hueco-chico) var(--hueco); border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--panel); color: var(--ink); font: inherit; }
+  button:not(.boton-tema):not(.ir-detalle) { padding: 11px 20px; border: 1px solid var(--accent); border-radius: var(--pildora); background: var(--accent); color: var(--sheet); font: inherit; cursor: pointer; }
+  button.ir-detalle { padding: 8px 16px; border: 1px solid var(--line); border-radius: var(--pildora); background: var(--sheet); color: var(--ink); font: inherit; cursor: pointer; }
   button:focus-visible, input:focus-visible, textarea:focus-visible, a:focus-visible { outline: 2px solid var(--warn); outline-offset: 3px; }
   @media (max-width: 700px) { button:not(.boton-tema) { width: 100%; } }
 </style>

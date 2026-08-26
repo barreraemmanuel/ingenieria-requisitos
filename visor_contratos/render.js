@@ -129,6 +129,29 @@ function bloques(lineas) {
           }
           i++;
         }
+        /* R4 (unidad 082): si la lista es un PLAN —lleva casillas `[ ]`/`[x]`—
+           delante va su MATRIZ DE PROGRESO: una celda por casilla, llena la
+           hecha y rayada la que falta. Es la rejilla de cuadraditos de la
+           referencia: cuánto va del plan se ve sin contar líneas. Las listas
+           que no son un plan salen exactamente igual que antes. */
+        var casillas = [];
+        for (var t = 0; t < items.length; t++) {
+          var marca = /^\[( |x|X)\]\s*/.exec(items[t].join(" "));
+          if (marca) casillas.push(marca[1].toLowerCase() === "x");
+        }
+        if (casillas.length) {
+          var hechas = 0;
+          var celdas = "";
+          for (var c = 0; c < casillas.length; c++) {
+            if (casillas[c]) hechas++;
+            celdas += '<i class="plan-celda' + (casillas[c] ? " hecha" : "") +
+                      '"></i>';
+          }
+          html += '<div class="plan-progreso" role="img" aria-label="' +
+                  hechas + " de " + casillas.length + ' hechas">' + celdas +
+                  "</div>";
+        }
+
         html += ordenada ? "<ol>" : "<ul>";
         for (var k = 0; k < items.length; k++) {
           var texto = items[k].join(" ");

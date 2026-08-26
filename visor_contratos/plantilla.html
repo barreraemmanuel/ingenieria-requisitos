@@ -8,9 +8,12 @@
 <style id="minimo-sin-base-css">
   /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
      familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
-     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue. */
-  body { background: #F3F5F1; color: #16202A; font: 16px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-  @media (prefers-color-scheme: dark) { body { background: #0F1418; color: #DEE6E9; } }
+     blanco. Va ANTES del enlace para que base.css lo pise en cuanto cargue.
+     Unidad 082: son los MISMOS valores que los tokens por defecto (`--paper`,
+     `--ink` y la pila mono), copiados a mano porque aquí no puede haber
+     `var()`. Un test los compara: si el token cambia y esto no, hay fogonazo.
+     Ya no hay variante clara: la web es oscura por defecto. */
+  body { background: #0B0B0B; color: #EDEDED; font: 16px/1.5 "SF Mono", SFMono-Regular, ui-monospace, "JetBrains Mono", Menlo, Consolas, monospace; }
 </style>
 <link rel="stylesheet" href="/base.css">
 <!-- PLANTILLA FIJA del visor de CONTRATOS. Sólo lee: las unidades vivas del
