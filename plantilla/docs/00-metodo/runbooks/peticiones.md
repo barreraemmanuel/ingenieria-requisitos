@@ -64,6 +64,12 @@ enlaza. La cola decide qué se pidió; cada proceso conserva su contrato de cier
    automáticamente cuando existe un único enlace `satisface` y termina. En fan-out, tras
    terminar todos, el padre aporta evidencia y cobertura conjunta con `peticion.py cerrar`.
    Varias peticiones por unidad son relaciones normales, no excepciones.
+   - `merge-externo` — el trabajo ya lo trajo un merge ocurrido FUERA del método (un PR de
+     un tercero, una fusión a mano). Se cita uno por merge:
+     `peticion.py enlazar P-ID --tipo merge-externo --ref '#36' --relacion satisface`
+     (`--ref` acepta `#36`, la URL del PR o el SHA, que debe existir en el repo de código).
+     Nace terminal: no hay obra pendiente que reconciliar. No sustituye a una unidad cuando
+     el trabajo está por hacer — solo describe lo que YA pasó (unidad 087).
 
 ## Salidas sin obra
 
