@@ -34,6 +34,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 BASE_CSS = RAIZ / "visor" / "base.css"
 RENDER_JS = RAIZ / "visor_contratos" / "render.js"
 CASCARA = RAIZ / "web" / "plantilla.html"
+BASE_CSS_TEXTO = (RAIZ / "visor" / "base.css").read_text(encoding="utf-8")
 
 # Las cuatro secciones de la web única: su `<style>` propio también cuenta.
 SECCIONES = (
@@ -361,8 +362,8 @@ class TexturasTest(BaseTest):
         """R4 en el tablero (decisión del padre, H1 de la revisión, 27-08): la ocupación se
         pinta como carril RAYADO (lo pendiente) con lo hecho en tinta sólida; la matriz de
         puntos queda para el progreso del plan. Sin este test nada miraba el tablero."""
-        css = sin_comentarios(style_propio(
-            (RAIZ / "visor_tablero" / "plantilla.html").read_text(encoding="utf-8")))
+        # 27-08: `.barra` pasó a la hoja común como componente compartido.
+        css = sin_comentarios(BASE_CSS_TEXTO)
         barra = re.search(r"\.barra\s*\{([^}]*)\}", css)
         hecho = re.search(r"\.barra span\s*\{([^}]*)\}", css)
         self.assertIsNotNone(barra, "el tablero no declara .barra")

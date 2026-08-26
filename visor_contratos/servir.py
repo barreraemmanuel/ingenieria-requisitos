@@ -321,7 +321,9 @@ def hacer_handler(workspace, estado):
             pedida = urlsplit(self.path).path
             m = re.match(r"^/(aprobar|pedir-cambios)/(\d{3}-[a-z0-9][a-z0-9-]*)$", pedida)
             if not m:
-                return self._json(404, {"error": "ruta inexistente"})
+                return self._json(405, {"error": (
+                    "visor de solo lectura salvo /aprobar/<unidad> y /pedir-cambios/<unidad>, "
+                    "que escriben lo que el USUARIO decide desde la web")})
             accion, nombre = m.group(1), m.group(2)
             try:
                 largo = int(self.headers.get("Content-Length") or 0)

@@ -199,6 +199,30 @@
     return "docs/05-trabajo/" + u.carpeta + "/especificacion.md";
   }
 
+  function pintarContrato(u, texto) {
+    var doc = trocear(texto);
+    var html = '<div class="cabecera-contrato"><h2>' +
+               esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
+               '<div class="ruta">' + esc(rutaDe(u)) + "</div>" + accionesDe(u) + "</div>";
+    var secciones = ordenBluf(doc.secciones);
+    for (var i = 0; i < secciones.length; i++) {
+      var s = secciones[i];
+      var cuerpo = '<div class="md">' + bloques(s.lineas) + "</div>";
+      if (s.plegada) {
+        html += '<details class="plegable"><summary>' + esc(s.titulo) +
+                "</summary>" + cuerpo + "</details>";
+      } else {
+        html += '<section class="bluf"><h3>' + esc(s.titulo) + "</h3>" +
+                cuerpo + "</section>";
+      }
+    }
+    panel.innerHTML = html;
+    // En pantalla estrecha la lista va ENCIMA del contrato: sin este salto, el
+    // clic parece no hacer nada. En ancha se ven las dos cosas a la vez y mover
+    // la página sólo escondería la cabecera.
+    if (window.innerWidth <= 860) panel.scrollIntoView({block: "start"});
+  }
+
   function accionesDe(u) {
     if (!u.pendiente_de_aprobar) return "";
     return '<div class="acciones" data-carpeta="' + esc(u.carpeta) + '">' +
@@ -262,30 +286,6 @@
     {clave: "cola", titulo: "Aprobadas, en cola", test: function (u) { return u.estado === "planificada"; }},
     {clave: "cerradas", titulo: "Cerradas", test: function () { return true; }}
   ];
-
-  function pintarContrato(u, texto) {
-    var doc = trocear(texto);
-    var html = '<div class="cabecera-contrato"><h2>' +
-               esc(doc.titulo || u.unidad) + "</h2>" + chipsDe(u) +
-               '<div class="ruta">' + esc(rutaDe(u)) + "</div>" + accionesDe(u) + "</div>";
-    var secciones = ordenBluf(doc.secciones);
-    for (var i = 0; i < secciones.length; i++) {
-      var s = secciones[i];
-      var cuerpo = '<div class="md">' + bloques(s.lineas) + "</div>";
-      if (s.plegada) {
-        html += '<details class="plegable"><summary>' + esc(s.titulo) +
-                "</summary>" + cuerpo + "</details>";
-      } else {
-        html += '<section class="bluf"><h3>' + esc(s.titulo) + "</h3>" +
-                cuerpo + "</section>";
-      }
-    }
-    panel.innerHTML = html;
-    // En pantalla estrecha la lista va ENCIMA del contrato: sin este salto, el
-    // clic parece no hacer nada. En ancha se ven las dos cosas a la vez y mover
-    // la página sólo escondería la cabecera.
-    if (window.innerWidth <= 860) panel.scrollIntoView({block: "start"});
-  }
 
   function abrir(u) {
     elegida = u.carpeta;

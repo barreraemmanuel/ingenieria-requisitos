@@ -114,7 +114,8 @@
   .rama .conector { height: 22px; }
   .vuelta { font-size: var(--t-nota); color: var(--faint); text-align: left; margin-top: 6px; }
 
-  .tarjeta { border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); background: var(--sheet); margin: 0 0 var(--e-bloque); }
+  /* .tarjeta es el componente de base.css (27-08); aquí solo el ritmo vertical entre tarjetas apiladas */
+  .seccion .tarjeta { margin: 0 0 var(--e-bloque); }
   .tarjeta-cabecera { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .tarjeta-cabecera .nombre { font-weight: bold; font-size: 15px; }
   .tarjeta .objetivo { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: var(--hueco-chico); }
