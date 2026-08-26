@@ -426,5 +426,172 @@ class ElegirIncidentesTest(EnvioSinGhTest):
         self.assertEqual(list((self.repo / ".caja-negra").glob("envio-*.json")), [])
 
 
+class ContinuacionTest(unittest.TestCase):
+    """074 · cada incidente dice si el bloqueo traía salida o dejó al agente atrapado."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="caja-negra-continuacion-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name).resolve() / "demo-agents"
+        self.repo.mkdir(parents=True)
+
+    def ejecutar(self, *args):
+        return subprocess.run(
+            [sys.executable, str(CAJA_NEGRA), *args, "--repo", str(self.repo)],
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            capture_output=True,
+        )
+
+    def registrar(self, actual, *extra, fase="prueba"):
+        resultado = self.ejecutar(
+            "registrar", "--fase", fase, "--sintoma", "algo raro",
+            "--esperado", "que siguiera", "--actual", actual, *extra,
+        )
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        return resultado
+
+    def lineas(self):
+        return [
+            json.loads(linea)
+            for linea in (self.repo / ".caja-negra/incidentes.jsonl")
+            .read_text(encoding="utf-8")
+            .splitlines()
+        ]
+
+    # --- R1: el campo se deriva del texto con el clasificador de lint_salidas ---
+
+    def test_un_rechazo_que_nombra_el_comando_queda_en_banda(self):
+        self.registrar("FAIL no hay contrato aprobado; salida: `python3 unidad.py estado`")
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "en_banda")
+
+    def test_un_rechazo_mudo_queda_fuera_de_banda(self):
+        self.registrar("FAIL la unidad está bloqueada y no puedo continuar")
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "fuera_de_banda")
+
+    def test_un_rechazo_con_marcador_de_vocabulario_cerrado_queda_por_diseno(self):
+        self.registrar(
+            "FAIL falta el OK del usuario. "
+            "salida:por-diseño autoridad-humana: nadie puede aprobarlo por él"
+        )
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "por_diseño")
+
+    def test_la_clase_explicita_gana_a_la_derivada(self):
+        self.registrar(
+            "FAIL la unidad está bloqueada y no puedo continuar",
+            "--continuacion", "por_diseño",
+        )
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "por_diseño")
+
+    def test_una_clase_inventada_se_rechaza(self):
+        resultado = self.ejecutar(
+            "registrar", "--fase", "prueba", "--sintoma", "x", "--esperado", "y",
+            "--actual", "z", "--continuacion", "en-banda",
+        )
+
+        self.assertNotEqual(resultado.returncode, 0)
+
+    # --- R3: lo que no es un rechazo de script no cuenta como atrapado ---
+
+    def test_un_crash_no_es_un_rechazo_y_queda_no_aplica(self):
+        self.registrar(
+            "Traceback (most recent call last):\n"
+            "  File \"scripts/unidad.py\", line 12, in main\n"
+            "KeyError: 'plan'"
+        )
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "no_aplica")
+
+    def test_un_ok_no_cuenta_como_bloqueo(self):
+        self.registrar("OK no hay nada que hacer")
+
+        self.assertEqual(self.lineas()[0]["continuacion"], "no_aplica")
+
+    # --- Compatibilidad: los registros viejos no llevan el campo ---
+
+    def test_una_linea_v1_sin_el_campo_se_lista_y_se_valida(self):
+        (self.repo / ".caja-negra").mkdir()
+        (self.repo / ".caja-negra/incidentes.jsonl").write_text(
+            json.dumps(incidente_crudo(), ensure_ascii=False) + "\n", encoding="utf-8"
+        )
+
+        lista = self.ejecutar("listar")
+        valida = self.ejecutar("validar")
+
+        self.assertEqual(lista.returncode, 0, lista.stdout + lista.stderr)
+        self.assertEqual(valida.returncode, 0, valida.stdout + valida.stderr)
+
+    def test_validar_rechaza_una_clase_fuera_del_vocabulario(self):
+        (self.repo / ".caja-negra").mkdir()
+        (self.repo / ".caja-negra/incidentes.jsonl").write_text(
+            json.dumps(incidente_crudo(continuacion="inventada"), ensure_ascii=False)
+            + "\n",
+            encoding="utf-8",
+        )
+
+        resultado = self.ejecutar("validar")
+
+        self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
+        self.assertIn("continuacion", resultado.stdout)
+
+    # --- R2: el recuento por script ---
+
+    def test_listar_bloqueos_cuenta_por_script_y_da_el_total_atrapado(self):
+        self.registrar(
+            "FAIL no hay contrato; salida: `python3 unidad.py estado`",
+            fase="despacho · unidad.py despachar",
+        )
+        self.registrar(
+            "FAIL la unidad está bloqueada y no puedo continuar",
+            fase="despacho · unidad.py despachar",
+        )
+        self.registrar(
+            "FAIL rechazo el cierre sin OK del usuario",
+            fase="cierre · cerrar.py",
+        )
+        # Un registro viejo, sin el campo: se clasifica al vuelo por su `actual`.
+        with (self.repo / ".caja-negra/incidentes.jsonl").open(
+            "a", encoding="utf-8"
+        ) as salida:
+            salida.write(
+                json.dumps(
+                    incidente_crudo(
+                        fase="cierre · cerrar.py",
+                        actual="FAIL no puedo cerrar",
+                        sintoma="sin secretos",
+                    ),
+                    ensure_ascii=False,
+                )
+                + "\n"
+            )
+
+        resultado = self.ejecutar("listar", "--bloqueos")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        salida = resultado.stdout
+        self.assertIn("unidad.py", salida)
+        self.assertIn("cerrar.py", salida)
+        self.assertIn("en_banda", salida)
+        self.assertIn("por_diseño", salida)
+        self.assertIn("fuera_de_banda", salida)
+        fila_unidad = next(l for l in salida.splitlines() if l.startswith("unidad.py"))
+        self.assertEqual(fila_unidad.split()[1:], ["1", "0", "1", "0"])
+        fila_cerrar = next(l for l in salida.splitlines() if l.startswith("cerrar.py"))
+        self.assertEqual(fila_cerrar.split()[1:], ["0", "0", "2", "0"])
+        total = next(l for l in salida.splitlines() if "atrapad" in l)
+        self.assertIn("3", total)
+
+    def test_listar_bloqueos_con_la_caja_vacia_no_revienta(self):
+        resultado = self.ejecutar("listar", "--bloqueos")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+
+
+
 if __name__ == "__main__":
     unittest.main()
