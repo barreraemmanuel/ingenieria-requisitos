@@ -148,6 +148,10 @@ METODO_RAIZ = (
     # trinquete. Sin él, `lint_juntas.py` llega al workspace sin saber qué está congelado.
     "puertas.json",
     "reglas.json",
+    # Y la tabla de señales de riesgo (unidad 070), por el mismo motivo que las dos de
+    # arriba: `unidad.py despachar` y `ejecucion.py` la LEEN, así que sin ella el workspace
+    # nace con la puerta del carril directo sin nada contra lo que comparar.
+    "senales-de-riesgo.json",
 )
 ARCHIVOS_METODO = tuple(
     [*METODO_RAIZ]
