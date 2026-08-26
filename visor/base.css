@@ -284,12 +284,14 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .menu-lateral .menu-item:hover, .menu-unidades button:hover { border-color: var(--line); background: var(--panel); }
 .menu-lateral .menu-item:focus-visible, .menu-unidades button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
 .menu-lateral .menu-item.activa, .menu-unidades button.activa { background: var(--panel); border-color: var(--ink); }
-.menu-lateral .menu-item .nombre, .menu-unidades button .nombre { display: block; font-weight: bold; }
+.menu-lateral .menu-item .nombre, .menu-unidades button .nombre { display: block; font-weight: bold; line-height: 1.5; }
+.menu-lateral .menu-item.con-chips { padding: 12px 12px 10px; line-height: 1.5; }
+.menu-lateral .menu-item.con-chips .nombre { margin-bottom: 6px; }
 .menu-lateral .menu-item .cuenta { font-size: var(--t-nota); color: var(--faint); flex: none; margin-left: auto; }
 .menu-lateral .menu-item.activa .cuenta { color: var(--ink); }
 .menu-lateral .menu-item .pm { flex: none; }
 .menu-lateral .vacio, .menu-unidades .vacio { font-size: var(--t-nota); color: var(--faint); padding: 6px 2px; }
-.menu-lateral .chip, .menu-unidades .chip { margin: 5px 4px 0 0; padding: 3px 9px; letter-spacing: .06em; }
+.menu-lateral .chip, .menu-unidades .chip { margin: 6px 6px 0 0; padding: 4px 10px; letter-spacing: .06em; }
 .menu-lateral .chip::before, .menu-unidades .chip::before { margin-right: 5px; }
 /* punto de estado de una entrada (antes sólo en flujos) */
 .pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
