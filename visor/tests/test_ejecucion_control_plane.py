@@ -1094,5 +1094,150 @@ class CompatibilidadWindowsTest(unittest.TestCase):
         self.assertNotEqual(str(destino_via_alias), str(destino_via_python))
 
 
+class RevisorSobreUnidadDocumentalTest(ControlPlaneE2ETest):
+    """Bug 090: una unidad `--documental` no tiene rama ni worktree por diseño (regla 2),
+    así que `lanzar --rol revisor` moría con «no figura en git worktree list» y dejaba sin
+    revisor fresco a auditorías, investigaciones y documentación.
+
+    El worktree efímero de la 065 (R3) no cubre este caso: exige `estado:` entregado y un
+    `fusion:` con commit, y una documental en `en_revision` no tiene ninguno de los dos.
+    """
+
+    UNIDAD = "003-auditoria"
+
+    def setUp(self):
+        super().setUp()
+        self.registro = self.base / "registro-documental.json"
+        self.sha_main = self.git("rev-parse", "HEAD", cwd=self.main).stdout.strip()
+        self.destino_documental = self.ws / "worktrees" / self.UNIDAD
+
+    # El doble escribe FUERA del worktree a propósito: el efímero se borra antes de que el
+    # test pueda mirarlo, así que un `.harness-record.json` dentro de él no sobrevive.
+    def instalar_grabador(self):
+        cuerpo = f"DESTINO = {str(self.base / 'registro-documental.json')!r}\n" + """import json, pathlib, subprocess
+def _git(*args):
+    return subprocess.run(['git', *args], text=True, encoding='utf-8',
+                          errors='replace', capture_output=True).stdout.strip()
+pathlib.Path(DESTINO).write_text(json.dumps({
+    'argv': argv,
+    'cwd': os.getcwd(),
+    'head': _git('rev-parse', 'HEAD'),
+    'branch': _git('branch', '--show-current'),
+}), encoding='utf-8')
+"""
+        for nombre in ("claude", "codex"):
+            self.instalar_doble(nombre, cuerpo)
+
+    def crear_unidad_documental(self, estado="en_revision", ejecucion_fm="documental"):
+        self.instalar_grabador()
+        ficha = self.ws / "docs/05-trabajo" / self.UNIDAD / "especificacion.md"
+        ficha.parent.mkdir(parents=True, exist_ok=True)
+        linea = f"ejecucion: {ejecucion_fm}\n" if ejecucion_fm else ""
+        ficha.write_text(
+            f"---\nnumero: 003\ntipo: auditoria\nestado: {estado}\ncarril: normal\n"
+            f"{linea}ficheros: [docs/05-trabajo/{self.UNIDAD}/hallazgos.md]\n---\n"
+            "# Auditoría documental\n",
+            encoding="utf-8",
+        )
+        (ficha.parent / "hallazgos.md").write_text("# Hallazgos\n", encoding="utf-8")
+        return ficha
+
+    def recibo(self):
+        recibos = sorted((self.ws / ".runtime/ejecuciones").glob(f"{self.UNIDAD}-*.json"))
+        self.assertEqual(len(recibos), 1, f"se esperaba un único recibo: {recibos}")
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    def registro_grabado(self):
+        # Nombre propio: `registros()` es del padre y apunta al worktree, que aquí puede
+        # no existir ya cuando el test mira.
+        return json.loads(self.registro.read_text(encoding="utf-8"))
+
+    # ---------------------------------------------------------------- el bug
+    def test_el_revisor_de_una_documental_se_lanza_sin_worktree_propio(self):
+        self.crear_unidad_documental()
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.UNIDAD)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        registro = self.registro_grabado()
+        self.assertEqual(Path(registro["cwd"]).name, self.UNIDAD)
+        self.assertEqual(registro["head"], self.sha_main,
+                         "el revisor documental lee lo que la unidad leyó: el HEAD de main/")
+        self.assertEqual(registro["branch"], "", "el worktree de revisión va detached")
+
+    def test_el_worktree_de_la_revision_documental_no_deja_rastro(self):
+        self.crear_unidad_documental()
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.UNIDAD)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertFalse(self.destino_documental.exists(),
+                         "el worktree efímero de la documental sigue en disco")
+        inventario = self.git("worktree", "list", "--porcelain", cwd=self.main).stdout
+        self.assertNotIn(self.UNIDAD, inventario)
+        ramas = self.git("branch", "--list", cwd=self.main).stdout
+        self.assertNotIn(self.UNIDAD, ramas, "una documental no estrena rama al revisarse")
+
+    def test_el_recibo_dice_que_el_worktree_era_de_una_documental(self):
+        self.crear_unidad_documental()
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.UNIDAD)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        recibo = self.recibo()
+        self.assertTrue(recibo["worktree_efimero"])
+        self.assertEqual(recibo["worktree_origen"], "documental")
+
+    # ------------------------------------------------------- lo que NO cambia
+    def test_el_constructor_de_una_documental_sigue_bloqueado(self):
+        # La puerta es SOLO del revisor: una documental se construye leyendo main/, nunca
+        # desde un worktree que el launcher se invente.
+        self.crear_unidad_documental(estado="en_obra")
+
+        resultado = self.ejecutar(rol="constructor", unidad=self.UNIDAD)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("SALIDA:", resultado.stdout + resultado.stderr)
+        self.assertFalse(self.destino_documental.exists())
+
+    def test_una_unidad_de_codigo_sin_worktree_sigue_rechazada(self):
+        # Regresión de la 065: sin `ejecucion: documental` y sin worktree, el revisor sigue
+        # topándose con el rechazo de siempre (y su salida), no con el camino nuevo.
+        self.crear_unidad_documental(estado="en_revision", ejecucion_fm=None)
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.UNIDAD)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        salida = resultado.stdout + resultado.stderr
+        self.assertIn("no figura en git worktree list", salida)
+        self.assertIn("SALIDA:", salida)
+        self.assertFalse(self.destino_documental.exists())
+
+    def test_el_worktree_registrado_de_siempre_sigue_mandando(self):
+        # Con worktree vivo no se crea ni se borra nada, y el recibo lo dice.
+        self.instalar_grabador()
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.unidad)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.registro_grabado()["branch"], self.unidad)
+        self.assertTrue(self.worktree.is_dir())
+        recibos = sorted((self.ws / ".runtime/ejecuciones").glob(f"{self.unidad}-*.json"))
+        recibo = json.loads(recibos[0].read_text(encoding="utf-8"))
+        self.assertFalse(recibo["worktree_efimero"])
+        self.assertEqual(recibo["worktree_origen"], "worktree")
+
+    def test_una_documental_no_pisa_un_directorio_que_ya_existe(self):
+        self.crear_unidad_documental()
+        self.destino_documental.mkdir(parents=True)
+        (self.destino_documental / "algo.txt").write_text("no me pises\n", encoding="utf-8")
+
+        resultado = self.ejecutar(rol="revisor", unidad=self.UNIDAD)
+
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("SALIDA:", resultado.stdout + resultado.stderr)
+        self.assertTrue((self.destino_documental / "algo.txt").is_file())
+
+
 if __name__ == "__main__":
     unittest.main()

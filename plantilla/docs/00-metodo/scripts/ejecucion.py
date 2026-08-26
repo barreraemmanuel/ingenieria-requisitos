@@ -289,11 +289,32 @@ def resolver_worktree(nombre):
     return destino, gitdir, common
 
 
+def _head_de_main(unidad):
+    """El commit que una unidad `--documental` estuvo leyendo: el HEAD de `main/`.
+
+    Una documental no tiene rama ni `fusion:` (regla 2: no se le crea worktree), así que no
+    hay commit propio sobre el que montar la revisión. El que sí describe lo que leyó es el
+    HEAD del clon canónico, que el arranque deja en la última `origin/main` por fast-forward.
+    """
+    codigo, salida = git(MAIN, "rev-parse", "HEAD")
+    sha = salida.strip()
+    if codigo or not re.fullmatch(r"[0-9a-fA-F]{40}", sha):
+        raise ErrorEjecucion(
+            f"no puedo leer el HEAD de {MAIN} para montar la revisión de {unidad}: "
+            f"{salida.strip() or 'sin salida'}. {SALIDA} pon el clon canónico al día con "
+            f"`python3 setup.py` (deja main/ en la última origin/main) y vuelve a lanzar"
+        )
+    return sha
+
+
 @contextlib.contextmanager
 def _worktree_efimero(nombre, sha, destino):
-    """Worktree de usar y tirar para revisar una entrega cuyo worktree ya no existe (R3).
+    """Worktree de usar y tirar para revisar lo que no tiene worktree propio (R3).
 
-    Nace **detached** sobre el commit de `fusion:` y muere al salir del bloque: es lo más
+    Dos clientes: la entrega cuyo worktree ya se borró (R3, `fusion:`) y la unidad
+    `--documental`, que nunca lo tuvo (bug 090, HEAD de `main/`).
+
+    Nace **detached** sobre `sha` y muere al salir del bloque: es lo más
     parecido a «solo lectura» que un árbol de trabajo puede ser sin pelearse con los
     permisos de medio repositorio. Sin rama no hay dónde commitear y sin árbol al terminar
     no queda residuo — cualquier cosa que el revisor escribiera ahí se va con él. Su
@@ -305,7 +326,9 @@ def _worktree_efimero(nombre, sha, destino):
         raise ErrorEjecucion(
             f"no puedo crear el worktree de revisión de {nombre} sobre {sha}: {salida}. "
             f"{SALIDA} comprueba que ese commit existe de verdad con "
-            f"`git -C main cat-file -t {sha}` y corrige `fusion:` en la ficha si no"
+            f"`git -C main cat-file -t {sha}` y corrige `fusion:` en la ficha si no "
+            f"(en una unidad documental el commit es el HEAD de main/: ponlo al día con "
+            f"`python3 setup.py`)"
         )
     checkpoint_suelto("worktree-efimero", "ok", f"{destino} detached sobre {sha[:8]}")
     try:
@@ -327,23 +350,32 @@ def checkpoint_suelto(nombre, estado, detalle):
 
 @contextlib.contextmanager
 def worktree_de_la_ejecucion(args, datos):
-    """(worktree, efímero) donde correrá el harness, creado y borrado por el launcher si
-    hace falta.
+    """(worktree, efímero, origen) donde correrá el harness, creado y borrado por el
+    launcher si hace falta.
 
     Camino de siempre: el worktree registrado de la rama de la unidad, con todas sus
     comprobaciones (`resolver_worktree`). R3 añade UN camino más, y solo para el revisor:
     si la unidad ya está entregada y su worktree ya no existe, en vez del FAIL «no figura en
     git worktree list» se crea uno efímero sobre el commit de `fusion:`. El padre venía
     recreando rama y worktree A MANO para poder revisar las 041-044.
+
+    El bug 090 añade el tercero, también solo para el revisor: la unidad `--documental`, que
+    por la regla 2 no tiene worktree NUNCA. Ahí no hay `fusion:` que mirar y el commit sale
+    del HEAD de `main/`. Sin esto, auditorías, investigaciones y documentación se quedaban
+    sin revisor fresco por el control plane.
+
+    `origen` es cuál de los tres fue (`worktree` · `fusion` · `documental`) y va al recibo:
+    de dónde salió el árbol que revisó el agente es parte de la evidencia de la revisión.
     """
     destino = (WORKTREES / args.unidad).resolve()
     if _real(destino.parent) != _real(WORKTREES):
         raise ErrorEjecucion("el worktree escaparía de worktrees/")
     if _real(destino) in inventario_worktrees():
-        yield resolver_worktree(args.unidad)[0], False
+        yield resolver_worktree(args.unidad)[0], False, "worktree"
         return
     estado = (datos.get("estado") or "").strip()
-    if args.rol != "revisor" or estado not in ESTADOS_ENTREGADOS:
+    documental = (datos.get("ejecucion") or "").strip().lower() == "documental"
+    if args.rol != "revisor" or not (documental or estado in ESTADOS_ENTREGADOS):
         raise ErrorEjecucion(
             f"{destino} no figura en git worktree list. {SALIDA} "
             + (
@@ -353,7 +385,8 @@ def worktree_de_la_ejecucion(args, datos):
                 f"una unidad en {estado or 'este estado'} todavía tiene su worktree: "
                 f"recupéralo con `git -C main worktree add worktrees/{args.unidad} "
                 f"{args.unidad}`. El worktree efímero de revisión solo lo crea el launcher "
-                f"sobre unidades ya entregadas ({'/'.join(sorted(ESTADOS_ENTREGADOS))})"
+                f"sobre unidades ya entregadas ({'/'.join(sorted(ESTADOS_ENTREGADOS))}) o "
+                f"sobre unidades con `ejecucion: documental` en la ficha"
             )
         )
     if destino.exists():
@@ -362,17 +395,26 @@ def worktree_de_la_ejecucion(args, datos):
             f"limpia el resto con `git -C main worktree prune` y, si sigue ahí, bórralo a "
             f"mano antes de volver a lanzar la revisión"
         )
-    sha = (datos.get("fusion") or "").strip()
-    if not re.fullmatch(r"[0-9a-fA-F]{7,40}", sha):
-        raise ErrorEjecucion(
-            f"la ficha de {args.unidad} está en {estado} y no tiene `fusion:` con un commit "
-            f"utilizable ({sha or 'vacío'}), así que no hay nada sobre lo que montar la "
-            f"revisión. {SALIDA} anota la fusión cerrando la unidad "
-            f"(`python3 docs/00-metodo/scripts/unidad.py cerrar {args.unidad}`), que escribe "
-            f"`fusion:` en el frontmatter antes de borrar la rama"
-        )
+    if documental:
+        # Bug 090: una unidad `--documental` no tiene worktree NUNCA (regla 2), no es que
+        # aún no lo tenga. No hay rama ni `fusion:` que mirar, así que el commit sale del
+        # HEAD de main/ — lo que la unidad estuvo leyendo. El resto es idéntico al camino
+        # de la 065: detached, y se va con el revisor.
+        origen = "documental"
+        sha = _head_de_main(args.unidad)
+    else:
+        origen = "fusion"
+        sha = (datos.get("fusion") or "").strip()
+        if not re.fullmatch(r"[0-9a-fA-F]{7,40}", sha):
+            raise ErrorEjecucion(
+                f"la ficha de {args.unidad} está en {estado} y no tiene `fusion:` con un "
+                f"commit utilizable ({sha or 'vacío'}), así que no hay nada sobre lo que "
+                f"montar la revisión. {SALIDA} anota la fusión cerrando la unidad "
+                f"(`python3 docs/00-metodo/scripts/unidad.py cerrar {args.unidad}`), que "
+                f"escribe `fusion:` en el frontmatter antes de borrar la rama"
+            )
     with _worktree_efimero(args.unidad, sha, destino) as ruta:
-        yield ruta, True
+        yield ruta, True, origen
 
 
 def plan_de_ejecucion(args, datos):
@@ -713,7 +755,7 @@ def evidencia_git(worktree):
 
 
 def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
-                   plan=None, worktree_efimero=False):
+                   plan=None, worktree_efimero=False, worktree_origen="worktree"):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
@@ -739,6 +781,9 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         "modelo_origen": origen,
         "motivo_modelo": motivo,
         "worktree_efimero": worktree_efimero,
+        # Bug 090: `efimero` dice si el launcher lo creó; `origen` dice de dónde salió
+        # el commit (worktree de la rama · `fusion:` · HEAD de main/ para la documental).
+        "worktree_origen": worktree_origen,
         "cwd": str(worktree),
         "rama": args.unidad,
         "lease": {"session_id": session_id, "fencing": dict(fencing)},
@@ -873,7 +918,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
     # lo que lee el guardián de ADR-022 (`test_ejecucion_gate_real`) sobre el código
     # fuente de `_lanzar_bajo_lease`, y partirla en dos habría vaciado esa comprobación
     # sin que nadie lo decidiera.
-    with worktree_de_la_ejecucion(args, datos) as (worktree, efimero):
+    with worktree_de_la_ejecucion(args, datos) as (worktree, efimero, origen_worktree):
         home_original = Path(os.environ.get("HOME", str(Path.home()))).resolve()
         texto = encargo(
             args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original
@@ -923,6 +968,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             evidencia_git(worktree),
             plan=plan,
             worktree_efimero=efimero,
+            worktree_origen=origen_worktree,
         )
         checkpoint(
             recibo,
