@@ -12,7 +12,7 @@ que mira una junta —worktrees contra unidades— es la que sigue cogiendo cosa
 esto es un fichero APARTE: son comprobaciones ENTRE piezas, y meterlas dentro del validador
 hacia dentro sería repetir el error que se está corrigiendo.
 
-Las tres juntas que vigila:
+Las cuatro juntas que vigila:
 
   (a) EL VOCABULARIO EN TRES SITIOS. `TIPOS` y `ESTADOS` se escribían dos veces en código
       (`unidad.py` como listas, `lint_metodo.py` como conjuntos) y una tercera en la prosa de
@@ -28,9 +28,18 @@ Las tres juntas que vigila:
       de esa retirada, viaja a cada workspace y solo puede encoger — el mismo trinquete de la
       049, y por el mismo motivo: exigir que la lista llegue a cero para que el guardián pueda
       existir significa que el guardián no existe nunca.
+  (d) LAS REGLAS DEL MÉTODO SIN EJECUTOR. La junta más grande, y la que da nombre al ADR-029:
+      una regla escrita que ningún script hace cumplir es una promesa, no una defensa. El
+      inventario del 22-08 contó 110 reglas y 58 huérfanas; la 033 puso ejecutor a las cuatro
+      de más daño y el resto quedó en una PETICIÓN, que es un sitio que no lee ningún script.
+      `reglas.json` las pone donde sí se leen: cada regla con su ancla, y con ejecutor
+      (`script.py:función`), con motivo de inejecutabilidad (`por_diseno`), o sin nada — y esa
+      última cuenta está congelada y SOLO PUEDE BAJAR. Escribir una regla nueva sin decir quién
+      la ejecuta es FAIL; quitar el script que ejecutaba una, también.
 
-Uso: python3 docs/00-metodo/scripts/lint_juntas.py [--raiz RUTA] [--congelar-puertas]
-Sin dependencias: solo stdlib. Exit 0 si las tres juntas cuadran; exit 1 si alguna no.
+Uso: python3 docs/00-metodo/scripts/lint_juntas.py [--raiz RUTA]
+                                                   [--congelar-puertas] [--congelar-reglas]
+Sin dependencias: solo stdlib. Exit 0 si las cuatro juntas cuadran; exit 1 si alguna no.
 """
 
 import argparse
@@ -39,6 +48,7 @@ import json
 import re
 import subprocess
 import sys
+from datetime import date
 from collections import namedtuple
 from pathlib import Path
 
@@ -370,6 +380,186 @@ def junta_puertas(raiz, inventario):
     return problemas, sin_dueno
 
 
+# ------------------------------------------------------------------ (d) reglas con ejecutor
+# Una regla del método se escribe SIEMPRE de una de estas dos formas, y por eso se puede
+# extraer sin ambigüedad: numerada («7. **Merge y cierre son indivisibles.**») o en viñeta
+# bajo «Reglas de oro» («- **Fusionar main NO despliega.**»). Lo que ancla la entrada es el
+# TÍTULO EN NEGRITA, no el numeral: renumerar AGENTS.md no debe mover el inventario entero,
+# pero cambiar lo que una regla DICE sí reabre la pregunta de quién la ejecuta.
+REGLA_NUMERADA = re.compile(r"^\d+\.\s+\*\*(.+?)\*\*")
+REGLA_ORO = re.compile(r"^[-*]\s+\*\*(.+?)\*\*")
+TITULO_ORO = re.compile(r"^#+\s*Reglas de oro", re.IGNORECASE)
+
+PORQUE_REGLAS = (
+    "Cada regla del método y QUIÉN la hace cumplir. El ADR-029 lo zanjó: una regla o la "
+    "ejecuta un script, o está declarada inejecutable con su motivo, o se retira. Esta lista "
+    "está CONGELADA por el número de reglas SIN ejecutor, y ese número solo puede bajar: una "
+    "regla nueva sin entrada es FAIL, una cuenta que sube es FAIL, y un ejecutor que ya no "
+    "existe es FAIL —arreglada y perdida son indistinguibles desde fuera—. La base la escribe "
+    "lint_juntas.py --congelar-reglas, con su fecha y su commit; a mano no vale.")
+
+
+def reglas_en_prosa(raiz):
+    """Cada regla del método de hoy, con su fichero, su línea y su título.
+
+    Tres fuentes, que son las tres formas en que el método escribe una obligación: los
+    numerales de `AGENTS.md` (el arranque y las reglas duras), las viñetas de su sección
+    «Reglas de oro», y las puertas duras marcadas en la prosa de `docs/00-metodo/` —una puerta
+    infranqueable ES una regla, y la más cara de todas si nadie la ejecuta.
+    """
+    encontradas = []
+    agents = raiz / "AGENTS.md"
+    if agents.is_file():
+        en_reglas_de_oro = False
+        texto = agents.read_text(encoding="utf-8", errors="replace")
+        for numero, linea in enumerate(texto.splitlines(), 1):
+            if linea.startswith("#"):
+                en_reglas_de_oro = bool(TITULO_ORO.match(linea))
+            encaje = REGLA_NUMERADA.match(linea)
+            if encaje is None and en_reglas_de_oro:
+                encaje = REGLA_ORO.match(linea)
+            if encaje is None:
+                continue
+            encontradas.append({
+                "fichero": "AGENTS.md",
+                "linea": numero,
+                "texto": re.sub(r"\s+", " ", encaje.group(1)).strip()[:80],
+            })
+    for puerta in puertas_en_prosa(raiz):
+        encontradas.append({"fichero": puerta["fichero"], "linea": puerta["linea"],
+                            "texto": puerta["texto"][:80]})
+    return encontradas
+
+
+def estado_de(entrada):
+    """`ejecutor` · `por_diseño` · `sin_ejecutor`. Las tres casillas del ADR-029, y ninguna más."""
+    if entrada.get("ejecutor"):
+        return "ejecutor"
+    if entrada.get("por_diseno"):
+        return "por_diseño"
+    return "sin_ejecutor"
+
+
+def funcion_existe(raiz, ejecutor):
+    """¿Existe de verdad la función `script.py:función` que una regla declara como ejecutor?
+
+    Con `ast` y sin importar, por el mismo motivo que `constante()`: varios scripts del método
+    ejecutan su linter al cargarse. Se acepta cualquier `def` del árbol —también un método de
+    clase—: lo que se vigila es que el ejecutor no se haya evaporado, no dónde vive.
+    """
+    if not isinstance(ejecutor, str) or ":" not in ejecutor:
+        return False
+    script, _, funcion = ejecutor.partition(":")
+    for candidata in (raiz / "docs/00-metodo/scripts" / script, raiz / script):
+        if not candidata.is_file():
+            continue
+        try:
+            arbol = ast.parse(candidata.read_text(encoding="utf-8", errors="replace"))
+        except (OSError, SyntaxError):
+            return None
+        return any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == funcion
+                   for n in ast.walk(arbol))
+    return False
+
+
+def sha_corto(raiz):
+    """El commit sobre el que se congela. None si esto no es un repo: no todo workspace lo es."""
+    try:
+        salida = subprocess.run(
+            ["git", "-C", str(raiz), "rev-parse", "--short", "HEAD"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return salida.stdout.strip() or None if salida.returncode == 0 else None
+
+
+def congelar_reglas(raiz, inventario, reglas):
+    anterior = {}
+    if inventario.is_file():
+        try:
+            anterior = json.loads(inventario.read_text(encoding="utf-8")).get("reglas", {})
+        except (OSError, ValueError):
+            anterior = {}
+    congeladas = {}
+    for regla in reglas:
+        clave = clave_de(regla)
+        previa = anterior.get(clave, {})
+        congeladas[clave] = {
+            "fichero": regla["fichero"],
+            "texto": regla["texto"],
+            # Recongelar adopta el ENCOGIMIENTO; jamás borra la autoría ya declarada.
+            "ejecutor": previa.get("ejecutor"),
+            "por_diseno": previa.get("por_diseno"),
+        }
+    sin = sum(1 for e in congeladas.values() if estado_de(e) == "sin_ejecutor")
+    inventario.parent.mkdir(parents=True, exist_ok=True)
+    inventario.write_text(json.dumps({
+        "_porque": PORQUE_REGLAS,
+        "base": {"sin_ejecutor": sin, "fecha": date.today().isoformat(),
+                 "sha": sha_corto(raiz)},
+        "reglas": dict(sorted(congeladas.items())),
+    }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+    return congeladas, sin
+
+
+def junta_reglas(raiz, inventario):
+    """(problemas, sin_ejecutor, base) — la cuenta de huérfanas contra la congelada."""
+    vivas = {clave_de(r): r for r in reglas_en_prosa(raiz)}
+    if not inventario.is_file():
+        return [(f"no existe el inventario de reglas {inventario.name}: sin memoria, nadie "
+                 f"sabe cuántas reglas del método no las hace cumplir nadie",
+                 f"créalo una vez con  python3 {YO} --congelar-reglas")], 0, None
+    try:
+        datos = json.loads(inventario.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [(f"el inventario de reglas no se puede leer ({exc})",
+                 f"recongélalo con  python3 {YO} --congelar-reglas")], 0, None
+    reglas = datos.get("reglas", {})
+    base = datos.get("base") or {}
+    problemas = []
+
+    nuevas = [k for k in vivas if k not in reglas]
+    if nuevas:
+        detalle = "; ".join(f"{vivas[k]['fichero']}:{vivas[k]['linea']} «{vivas[k]['texto']}»"
+                            for k in sorted(nuevas)[:5])
+        problemas.append((
+            f"{len(nuevas)} regla(s) del método SIN inventariar: {detalle}. Una regla que "
+            f"nadie ejecuta y que nadie ha contado es una promesa, no una defensa (ADR-029)",
+            f"dile quién la ejecuta —`ejecutor: script.py:función`— o por qué no se puede "
+            f"—`por_diseno: motivo`— en {inventario.name}; después  python3 {YO} "
+            f"--congelar-reglas"))
+
+    perdidos = [(k, reglas[k]["ejecutor"]) for k in sorted(reglas)
+                if reglas[k].get("ejecutor")
+                and funcion_existe(raiz, reglas[k]["ejecutor"]) is not True]
+    if perdidos:
+        detalle = "; ".join(f"«{reglas[k].get('texto', k)}» → {ej}" for k, ej in perdidos[:5])
+        problemas.append((
+            f"{len(perdidos)} ejecutor(es) declarados que ya NO existen: {detalle}. Arreglada "
+            f"y perdida son indistinguibles desde fuera, así que se para",
+            f"apunta la regla al ejecutor que hoy la hace cumplir en {inventario.name}, o "
+            f"pásala a `por_diseno` con su motivo; después  python3 {YO}"))
+
+    sin = sum(1 for e in reglas.values() if estado_de(e) == "sin_ejecutor")
+    tope = base.get("sin_ejecutor")
+    if not isinstance(tope, int) or not re.fullmatch(r"\d{4}-\d{2}-\d{2}",
+                                                    str(base.get("fecha"))) \
+            or "sha" not in base:
+        problemas.append((
+            f"la base de {inventario.name} no lleva número, fecha y commit: un número escrito "
+            f"a mano no es una base congelada, es una opinión",
+            f"recongélala con  python3 {YO} --congelar-reglas"))
+        return problemas, sin, None
+    if sin > tope:
+        problemas.append((
+            f"{sin} reglas sin ejecutor, y la base congelada son {tope}: la cuenta SUBIÓ. El "
+            f"trinquete del ADR-029 solo deja que baje",
+            f"dale ejecutor a la regla nueva, o decláralo imposible con su motivo en "
+            f"{inventario.name}; si de verdad se retiró alguna, adopta el encogimiento con  "
+            f"python3 {YO} --congelar-reglas"))
+    return problemas, sin, tope
+
+
 # ------------------------------------------------------------------ main
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -380,11 +570,23 @@ def main(argv=None):
                    help="inventario congelado de puertas duras, relativo a la raíz")
     p.add_argument("--congelar-puertas", action="store_true",
                    help="reescribe el inventario con las puertas de hoy (solo debe encoger)")
+    p.add_argument("--reglas", default="docs/00-metodo/reglas.json",
+                   help="inventario congelado de reglas del método, relativo a la raíz")
+    p.add_argument("--congelar-reglas", action="store_true",
+                   help="reescribe la base de reglas sin ejecutor con la de hoy, con su fecha "
+                        "y su commit (solo debe bajar)")
     args = p.parse_args(argv)
 
     raiz = Path(args.raiz).resolve()
     inventario = raiz / args.puertas
+    inventario_reglas = raiz / args.reglas
     print("== Guardián de juntas ==")
+
+    if args.congelar_reglas:
+        _, sin = congelar_reglas(raiz, inventario_reglas, reglas_en_prosa(raiz))
+        print(f"   (d) base de reglas congelada en {sin} sin ejecutor, con fecha y commit, en "
+              f"{args.reglas}")
+        return 0
 
     if args.congelar_puertas:
         congeladas = congelar(inventario, puertas_en_prosa(raiz))
@@ -409,6 +611,13 @@ def main(argv=None):
           f"   ({sin_dueno} sin dueño declarado todavía)")
     problemas += puertas
 
+    reglas, sin_ejecutor, tope = junta_reglas(raiz, inventario_reglas)
+    base = "sin base" if tope is None else f"base {tope}"
+    print(f"   (d) reglas con ejecutor         "
+          f"{'FAIL · ' + str(len(reglas)) if reglas else 'OK'}"
+          f"   ({sin_ejecutor} reglas sin ejecutor ({base}))")
+    problemas += reglas
+
     # R9, y por eso va FUERA del recuento: `CARRILES` vale cosas distintas en cada script
     # porque son conceptos distintos con el mismo nombre. Se documenta, no se unifica.
     carriles = junta_carriles(raiz)
@@ -424,7 +633,7 @@ def main(argv=None):
             print(f"       vuelve a medir con  python3 {YO}")
         print(f"\n{len(problemas)} junta(s) sin cuadrar.")
         return 1
-    print("\n  OK   las tres juntas cuadran.")
+    print("\n  OK   las cuatro juntas cuadran.")
     return 0
 
 

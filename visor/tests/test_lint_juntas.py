@@ -5,7 +5,9 @@
   (a) el vocabulario que comparten `unidad.py`, `lint_metodo.py` y la prosa de
       `00-metodo/README.md`;
   (b) el tope de 250 líneas que promete el carril directo y que hasta hoy no medía nadie;
-  (c) el inventario congelado de puertas duras, cada una con su columna `dueño`.
+  (c) el inventario congelado de puertas duras, cada una con su columna `dueño`;
+  (d) el inventario congelado de REGLAS del método, cada una con ejecutor, con motivo de
+      inejecutabilidad, o contada como huérfana en una cuenta que solo puede bajar (unidad 073).
 
 Aquí se prueban las reglas de comparación sobre workspaces sintéticos y —como integración—
 la medida del diff sobre un repo git de verdad con dos ramas: medir un diff no se puede
@@ -28,6 +30,7 @@ METODO = RAIZ / "plantilla/docs/00-metodo"
 SCRIPTS = METODO / "scripts"
 GUARDIAN = SCRIPTS / "lint_juntas.py"
 INVENTARIO_REAL = METODO / "puertas.json"
+REGLAS_REAL = METODO / "reglas.json"
 
 MARCA = "HARD" + "-GATE"
 ANGULOS = "<" + MARCA + ">"
@@ -60,8 +63,22 @@ def prosa(tipos=TIPOS, estados=ESTADOS):
             + "".join(f"- `{e}`\n" for e in estados))
 
 
-def escribir_workspace(raiz, *, unidad=None, lint=None, readme=None, puertas=None):
-    """Un workspace mínimo: los dos scripts del vocabulario, la prosa y el inventario."""
+def inventario_reglas(reglas=None, base=None):
+    """El inventario de la junta (d), con su base congelada (número + fecha + commit)."""
+    return {
+        "base": base if base is not None
+        else {"sin_ejecutor": 0, "fecha": "2026-01-01", "sha": "0000000"},
+        "reglas": reglas or {},
+    }
+
+
+def regla(fichero="AGENTS.md", texto="Una regla", ejecutor=None, por_diseno=None):
+    return {"fichero": fichero, "texto": texto, "ejecutor": ejecutor, "por_diseno": por_diseno}
+
+
+def escribir_workspace(raiz, *, unidad=None, lint=None, readme=None, puertas=None,
+                       agents=None, reglas=None):
+    """Un workspace mínimo: los dos scripts del vocabulario, la prosa y los inventarios."""
     scripts = raiz / "docs/00-metodo/scripts"
     scripts.mkdir(parents=True, exist_ok=True)
     (scripts / "unidad.py").write_text(unidad or fuente_unidad(), encoding="utf-8")
@@ -69,6 +86,11 @@ def escribir_workspace(raiz, *, unidad=None, lint=None, readme=None, puertas=Non
     (raiz / "docs/00-metodo/README.md").write_text(readme or prosa(), encoding="utf-8")
     (raiz / "docs/00-metodo/puertas.json").write_text(
         json.dumps({"puertas": puertas if puertas is not None else {}}, ensure_ascii=False),
+        encoding="utf-8")
+    if agents is not None:
+        (raiz / "AGENTS.md").write_text(agents, encoding="utf-8")
+    (raiz / "docs/00-metodo/reglas.json").write_text(
+        json.dumps(reglas if reglas is not None else inventario_reglas(), ensure_ascii=False),
         encoding="utf-8")
     return raiz
 
@@ -282,6 +304,9 @@ class PuertasDurasTest(unittest.TestCase):
         carpeta = self.raiz / "docs/00-metodo/runbooks"
         carpeta.mkdir(parents=True, exist_ok=True)
         (carpeta / "cierre.md").write_text(texto, encoding="utf-8")
+        # Una puerta dura ES una regla (R1 de la 073): plantar la marca crea también una regla
+        # nueva. Se inventaría aquí para que estos tests sigan midiendo la junta (c) sola.
+        correr(self.raiz, "--congelar-reglas")
 
     def test_r6_una_marca_nueva_fuera_del_inventario_falla(self):
         self.runbook(f"# Cierre\n\n`{ANGULOS}` **Sin OK del usuario no hay cierre.**\n")
@@ -329,6 +354,261 @@ class PuertasDurasTest(unittest.TestCase):
         salida = correr(self.raiz)
         self.assertEqual(salida.returncode, 1, salida.stdout)
         self.assertIn("--congelar-puertas", salida.stdout)
+
+
+AGENTS_MINIMO = """# AGENTS.md de prueba
+
+## Reglas duras
+
+1. **Primera regla inventada.** Cuerpo que no importa.
+2. **Segunda regla inventada.** Cuerpo que tampoco importa.
+
+## Reglas de oro (siempre)
+
+- **Una regla de oro inventada.** Con su cuerpo.
+
+## Otra sección
+
+- **Esto no es una regla de oro**, porque no está bajo ese título.
+"""
+
+
+class ReglasConEjecutorTest(unittest.TestCase):
+    """R1-R6 de la 073 — la junta (d): toda regla tiene ejecutor, está declarada inejecutable
+    o está contada, y la cuenta de las que no ejecuta nadie SOLO PUEDE BAJAR."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory(prefix="juntas-reglas-")
+        self.addCleanup(self.tmp.cleanup)
+        self.raiz = Path(self.tmp.name).resolve()
+        self.modulo = cargar_modulo()
+
+    def inventario_de(self, agents, **por_clave):
+        """Congela el inventario a mano a partir de las reglas que AGENTS.md declara hoy.
+
+        Cada `por_clave` mapea un trozo del texto de la regla a su entrada, para no tener que
+        escribir las anclas completas en cada test.
+        """
+        escribir_workspace(self.raiz, agents=agents)
+        entradas = {}
+        for viva in self.modulo.reglas_en_prosa(self.raiz):
+            clave = self.modulo.clave_de(viva)
+            entrada = regla(fichero=viva["fichero"], texto=viva["texto"])
+            for trozo, ajuste in por_clave.items():
+                if trozo.replace("_", " ").lower() in viva["texto"].lower():
+                    entrada.update(ajuste)
+            entradas[clave] = entrada
+        return entradas
+
+    def sembrar(self, agents, base_sin_ejecutor=None, **por_clave):
+        entradas = self.inventario_de(agents, **por_clave)
+        sin = sum(1 for e in entradas.values()
+                  if not e.get("ejecutor") and not e.get("por_diseno"))
+        base = {"sin_ejecutor": sin if base_sin_ejecutor is None else base_sin_ejecutor,
+                "fecha": "2026-01-01", "sha": "0000000"}
+        escribir_workspace(self.raiz, agents=agents,
+                           reglas=inventario_reglas(entradas, base))
+        return entradas
+
+    # ---- R1: el extractor
+    def test_r1_el_extractor_coge_numerales_y_reglas_de_oro_y_nada_mas(self):
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO)
+        textos = [r["texto"] for r in self.modulo.reglas_en_prosa(self.raiz)]
+        self.assertIn("Primera regla inventada.", textos)
+        self.assertIn("Segunda regla inventada.", textos)
+        self.assertIn("Una regla de oro inventada.", textos)
+        self.assertNotIn("Esto no es una regla de oro", textos)
+
+    def test_r1_una_puerta_dura_de_un_runbook_tambien_es_una_regla(self):
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO)
+        carpeta = self.raiz / "docs/00-metodo/runbooks"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / "cierre.md").write_text(
+            f"# Cierre\n\n`{ANGULOS}` **Sin OK del usuario no hay cierre.**\n",
+            encoding="utf-8")
+        ficheros = {r["fichero"] for r in self.modulo.reglas_en_prosa(self.raiz)}
+        self.assertIn("docs/00-metodo/runbooks/cierre.md", ficheros)
+
+    # ---- R2: una regla nueva sin entrada
+    def test_r2_una_regla_nueva_sin_entrada_falla_nombrando_ancla_y_comando(self):
+        self.sembrar(AGENTS_MINIMO)
+        (self.raiz / "AGENTS.md").write_text(
+            AGENTS_MINIMO.replace(
+                "2. **Segunda regla inventada.**",
+                "2. **Segunda regla inventada.** Cuerpo.\n3. **Regla diecisiete recién nacida.**"),
+            encoding="utf-8")
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("Regla diecisiete recién nacida", salida.stdout)
+        self.assertIn("AGENTS.md", salida.stdout)
+        self.assertIn("--congelar-reglas", salida.stdout)
+
+    def test_r2_el_inventario_completo_da_verde(self):
+        self.sembrar(AGENTS_MINIMO)
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
+    # ---- R3: el trinquete (criterio PORTANTE)
+    def test_r3_la_cuenta_que_sube_falla(self):
+        """El PORTANTE: sin trinquete sobre la cuenta, el inventario es una foto más.
+
+        Tres reglas huérfanas contra una base de dos: exactamente lo que pasa cuando alguien
+        escribe una regla nueva y no le pone ejecutor, o cuando se lo quita a una que lo tenía.
+        """
+        self.sembrar(AGENTS_MINIMO, base_sin_ejecutor=2)
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("sin ejecutor", salida.stdout)
+        self.assertIn("base 2", salida.stdout)
+        self.assertIn("--congelar-reglas", salida.stdout)
+
+    def test_r3_la_cuenta_que_baja_da_verde_y_lo_dice(self):
+        self.sembrar(AGENTS_MINIMO, base_sin_ejecutor=9)
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("3 reglas sin ejecutor (base 9)", salida.stdout)
+
+    def test_r5_la_cuenta_sale_aunque_no_falle(self):
+        self.sembrar(AGENTS_MINIMO)
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("3 reglas sin ejecutor (base 3)", salida.stdout)
+
+    def test_r3_por_diseno_no_cuenta_como_sin_ejecutor(self):
+        self.sembrar(AGENTS_MINIMO, base_sin_ejecutor=3,
+                     primera_regla={"por_diseno": "solo la persona sabe si lo leyó"})
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("2 reglas sin ejecutor (base 3)", salida.stdout)
+
+    # ---- R4: el ejecutor perdido
+    def test_r4_un_ejecutor_que_ya_no_existe_falla(self):
+        self.sembrar(AGENTS_MINIMO, base_sin_ejecutor=3,
+                     primera_regla={"ejecutor": "unidad.py:no_existe"})
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("unidad.py:no_existe", salida.stdout)
+        self.assertIn("Primera regla inventada", salida.stdout)
+
+    def test_r4_un_ejecutor_que_existe_de_verdad_da_verde(self):
+        entradas = self.inventario_de(
+            AGENTS_MINIMO, primera_regla={"ejecutor": "unidad.py:cerrar"})
+        escribir_workspace(
+            self.raiz, agents=AGENTS_MINIMO,
+            unidad=fuente_unidad() + "\n\ndef cerrar():\n    return 1\n",
+            reglas=inventario_reglas(
+                entradas, {"sin_ejecutor": 2, "fecha": "2026-01-01", "sha": "0000000"}))
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("2 reglas sin ejecutor (base 2)", salida.stdout)
+
+    def test_r4_un_ejecutor_en_un_script_que_ya_no_esta_falla(self):
+        self.sembrar(AGENTS_MINIMO, base_sin_ejecutor=3,
+                     primera_regla={"ejecutor": "borrado.py:lo_que_sea"})
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout)
+        self.assertIn("borrado.py", salida.stdout)
+
+    # ---- R6: la base se recongela con un comando
+    def test_r6_congelar_escribe_la_cuenta_con_fecha_y_commit(self):
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO)
+        for orden in (("init", "-b", "main"), ("config", "user.name", "Test"),
+                      ("config", "user.email", "test@example.com"), ("add", "-A"),
+                      ("commit", "-m", "base")):
+            subprocess.run(["git", *orden], cwd=self.raiz, check=True, capture_output=True)
+        salida = correr(self.raiz, "--congelar-reglas")
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        datos = json.loads(
+            (self.raiz / "docs/00-metodo/reglas.json").read_text(encoding="utf-8"))
+        self.assertEqual(datos["base"]["sin_ejecutor"], 3)
+        self.assertRegex(datos["base"]["fecha"], r"^\d{4}-\d{2}-\d{2}$")
+        sha = subprocess.run(["git", "-C", str(self.raiz), "rev-parse", "--short", "HEAD"],
+                             capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(datos["base"]["sha"], sha)
+        self.assertEqual(correr(self.raiz).returncode, 0)
+
+    def test_r6_congelar_no_pierde_los_ejecutores_ya_declarados(self):
+        """Recongelar adopta el encogimiento; NO borra la autoría, igual que en la junta (c)."""
+        entradas = self.inventario_de(
+            AGENTS_MINIMO, primera_regla={"ejecutor": "unidad.py:cerrar"})
+        escribir_workspace(
+            self.raiz, agents=AGENTS_MINIMO,
+            unidad=fuente_unidad() + "\n\ndef cerrar():\n    return 1\n",
+            reglas=inventario_reglas(entradas, {"sin_ejecutor": 5, "fecha": "2026-01-01",
+                                                "sha": "0000000"}))
+        self.assertEqual(correr(self.raiz, "--congelar-reglas").returncode, 0)
+        datos = json.loads(
+            (self.raiz / "docs/00-metodo/reglas.json").read_text(encoding="utf-8"))
+        self.assertEqual(datos["base"]["sin_ejecutor"], 2)
+        ejecutores = [e.get("ejecutor") for e in datos["reglas"].values()]
+        self.assertIn("unidad.py:cerrar", ejecutores)
+
+    def test_r6_una_base_sin_fecha_ni_commit_no_vale(self):
+        """Bajar el número a mano en el JSON no es recongelar: la base la escribe el comando."""
+        entradas = self.inventario_de(AGENTS_MINIMO)
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO,
+                           reglas=inventario_reglas(entradas, {"sin_ejecutor": 3}))
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout)
+        self.assertIn("--congelar-reglas", salida.stdout)
+
+    def test_r6_sin_inventario_el_guardian_dice_como_crearlo(self):
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO)
+        (self.raiz / "docs/00-metodo/reglas.json").unlink()
+        salida = correr(self.raiz)
+        self.assertEqual(salida.returncode, 1, salida.stdout)
+        self.assertIn("--congelar-reglas", salida.stdout)
+
+
+class ReglasDelMetodoRealTest(unittest.TestCase):
+    """R1 y R7 sobre el método que viaja: el punto de partida honesto de hoy."""
+
+    def test_r1_el_inventario_real_cubre_todas_las_reglas_de_hoy(self):
+        modulo = cargar_modulo()
+        raiz = METODO.parent.parent
+        datos = json.loads(REGLAS_REAL.read_text(encoding="utf-8"))
+        vivas = {modulo.clave_de(r) for r in modulo.reglas_en_prosa(raiz)}
+        self.assertTrue(vivas, "el extractor no encuentra ni una regla en AGENTS.md")
+        self.assertFalse(vivas - set(datos["reglas"]),
+                         "reglas de la prosa que no están inventariadas")
+        for clave, entrada in datos["reglas"].items():
+            self.assertIn("ejecutor", entrada, clave)
+            self.assertIn("por_diseno", entrada, clave)
+
+    def test_r1_las_reglas_duras_numeradas_estan_todas(self):
+        modulo = cargar_modulo()
+        raiz = METODO.parent.parent
+        vivas = [r for r in modulo.reglas_en_prosa(raiz) if r["fichero"] == "AGENTS.md"]
+        self.assertGreaterEqual(len(vivas), 23, "faltan reglas de AGENTS.md")
+
+    def test_r3_el_metodo_real_pasa_su_propio_trinquete(self):
+        salida = correr(METODO.parent.parent)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("reglas sin ejecutor (base", salida.stdout)
+
+    def test_r4_todos_los_ejecutores_declarados_existen(self):
+        modulo = cargar_modulo()
+        raiz = METODO.parent.parent
+        datos = json.loads(REGLAS_REAL.read_text(encoding="utf-8"))
+        for clave, entrada in datos["reglas"].items():
+            if entrada.get("ejecutor"):
+                self.assertIs(modulo.funcion_existe(raiz, entrada["ejecutor"]), True, clave)
+
+    def test_r1_el_inventario_de_reglas_viaja_con_el_metodo(self):
+        sys.path.insert(0, str(RAIZ / "visor"))
+        try:
+            import bootstrap
+        finally:
+            sys.path.remove(str(RAIZ / "visor"))
+        self.assertIn("reglas.json", bootstrap.ARCHIVOS_METODO)
+
+    def test_r7_los_rechazos_nuevos_estan_en_banda(self):
+        salida = subprocess.run(
+            [sys.executable, str(SCRIPTS / "lint_salidas.py"),
+             "--scripts", "plantilla/docs/00-metodo/scripts"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            cwd=str(RAIZ), timeout=180)
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
 
 
 class CarrilesTest(unittest.TestCase):
