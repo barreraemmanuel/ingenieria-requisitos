@@ -223,11 +223,117 @@ def ficheros_de(fm):
     crudos = (fm.get("ficheros") or "").strip("[]").split(",")
     limpias = set()
     for crudo in crudos:
-        ruta = crudo.strip().strip("'\"")
+        ruta = sin_marca_nueva(crudo.strip().strip("'\""))
         if not ruta:
             continue
         limpias.add(posixpath.normpath(ruta.replace("\\", "/")).casefold())
     return limpias
+
+
+# El contrato puede declarar una ruta que TODAVÍA no existe en disco y cuya carpeta tampoco:
+# es legítimo (un módulo nuevo con su carpeta), pero indistinguible de una errata. Se pide
+# decirlo, y `nuevo:` delante es esa declaración. La marca se descuenta en todas partes: para
+# el cruce de ficheros entre unidades en vuelo, `nuevo:app/x.py` y `app/x.py` son EL MISMO
+# fichero, y tratarlos como dos bendeciría un choque real (unidad 089).
+MARCA_NUEVA = re.compile(r"^nuev[oa]\s*:\s*", re.I)
+
+# Un segmento de ruta que delata una carpeta de tests. Se mira el CAMINO, no el contenido:
+# despachar ocurre antes de que exista una sola línea de código.
+CARPETAS_TEST = {"test", "tests", "spec", "specs", "__tests__", "pruebas", "e2e"}
+
+# Qué nivel de test obliga a que la carpeta de tests forme parte de lo que la unidad POSEE.
+# Un unitario suele vivir al lado del código que prueba; integración y E2E crecen SIEMPRE en
+# una carpeta de tests compartida, que es justo el fichero por el que dos unidades en
+# paralelo chocan sin que nadie lo vea.
+RE_NIVEL_CRUZADO = re.compile(r"integraci[oó]n|end[\s-]?to[\s-]?end|\be2e\b", re.I)
+
+# Una carpeta de tests NOMBRADA en la prosa del contrato (`visor/tests/`, `app/tests/…`).
+RE_TESTS_EN_PROSA = re.compile(r"[\w.\-/]*\btests?/", re.I)
+
+
+def sin_marca_nueva(ruta):
+    """La ruta sin el prefijo `nuevo:` con el que el contrato declara lo que va a crear."""
+    return MARCA_NUEVA.sub("", (ruta or "").strip()).strip()
+
+
+def rutas_declaradas(fm):
+    """Las rutas de `ficheros:` tal como se escribieron, con su marca `nuevo:` aparte.
+
+    `ficheros_de` normaliza a `casefold` para COMPARAR conjuntos; para mirar el disco hace
+    falta la grafía real, porque en Linux `API/x.py` y `api/x.py` son dos ficheros.
+    Devuelve pares (ruta, declarada_nueva), sin repetir.
+    """
+    pares = []
+    vistas = set()
+    for crudo in (fm.get("ficheros") or "").strip("[]").split(","):
+        bruto = crudo.strip().strip("'\"").replace("\\", "/")
+        if not bruto:
+            continue
+        marcada = bool(MARCA_NUEVA.match(bruto))
+        ruta = posixpath.normpath(sin_marca_nueva(bruto))
+        if not ruta or ruta in vistas:
+            continue
+        vistas.add(ruta)
+        pares.append((ruta, marcada))
+    return pares
+
+
+def estado_en_disco(ruta, repo):
+    """`existe` · `nueva` (la carpeta madre está) · `huerfana` (ni la carpeta madre).
+
+    La ruta declarada se prueba en el repo de código Y en el workspace: es el mismo criterio
+    que `adjuntos_de`, porque una ficha de bug del meta-repo escribe rutas del workspace y
+    una unidad de código las escribe relativas a `main/`.
+    """
+    candidatas = [repo / ruta, RAIZ / ruta]
+    if any(c.exists() for c in candidatas):
+        return "existe"
+    if any(c.parent.is_dir() for c in candidatas):
+        return "nueva"
+    return "huerfana"
+
+
+def bajo_carpeta_de_tests(ruta):
+    """¿La ruta cae dentro de una carpeta de tests (o ES un fichero de test)?"""
+    partes = [p.casefold() for p in posixpath.normpath(ruta).split("/") if p]
+    if not partes:
+        return False
+    if any(p in CARPETAS_TEST for p in partes):
+        return True
+    return partes[-1].startswith("test_") or partes[-1].startswith("test.")
+
+
+def pide_tests_cruzados(texto):
+    """¿El contrato pide tests que crecen en una carpeta de tests?
+
+    Dos señales, las dos del texto YA escrito: el nivel de test declarado (que `nivel_de_test`
+    entrega sin los huecos de la plantilla, para no leer la pregunta como respuesta) y una
+    carpeta de tests nombrada con su barra en la prosa del plan.
+    """
+    if RE_NIVEL_CRUZADO.search(nivel_de_test(texto)):
+        return "el nivel de test declarado"
+    if RE_TESTS_EN_PROSA.search(secciones_de_prueba(texto)):
+        return "una carpeta de tests nombrada en el contrato"
+    return ""
+
+
+RE_SECCION_PRUEBA = re.compile(r"^#{1,6}[^\n]*(Verificaci[óo]n|Plan de trabajo)[^\n]*$",
+                               re.M | re.I)
+
+
+def secciones_de_prueba(texto):
+    """Solo §Verificación y §Plan de trabajo del contrato.
+
+    Mirar el documento entero daría falsos bloqueos: la sección de contexto cita rutas del
+    repo (`visor/tests/correr.py` como comando) sin que la unidad las posea, y eso no es una
+    omisión, es una referencia.
+    """
+    trozos = []
+    for m in RE_SECCION_PRUEBA.finditer(texto):
+        resto = texto[m.end():]
+        siguiente = re.search(r"^#{1,6}\s", resto, re.M)
+        trozos.append(resto[:siguiente.start()] if siguiente else resto)
+    return "\n".join(trozos)
 
 
 def aprobacion(fm):
@@ -1736,6 +1842,61 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         warn(f"despacho documental en paralelo con: {', '.join(activas)} (no toca código)")
     else:
         ok("no hay ninguna otra unidad en vuelo")
+
+    # --- Precondición 5bis: `ficheros:` se contrasta con el DISCO (089, R1) ----------------
+    # Hasta aquí `ficheros:` solo se cruzaba consigo mismo (con el de las otras unidades en
+    # vuelo): una lista podía nombrar rutas que no existen en ninguna parte y el despacho
+    # salía en verde. El precio lo pagaba el revisor, que descubría la omisión con el trabajo
+    # ya hecho y sin poder reabrir el contrato. Se mira antes de que exista una rama.
+    if not args.documental:
+        repo_declarado, _ = repo_codigo()
+        huerfanas, nuevas = [], []
+        for ruta_declarada, marcada in rutas_declaradas(fm):
+            estado = estado_en_disco(ruta_declarada, repo_declarado)
+            if estado == "existe":
+                continue
+            if estado == "nueva" or marcada:
+                nuevas.append(ruta_declarada)
+            else:
+                huerfanas.append(ruta_declarada)
+        if huerfanas:
+            fail(f"{rel(ruta)}: 'ficheros:' nombra ruta(s) que no existen y cuya carpeta "
+                 f"madre tampoco: {', '.join(huerfanas)}")
+            err(f"\n  Una ruta sin carpeta madre es una errata o una carpeta que esta unidad\n"
+                f"  va a crear, y desde fuera no se distinguen. Decídelo AHORA, no en la\n"
+                f"  revisión: entonces el trabajo ya está hecho y el contrato no se reabre.\n"
+                f"  {SALIDA} corrige la ruta en 'ficheros:' de {rel(ruta)}, o déjala escrita\n"
+                f"  como `nuevo:<ruta>` si esta unidad crea también la carpeta; después:\n"
+                f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
+            return 1
+        if nuevas:
+            for ruta_nueva in nuevas:
+                print(f"  INFO ruta nueva (aún no está en disco, su carpeta madre sí): "
+                      f"{ruta_nueva}")
+
+    # --- Precondición 5ter: si se piden tests que cruzan, la carpeta de tests se posee -----
+    # (089, R2) Un nivel de integración o E2E crece SIEMPRE en una carpeta de tests
+    # compartida. Si esa carpeta no está en `ficheros:`, la unidad va a escribir en un
+    # fichero que no ha declarado: la puerta de paralelismo la bendice contra otra unidad
+    # que escribe en ese mismo fichero, y el segundo merge llega a un test que ya cambió.
+    if not args.documental:
+        motivo_tests = pide_tests_cruzados(texto_unidad)
+        declaradas = [r for r, _ in rutas_declaradas(fm)]
+        if motivo_tests and declaradas and not any(
+                bajo_carpeta_de_tests(r) for r in declaradas):
+            fail(f"{rel(ruta)}: {motivo_tests} pide tests que viven en una carpeta de tests, "
+                 f"y 'ficheros:' no declara ninguna: {', '.join(declaradas)}")
+            err(f"\n  Lo que la unidad va a escribir es lo que la unidad POSEE (regla 5). Si\n"
+                f"  los tests crecen en una carpeta compartida y esa carpeta no está\n"
+                f"  declarada, dos unidades en paralelo escriben el mismo fichero de tests\n"
+                f"  con el visto bueno del guardián.\n"
+                f"  {SALIDA} añade la carpeta o el fichero de tests a 'ficheros:' de\n"
+                f"  {rel(ruta)} (p. ej. `tests/test_<slug>.py`, con `nuevo:` delante si aún\n"
+                f"  no existe); después:\n"
+                f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
+            return 1
+        if motivo_tests and declaradas:
+            ok("la carpeta de tests que van a crecer está declarada en 'ficheros:'")
 
     # --- Guía (ADR-026): en un brownfield, la ADOPCIÓN va primero ---------------------------
     # La puerta de adopcion.md era prosa que nadie ejecutaba: los despachos de código

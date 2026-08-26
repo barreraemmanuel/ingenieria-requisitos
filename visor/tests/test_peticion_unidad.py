@@ -190,7 +190,8 @@ class PeticionUnidadTest(unittest.TestCase):
         with open(registro, "a", encoding="utf-8") as rastro:
             rastro.write(f"{fecha}T00:00:00 contrato mostrado: {nombre}\n")
 
-    def aprobar_para_despacho(self, nombre):
+    def aprobar_para_despacho(self, nombre, nivel=None):
+        nivel = nivel or "unitario, porque la conducta es una regla local."
         ruta = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
         texto = ruta.read_text(encoding="utf-8")
         texto = re.sub(
@@ -213,7 +214,7 @@ class PeticionUnidadTest(unittest.TestCase):
             "- R1: el resultado solicitado aparece con un ejemplo real.\n"
             "- R2: el caso límite no cambia los datos existentes.\n\n"
             "## Verificación\n\n"
-            "- **Nivel de test:** unitario, porque la conducta es una regla local.\n"
+            f"- **Nivel de test:** {nivel}\n"
             "- **Criterio portante:** R1 — sin él la unidad entera no sirve de nada.\n"
         )
         ruta.write_text(cabecera + cuerpo, encoding="utf-8")
@@ -761,6 +762,104 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
         self.assertIn("comparten ficheros declarados", resultado.stderr)
         self.assertIn("app/terminal.py", resultado.stderr)
+
+    def preparar_con_ficheros(self, slug, ficheros, nivel=None):
+        """Unidad feature aprobada, con `ficheros:` escritos tal cual y el nivel de test
+        que pida el caso. Es el fixture de la unidad 089: lo que se contrasta contra el
+        disco y contra el plan de tests es exactamente esa lista."""
+        pid = self.capturar(f"Preparar {slug}")
+        self.evaluar(pid)
+        creada = self.ejecutar(self.unidad, "nueva", "feature", slug, "--desde", pid)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        nombre = next(
+            p.name for p in (self.ws / "docs/05-trabajo").iterdir()
+            if p.name.endswith(f"-{slug}")
+        )
+        ruta = self.aprobar_para_despacho(nombre, nivel=nivel)
+        texto = ruta.read_text(encoding="utf-8").replace(
+            "ficheros: []", f"ficheros: [{', '.join(ficheros)}]"
+        )
+        ruta.write_text(texto, encoding="utf-8")
+        return nombre
+
+    def test_fichero_declarado_sin_carpeta_madre_bloquea_el_despacho(self):
+        """089 R1: `ficheros:` con una ruta que no existe y cuya carpeta madre tampoco,
+        es una omisión del contrato que hoy solo se descubría en la revisión."""
+        nombre = self.preparar_con_ficheros("ruta-huerfana", ["app/no_existe/x.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("app/no_existe/x.py", salida)
+        self.assertIn("SALIDA:", salida)
+
+    def test_fichero_nuevo_bajo_carpeta_existente_despacha_con_informacion(self):
+        """089 R1 (el otro lado): una ruta que aún no existe pero cuya carpeta madre sí
+        es lo normal al crear un módulo — pasa, y se dice."""
+        nombre = self.preparar_con_ficheros("ruta-nueva", ["app/nuevo.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("ruta nueva", salida)
+        self.assertIn("app/nuevo.py", salida)
+
+    def test_ruta_marcada_como_nueva_no_necesita_carpeta_madre(self):
+        """089 R1: la salida que ofrece el bloqueo tiene que existir de verdad —
+        `nuevo:` delante declara que la carpeta la crea esta unidad."""
+        nombre = self.preparar_con_ficheros("carpeta-nueva", ["nuevo:app/modulo/x.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("app/modulo/x.py", salida)
+
+    def test_nivel_de_integracion_sin_carpeta_de_tests_bloquea(self):
+        """089 R2: si la Verificación pide integración/E2E, la carpeta de tests que va a
+        crecer es parte de lo que la unidad POSEE; si no está, dos unidades en paralelo
+        escriben en el mismo fichero de tests sin que nada lo vea."""
+        nombre = self.preparar_con_ficheros(
+            "integracion-sin-tests",
+            ["app/terminal.py"],
+            nivel="de integración, porque cruza la frontera del repo de código.",
+        )
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("SALIDA:", salida)
+        self.assertIn("tests", salida.lower())
+
+    def test_nivel_de_integracion_con_carpeta_de_tests_despacha(self):
+        """089 R2 (el otro lado): declarada la carpeta de tests, el despacho sigue."""
+        (self.repo / "app/tests").mkdir(parents=True)
+        (self.repo / "app/tests/test_base.py").write_text("", encoding="utf-8")
+        nombre = self.preparar_con_ficheros(
+            "integracion-con-tests",
+            ["app/terminal.py", "app/tests/test_terminal.py"],
+            nivel="de integración, porque cruza la frontera del repo de código.",
+        )
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+
+    def test_documental_no_se_cruza_contra_el_disco_del_repo_de_codigo(self):
+        """089 R2 (caso límite): una unidad --documental no toca código, así que ni sus
+        rutas se buscan en main/ ni se le exige carpeta de tests."""
+        nombre = self.preparar_bug_aprobado(
+            "solo-meta", ["docs/00-metodo/README.md", "docs/no_existe_aun/x.md"]
+        )
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre, "--documental")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
 
     def test_bug_evaluado_directo_se_crea_por_carril_directo(self):
         """Incidente de campo (P1, 06-08): la evaluación aceptó ruta
