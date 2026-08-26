@@ -112,6 +112,14 @@
     return ((window.IR && window.IR.base) || "") + sufijo;
   }
 
+  /* Los datos del APARTADO entero (no de una entrega): cuelgan un nivel por
+     encima, porque `IR.base` aquí es `/presentaciones/<unidad>`. Sin esto,
+     `indice.json` se pediría dentro de la unidad abierta y nunca llegaría. */
+  function RUTA_APARTADO(sufijo) {
+    var base = (window.IR && window.IR.base) || "";
+    return base.replace(/\/[^\/]*$/, "") + sufijo;
+  }
+
   /* Grupos del menú, en este orden; "bandeja" no aparece aquí porque tiene
      su propio botón fijo arriba del todo (R3: «bandeja» siempre a mano). */
   var GRUPOS = [
@@ -123,7 +131,7 @@
 
   var presentaciones = [];
   var otras = [];   // el resto de validaciones del workspace (/presentaciones/indice.json)
-  fetch("/presentaciones/indice.json", {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {presentaciones: []}; })
+  fetch(RUTA_APARTADO("/indice.json"), {cache: "no-store"}).then(function (r) { return r.ok ? r.json() : {presentaciones: []}; })
     .then(function (d) {
       var actual = ((window.IR && window.IR.base) || "").split("/").pop();
       otras = (d.presentaciones || []).filter(function (o) { return o.unidad !== actual; });

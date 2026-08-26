@@ -872,7 +872,7 @@ class EstiloIgualQueElVisorDeContratosTest(unittest.TestCase):
         # todo. Lo que este test vigila no cambia —una sola pila, en la
         # hoja común, para los cuatro apartados—, cambia cuál es.
         for declaracion in ('--mono: "SF Mono"', "--sans: var(--mono)",
-                            "font: 16px/1.5 var(--sans)"):
+                            "font: 16px/1.6 var(--sans)"):
             with self.subTest(declaracion=declaracion):
                 self.assertIn(declaracion, hoja)
 

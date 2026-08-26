@@ -186,7 +186,8 @@ class PruebasServidor(unittest.TestCase):
             'id="menu"', 'id="listado"', 'id="panel"',
             'name="eleccion"', 'id="comentario"',
             ':focus-visible',
-            '@media (max-width: 700px)',
+            # El corte propio de 700px se fue con la 076/091: el único corte
+            # responsive es el de 860px de la hoja común, y se comprueba abajo.
             'aria-live="polite"',
         ):
             self.assertIn(esperado, texto)
