@@ -223,11 +223,117 @@ def ficheros_de(fm):
     crudos = (fm.get("ficheros") or "").strip("[]").split(",")
     limpias = set()
     for crudo in crudos:
-        ruta = crudo.strip().strip("'\"")
+        ruta = sin_marca_nueva(crudo.strip().strip("'\""))
         if not ruta:
             continue
         limpias.add(posixpath.normpath(ruta.replace("\\", "/")).casefold())
     return limpias
+
+
+# El contrato puede declarar una ruta que TODAVÍA no existe en disco y cuya carpeta tampoco:
+# es legítimo (un módulo nuevo con su carpeta), pero indistinguible de una errata. Se pide
+# decirlo, y `nuevo:` delante es esa declaración. La marca se descuenta en todas partes: para
+# el cruce de ficheros entre unidades en vuelo, `nuevo:app/x.py` y `app/x.py` son EL MISMO
+# fichero, y tratarlos como dos bendeciría un choque real (unidad 089).
+MARCA_NUEVA = re.compile(r"^nuev[oa]\s*:\s*", re.I)
+
+# Un segmento de ruta que delata una carpeta de tests. Se mira el CAMINO, no el contenido:
+# despachar ocurre antes de que exista una sola línea de código.
+CARPETAS_TEST = {"test", "tests", "spec", "specs", "__tests__", "pruebas", "e2e"}
+
+# Qué nivel de test obliga a que la carpeta de tests forme parte de lo que la unidad POSEE.
+# Un unitario suele vivir al lado del código que prueba; integración y E2E crecen SIEMPRE en
+# una carpeta de tests compartida, que es justo el fichero por el que dos unidades en
+# paralelo chocan sin que nadie lo vea.
+RE_NIVEL_CRUZADO = re.compile(r"integraci[oó]n|end[\s-]?to[\s-]?end|\be2e\b", re.I)
+
+# Una carpeta de tests NOMBRADA en la prosa del contrato (`visor/tests/`, `app/tests/…`).
+RE_TESTS_EN_PROSA = re.compile(r"[\w.\-/]*\btests?/", re.I)
+
+
+def sin_marca_nueva(ruta):
+    """La ruta sin el prefijo `nuevo:` con el que el contrato declara lo que va a crear."""
+    return MARCA_NUEVA.sub("", (ruta or "").strip()).strip()
+
+
+def rutas_declaradas(fm):
+    """Las rutas de `ficheros:` tal como se escribieron, con su marca `nuevo:` aparte.
+
+    `ficheros_de` normaliza a `casefold` para COMPARAR conjuntos; para mirar el disco hace
+    falta la grafía real, porque en Linux `API/x.py` y `api/x.py` son dos ficheros.
+    Devuelve pares (ruta, declarada_nueva), sin repetir.
+    """
+    pares = []
+    vistas = set()
+    for crudo in (fm.get("ficheros") or "").strip("[]").split(","):
+        bruto = crudo.strip().strip("'\"").replace("\\", "/")
+        if not bruto:
+            continue
+        marcada = bool(MARCA_NUEVA.match(bruto))
+        ruta = posixpath.normpath(sin_marca_nueva(bruto))
+        if not ruta or ruta in vistas:
+            continue
+        vistas.add(ruta)
+        pares.append((ruta, marcada))
+    return pares
+
+
+def estado_en_disco(ruta, repo):
+    """`existe` · `nueva` (la carpeta madre está) · `huerfana` (ni la carpeta madre).
+
+    La ruta declarada se prueba en el repo de código Y en el workspace: es el mismo criterio
+    que `adjuntos_de`, porque una ficha de bug del meta-repo escribe rutas del workspace y
+    una unidad de código las escribe relativas a `main/`.
+    """
+    candidatas = [repo / ruta, RAIZ / ruta]
+    if any(c.exists() for c in candidatas):
+        return "existe"
+    if any(c.parent.is_dir() for c in candidatas):
+        return "nueva"
+    return "huerfana"
+
+
+def bajo_carpeta_de_tests(ruta):
+    """¿La ruta cae dentro de una carpeta de tests (o ES un fichero de test)?"""
+    partes = [p.casefold() for p in posixpath.normpath(ruta).split("/") if p]
+    if not partes:
+        return False
+    if any(p in CARPETAS_TEST for p in partes):
+        return True
+    return partes[-1].startswith("test_") or partes[-1].startswith("test.")
+
+
+def pide_tests_cruzados(texto):
+    """¿El contrato pide tests que crecen en una carpeta de tests?
+
+    Dos señales, las dos del texto YA escrito: el nivel de test declarado (que `nivel_de_test`
+    entrega sin los huecos de la plantilla, para no leer la pregunta como respuesta) y una
+    carpeta de tests nombrada con su barra en la prosa del plan.
+    """
+    if RE_NIVEL_CRUZADO.search(nivel_de_test(texto)):
+        return "el nivel de test declarado"
+    if RE_TESTS_EN_PROSA.search(secciones_de_prueba(texto)):
+        return "una carpeta de tests nombrada en el contrato"
+    return ""
+
+
+RE_SECCION_PRUEBA = re.compile(r"^#{1,6}[^\n]*(Verificaci[óo]n|Plan de trabajo)[^\n]*$",
+                               re.M | re.I)
+
+
+def secciones_de_prueba(texto):
+    """Solo §Verificación y §Plan de trabajo del contrato.
+
+    Mirar el documento entero daría falsos bloqueos: la sección de contexto cita rutas del
+    repo (`visor/tests/correr.py` como comando) sin que la unidad las posea, y eso no es una
+    omisión, es una referencia.
+    """
+    trozos = []
+    for m in RE_SECCION_PRUEBA.finditer(texto):
+        resto = texto[m.end():]
+        siguiente = re.search(r"^#{1,6}\s", resto, re.M)
+        trozos.append(resto[:siguiente.start()] if siguiente else resto)
+    return "\n".join(trozos)
 
 
 def aprobacion(fm):
@@ -1737,6 +1843,63 @@ def _cmd_despachar(args, autoridad, snapshot=None):
     else:
         ok("no hay ninguna otra unidad en vuelo")
 
+    # --- Precondición 5bis: `ficheros:` se contrasta con el DISCO (089, R1) ----------------
+    # Hasta aquí `ficheros:` solo se cruzaba consigo mismo (con el de las otras unidades en
+    # vuelo): una lista podía nombrar rutas que no existen en ninguna parte y el despacho
+    # salía en verde. El precio lo pagaba el revisor, que descubría la omisión con el trabajo
+    # ya hecho y sin poder reabrir el contrato. Se mira antes de que exista una rama.
+    if not args.documental:
+        repo_declarado, _ = repo_codigo()
+        huerfanas, nuevas = [], []
+        for ruta_declarada, marcada in rutas_declaradas(fm):
+            estado = estado_en_disco(ruta_declarada, repo_declarado)
+            if estado == "existe":
+                continue
+            if estado == "nueva" or marcada:
+                nuevas.append(ruta_declarada)
+            else:
+                huerfanas.append(ruta_declarada)
+        if huerfanas:
+            fail(f"{rel(ruta)}: 'ficheros:' nombra ruta(s) que no existen y cuya carpeta "
+                 f"madre tampoco: {', '.join(huerfanas)}")
+            err(f"\n  Una ruta sin carpeta madre es una errata o una carpeta que esta unidad\n"
+                f"  va a crear, y desde fuera no se distinguen. Decídelo AHORA, no en la\n"
+                f"  revisión: entonces el trabajo ya está hecho y el contrato no se reabre.\n"
+                f"  {SALIDA} corrige la ruta en 'ficheros:' de {rel(ruta)}, o déjala escrita\n"
+                f"  como `nuevo:<ruta>` si esta unidad crea también la carpeta; después:\n"
+                f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
+            return 1
+        if nuevas:
+            for ruta_nueva in nuevas:
+                print(f"  INFO ruta nueva (aún no está en disco, su carpeta madre sí): "
+                      f"{ruta_nueva}")
+
+    # --- Precondición 5ter: si se piden tests que cruzan, la carpeta de tests se posee -----
+    # (089, R2) Un nivel de integración o E2E crece SIEMPRE en una carpeta de tests
+    # compartida. Si esa carpeta no está en `ficheros:`, la unidad va a escribir en un
+    # fichero que no ha declarado: la puerta de paralelismo la bendice contra otra unidad
+    # que escribe en ese mismo fichero, y el segundo merge llega a un test que ya cambió.
+    if not args.documental:
+        motivo_tests = pide_tests_cruzados(texto_unidad)
+        declaradas = [r for r, _ in rutas_declaradas(fm)]
+        # Sin `and declaradas`: una lista VACÍA no declara ninguna carpeta de tests, así que
+        # es el caso que más necesita el bloqueo, no una excepción a él (H1 del revisor).
+        if motivo_tests and not any(bajo_carpeta_de_tests(r) for r in declaradas):
+            fail(f"{rel(ruta)}: {motivo_tests} pide tests que viven en una carpeta de tests, "
+                 f"y 'ficheros:' no declara ninguna: "
+                 f"{', '.join(declaradas) if declaradas else '(lista vacía)'}")
+            err(f"\n  Lo que la unidad va a escribir es lo que la unidad POSEE (regla 5). Si\n"
+                f"  los tests crecen en una carpeta compartida y esa carpeta no está\n"
+                f"  declarada, dos unidades en paralelo escriben el mismo fichero de tests\n"
+                f"  con el visto bueno del guardián.\n"
+                f"  {SALIDA} añade la carpeta o el fichero de tests a 'ficheros:' de\n"
+                f"  {rel(ruta)} (p. ej. `tests/test_<slug>.py`, con `nuevo:` delante si aún\n"
+                f"  no existe); después:\n"
+                f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
+            return 1
+        if motivo_tests and declaradas:
+            ok("la carpeta de tests que van a crecer está declarada en 'ficheros:'")
+
     # --- Guía (ADR-026): en un brownfield, la ADOPCIÓN va primero ---------------------------
     # La puerta de adopcion.md era prosa que nadie ejecutaba: los despachos de código
     # salían sin gap-map y la fase 3 se comía el repo entero (caso de campo 08-08). Avisa,
@@ -1951,6 +2114,119 @@ def cmd_despachar(args):
     except gestion_leases.LeaseError as exc:
         fail(f"la unidad o uno de sus recursos ya tiene propietario: {exc}")
         return 1
+
+
+# ---------------------------------------------------------------------- subcomando: reencuadrar
+
+# El carril solo SUBE. El reencuadre existe para reconocer que un trabajo era más grande de lo
+# que se creyó al despacharlo, nunca para achicar el que ya se pasó: bajarlo apagaría justo las
+# puertas que el tamaño real reclama (regla 9, «ante la duda se SUBE de carril»).
+ORDEN_CARRILES = {"expres": 0, "directo": 1, "normal": 2, "completo": 3}
+ESTADOS_REENCUADRABLES = ("en_obra", "en_revision")
+RASTRO_REENCUADRES = ".runtime/reencuadres.log"
+
+
+def anotar_reencuadre(ruta, anterior, nuevo, motivo):
+    """`carril:` nuevo en la ficha + la nota con fecha y motivo, justo bajo la cabecera.
+
+    Es la segunda excepción de escritura de frontmatter por script, junto a `marcar_en_obra`,
+    y por el mismo motivo: el carril decide qué puertas aplican, así que dejarlo a mano es
+    dejar el interruptor junto a la cerradura. La nota no sustituye al registro de despacho —
+    ese es el que mandan las puertas—: es lo que el revisor y el usuario van a LEER.
+    """
+    ruta = fichero_unidad_seguro(ruta)
+    texto = leer_fichero_unidad(ruta)
+    texto = re.sub(r"^carril:.*$", f"carril: {nuevo}", texto, count=1, flags=re.M)
+    texto = re.sub(r"^actualizado:\s*\S+", f"actualizado: {HOY}", texto, count=1, flags=re.M)
+    lineas = texto.splitlines()
+    corte = 0
+    if lineas and lineas[0].strip() == "---":
+        for i, linea in enumerate(lineas[1:], start=1):
+            if linea.strip() == "---":
+                corte = i + 1
+                break
+    lineas[corte:corte] = [
+        "",
+        f"> **Reencuadre de carril ({HOY}):** {anterior} → {nuevo}. Motivo: {motivo}",
+        "> El despacho anterior no se borra: su base de rama sigue en la petición de origen, "
+        "que es contra lo que el cierre mide.",
+    ]
+    escribir_fichero_unidad(ruta, "\n".join(lineas) + "\n")
+
+
+def cmd_reencuadrar(args):
+    """Sube de carril un trabajo ya en obra, de forma auditable (unidad 096).
+
+    Reescribe el registro que dejó `despachar` en la petición —misma revisión, misma base de
+    rama, carril y ficheros de hoy— en vez de registrar un despacho nuevo: `registrar_despacho`
+    rechaza una segunda base y el reencuadre a mano acababa editando el JSON de la petición.
+    """
+    nombre = args.unidad.strip("/")
+    nuevo = (args.carril or "").strip().lower()
+    motivo = (args.motivo or "").strip()
+    unidad = buscar_unidad(nombre) if RE_UNIDAD.match(nombre) else None
+    if not unidad or not unidad.get("fm"):
+        fail(f"no encuentro la unidad {nombre}")
+        err(f"\n  {SALIDA} mira qué hay en vuelo con "
+            f"`python3 {rel(__file__)} estado --sin-navegador`")
+        return 1
+    fm, ruta = unidad["fm"], unidad["ruta"]
+    estado = (fm.get("estado") or "").strip()
+    if estado not in ESTADOS_REENCUADRABLES:
+        fail(f"{nombre} está en estado '{estado or 'sin estado'}': el reencuadre de carril "
+             f"solo vale ANTES del cierre ({' o '.join(ESTADOS_REENCUADRABLES)}), porque lo "
+             f"que cambia es qué puertas aplica el cierre")
+        err(f"\n  {SALIDA} si la unidad ya está fusionada, el carril con el que salió es "
+            f"historia y se deja escrito en el cierre; si el trabajo sigue vivo, devuélvela "
+            f"a revisión y repite:\n      python3 {rel(__file__)} reencuadrar {nombre} "
+            f"--carril {nuevo or 'normal'} --motivo \"...\"")
+        return 1
+    tipo_proceso = "bug" if unidad["clase"] == "bug" else "unidad"
+    try:
+        referencias = revalidar_origenes(fm, proceso=(tipo_proceso, nombre))
+        registro = gestion_peticiones.despacho_registrado(referencias, tipo_proceso, nombre)
+    except gestion_peticiones.ErrorPeticion as exc:
+        fail(f"no pude leer el despacho de {nombre} en sus peticiones: {exc}")
+        err(f"\n  {SALIDA} mira qué dice la petición de origen y con qué revisión enlaza:\n"
+            f"      python3 docs/00-metodo/scripts/peticion.py estado "
+            f"{(peticiones_de(fm) or ['<P-ID>'])[0].split('@')[0]}")
+        return 1
+    registro = registro or {}
+    actual = (registro.get("carril") or fm.get("carril") or "normal").strip().lower()
+    if ORDEN_CARRILES.get(nuevo, -1) <= ORDEN_CARRILES.get(actual, -1):
+        fail(f"{nombre} salió por el carril {actual} y pides {nuevo or 'un carril vacío'}: el "
+             f"reencuadre solo SUBE de carril "
+             f"({' < '.join(sorted(ORDEN_CARRILES, key=ORDEN_CARRILES.get))})")
+        err(f"\n  {SALIDA} si el trabajo cabe de verdad en {nuevo or 'ese carril'}, déjalo "
+            f"dentro de sus topes y ciérralo tal cual:\n"
+            f"      python3 {rel(__file__)} cerrar {nombre}")
+        return 1
+    try:
+        gestion_peticiones.registrar_despacho(
+            referencias, tipo_proceso, nombre,
+            carril=nuevo,
+            ejecucion=(registro.get("ejecucion") or fm.get("ejecucion") or "").strip(),
+            ficheros=sorted(ficheros_de(fm)),
+        )
+    except gestion_peticiones.ErrorPeticion as exc:
+        fail(f"no pude reescribir el registro de despacho; no toco la ficha: {exc}")
+        err(f"\n  {SALIDA} la ficha queda como estaba; mira en qué revisión anda la petición "
+            f"y repite el reencuadre:\n      python3 docs/00-metodo/scripts/peticion.py "
+            f"estado {(peticiones_de(fm) or ['<P-ID>'])[0].split('@')[0]}")
+        return 1
+    anotar_reencuadre(ruta, actual, nuevo, motivo)
+    rastro = RAIZ / RASTRO_REENCUADRES
+    rastro.parent.mkdir(parents=True, exist_ok=True)
+    with open(rastro, "a", encoding="utf-8") as registro_txt:
+        registro_txt.write(f"{HOY} {nombre}: {actual} → {nuevo} · {motivo} · "
+                           f"{', '.join(referencias)}\n")
+    ok(f"{nombre} reencuadrada a {nuevo} (venía de {actual}) en {', '.join(referencias)} "
+       f"y en {rel(ruta)}; el registro de despacho anterior conserva su base de rama")
+    print(f"\n  Siguientes pasos:\n"
+          f"    1. El cierre aplica ya las puertas del carril {nuevo} (runbooks/feature.md).\n"
+          f"    2. Actualiza ESTADO.md con el carril nuevo y su motivo (lo escribe el padre).\n"
+          f"    3. Rastro: {rel(rastro)}")
+    return 0
 
 
 # --------------------------------------------------------------------------- subcomando: cerrar
@@ -2224,13 +2500,11 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera, contra=""):
         + "; ".join(razones)
         + (f" (medido desde su base de despacho hasta {contra})" if contra else "")
         + ". Eso no era un trabajo directo: un directo es un contrato de una pantalla que se "
-        f"deshace revirtiendo. {SALIDA} el reencuadre de carril NO tiene comando: "
-        f"`peticion.py reencuadrar-orden` hace otra cosa (que una orden adopte una revisión "
-        f"material ya reevaluada) y `reabrir` solo toca peticiones ya cerradas. Es un paso "
-        f"de mano, en tres tiempos: (1) no cierres {nombre} y pasa al padre esta misma "
-        f"medida; (2) el padre reevalúa la petición y la vuelve a despachar por el carril "
-        f"que le corresponde, que es quien escribe el registro de despacho; (3) se cierra "
-        f"por el ritual de `runbooks/feature.md`. Si el cambio sí cabía en directo, la otra "
+        f"deshace revirtiendo. {SALIDA} reencuádralo, que reescribe el registro de despacho "
+        f"y deja el motivo con fecha en la ficha: "
+        f"`python3 docs/00-metodo/scripts/unidad.py reencuadrar {nombre} --carril normal "
+        f"--motivo \"<por qué se pasó>\"`; después se cierra por el ritual de "
+        f"`runbooks/feature.md`, con sus puertas. Si el cambio sí cabía en directo, la otra "
         f"salida es dejarlo dentro de los topes y volver a cerrar"
     )
 
@@ -3469,7 +3743,7 @@ def main():
                     "creación de rama/worktree con precondiciones que bloquean.")
     sub = ap.add_subparsers(
         dest="comando",
-        metavar="{nnn,nueva,despachar,validar,prefusion,cerrar,estado}")
+        metavar="{nnn,nueva,despachar,reencuadrar,validar,prefusion,cerrar,estado}")
 
     p_nnn = sub.add_parser("nnn", help="imprime el siguiente NNN libre")
     p_nnn.add_argument("--detalle", action="store_true",
@@ -3521,6 +3795,22 @@ def main():
                         help="emergencia declarada por el usuario, en una frase; obligatorio "
                              'con --force (p. ej. --motivo "produccion caida: 500 en el login")')
     p_desp.set_defaults(func=cmd_despachar)
+
+    p_ree = sub.add_parser(
+        "reencuadrar",
+        help="sube de carril una unidad en obra o en revisión que resultó más grande de lo "
+             "que el carril con el que se despachó permite")
+    p_ree.add_argument("unidad", help="nombre completo NNN-slug")
+    # Sin `choices`: pedir `--carril directo` sobre un directo es el error que este comando
+    # tiene que EXPLICAR (R2), y un `invalid choice` de argparse no nombra ninguna salida.
+    p_ree.add_argument("--carril", required=True, metavar="{normal,completo}",
+                       help="carril al que sube. El reencuadre solo sube: un directo que se "
+                            "pasó de tamaño pasa a normal, y lo transversal o arriesgado, a "
+                            "completo")
+    p_ree.add_argument("--motivo", required=True,
+                       help="por qué ya no cabía en su carril, en una frase con el dato que "
+                            'lo prueba (p. ej. --motivo "el diff mide 346 líneas")')
+    p_ree.set_defaults(func=cmd_reencuadrar)
 
     p_cer = sub.add_parser("cerrar",
                            help="cierra una unidad revisada y ya fusionada: puertas + los "

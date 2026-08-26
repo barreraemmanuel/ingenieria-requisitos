@@ -1,0 +1,196 @@
+{
+ "_porque": "Cada regla del método y QUIÉN la hace cumplir. El ADR-029 lo zanjó: una regla o la ejecuta un script, o está declarada inejecutable con su motivo, o se retira. Esta lista está CONGELADA por el número de reglas SIN ejecutor, y ese número solo puede bajar: una regla nueva sin entrada es FAIL, una cuenta que sube es FAIL, y un ejecutor que ya no existe es FAIL —arreglada y perdida son indistinguibles desde fuera—. La base la escribe lint_juntas.py --congelar-reglas, con su fecha y su commit; a mano no vale.",
+ "base": {
+  "sin_ejecutor": 11,
+  "fecha": "2026-08-27",
+  "sha": "f444951"
+ },
+ "reglas": {
+  "AGENTS.md::Actualiza el taller:": {
+   "fichero": "AGENTS.md",
+   "texto": "Actualiza el taller:",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Antes de afirmar que algo funciona, ejecutar la verificación que lo demuestra.": {
+   "fichero": "AGENTS.md",
+   "texto": "Antes de afirmar que algo funciona, ejecutar la verificación que lo demuestra.",
+   "ejecutor": "lint_cierre.py:validar",
+   "por_diseno": null
+  },
+  "AGENTS.md::Buscar tiene fin y la investigación es graduada.": {
+   "fichero": "AGENTS.md",
+   "texto": "Buscar tiene fin y la investigación es graduada.",
+   "ejecutor": "peticion.py:investigacion_lista",
+   "por_diseno": null
+  },
+  "AGENTS.md::Búsquedas de código: dentro de `main/` o de tu worktree.": {
+   "fichero": "AGENTS.md",
+   "texto": "Búsquedas de código: dentro de `main/` o de tu worktree.",
+   "ejecutor": null,
+   "por_diseno": "es dónde MIRA el agente, no lo que escribe: no queda rastro que comprobar"
+  },
+  "AGENTS.md::Caja negra.": {
+   "fichero": "AGENTS.md",
+   "texto": "Caja negra.",
+   "ejecutor": "caja_negra.py:redactar_incidente",
+   "por_diseno": null
+  },
+  "AGENTS.md::Carriles (cuatro).": {
+   "fichero": "AGENTS.md",
+   "texto": "Carriles (cuatro).",
+   "ejecutor": "lint_juntas.py:junta_tope_directo",
+   "por_diseno": null
+  },
+  "AGENTS.md::Declara tu rol al usuario y confírmalo ANTES de trabajar.": {
+   "fichero": "AGENTS.md",
+   "texto": "Declara tu rol al usuario y confírmalo ANTES de trabajar.",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Desviación de contrato → PARA y escala.": {
+   "fichero": "AGENTS.md",
+   "texto": "Desviación de contrato → PARA y escala.",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::El aviso del método corre SIEMPRE, también en solo-consulta, y va lo primero.": {
+   "fichero": "AGENTS.md",
+   "texto": "El aviso del método corre SIEMPRE, también en solo-consulta, y va lo primero.",
+   "ejecutor": "herramienta.py:cmd_comprobar",
+   "por_diseno": null
+  },
+  "AGENTS.md::Entrada, numeración y despacho: con scripts, no a mano.": {
+   "fichero": "AGENTS.md",
+   "texto": "Entrada, numeración y despacho: con scripts, no a mano.",
+   "ejecutor": "unidad.py:validar_origenes",
+   "por_diseno": null
+  },
+  "AGENTS.md::Escribir sobre material del usuario se anuncia y se deja escrito": {
+   "fichero": "AGENTS.md",
+   "texto": "Escribir sobre material del usuario se anuncia y se deja escrito",
+   "ejecutor": null,
+   "por_diseno": "el aviso lo tiene que leer una persona; ningún script puede ver que lo leyó"
+  },
+  "AGENTS.md::Escritura.": {
+   "fichero": "AGENTS.md",
+   "texto": "Escritura.",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Esfuerzo y modelo por carril (ADR-016).": {
+   "fichero": "AGENTS.md",
+   "texto": "Esfuerzo y modelo por carril (ADR-016).",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Evidencia, no afirmación.": {
+   "fichero": "AGENTS.md",
+   "texto": "Evidencia, no afirmación.",
+   "ejecutor": "lint_cierre.py:validar_parte",
+   "por_diseno": null
+  },
+  "AGENTS.md::Fusionar main NO despliega.": {
+   "fichero": "AGENTS.md",
+   "texto": "Fusionar main NO despliega.",
+   "ejecutor": null,
+   "por_diseno": "aclara qué NO ocurre; no hay acto que vigilar, solo la ausencia de uno"
+  },
+  "AGENTS.md::Git del meta-repo: solo el padre": {
+   "fichero": "AGENTS.md",
+   "texto": "Git del meta-repo: solo el padre",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Lee `docs/05-trabajo/ESTADO.md`": {
+   "fichero": "AGENTS.md",
+   "texto": "Lee `docs/05-trabajo/ESTADO.md`",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Linta el método:": {
+   "fichero": "AGENTS.md",
+   "texto": "Linta el método:",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Los flujos siguen vivos — la puerta la abre el DELTA, no el cambio.": {
+   "fichero": "AGENTS.md",
+   "texto": "Los flujos siguen vivos — la puerta la abre el DELTA, no el cambio.",
+   "ejecutor": "peticion.py:exigir_huella_de_flujo",
+   "por_diseno": null
+  },
+  "AGENTS.md::Los guardianes se lintean.": {
+   "fichero": "AGENTS.md",
+   "texto": "Los guardianes se lintean.",
+   "ejecutor": "lint_juntas.py:main",
+   "por_diseno": null
+  },
+  "AGENTS.md::Merge y cierre son indivisibles.": {
+   "fichero": "AGENTS.md",
+   "texto": "Merge y cierre son indivisibles.",
+   "ejecutor": "unidad.py:puerta_recibo_validacion",
+   "por_diseno": null
+  },
+  "AGENTS.md::Mira el canario:": {
+   "fichero": "AGENTS.md",
+   "texto": "Mira el canario:",
+   "ejecutor": "canario.py:salida_hook_stop",
+   "por_diseno": null
+  },
+  "AGENTS.md::Nadie espera a ciegas": {
+   "fichero": "AGENTS.md",
+   "texto": "Nadie espera a ciegas",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Nunca mostrar secretos ni PII.": {
+   "fichero": "AGENTS.md",
+   "texto": "Nunca mostrar secretos ni PII.",
+   "ejecutor": "caja_negra.py:credencial_residual",
+   "por_diseno": null
+  },
+  "AGENTS.md::Proceso nativo (ADR-021).": {
+   "fichero": "AGENTS.md",
+   "texto": "Proceso nativo (ADR-021).",
+   "ejecutor": "ejecucion.py:lanzar",
+   "por_diseno": null
+  },
+  "AGENTS.md::Producción y servicios externos (pagos, DNS, correo, chat) son LECTURA por defec": {
+   "fichero": "AGENTS.md",
+   "texto": "Producción y servicios externos (pagos, DNS, correo, chat) son LECTURA por defec",
+   "ejecutor": "control_plane.py:assert_safe_test_target",
+   "por_diseno": null
+  },
+  "AGENTS.md::Quién construye lo dice el CARRIL (ADR-017).": {
+   "fichero": "AGENTS.md",
+   "texto": "Quién construye lo dice el CARRIL (ADR-017).",
+   "ejecutor": "unidad.py:puerta_recibo_revisor",
+   "por_diseno": null
+  },
+  "AGENTS.md::Se escribe según se hace:": {
+   "fichero": "AGENTS.md",
+   "texto": "Se escribe según se hace:",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Solo-consulta arranca ligero.": {
+   "fichero": "AGENTS.md",
+   "texto": "Solo-consulta arranca ligero.",
+   "ejecutor": null,
+   "por_diseno": "es una decisión de lectura ANTES de tocar nada: no deja artefacto que mirar"
+  },
+  "AGENTS.md::Trabajo en vuelo: UNA unidad de código por defecto": {
+   "fichero": "AGENTS.md",
+   "texto": "Trabajo en vuelo: UNA unidad de código por defecto",
+   "ejecutor": null,
+   "por_diseno": null
+  },
+  "docs/00-metodo/decisiones/029-una-regla-tiene-ejecutor-o-se-retira.md::- **La marca `` como señal de puerta infranqueable.** Aparecía 62 veces en 25": {
+   "fichero": "docs/00-metodo/decisiones/029-una-regla-tiene-ejecutor-o-se-retira.md",
+   "texto": "- **La marca `` como señal de puerta infranqueable.** Aparecía 62 veces en 25",
+   "ejecutor": "lint_juntas.py:junta_puertas",
+   "por_diseno": null
+  }
+ }
+}

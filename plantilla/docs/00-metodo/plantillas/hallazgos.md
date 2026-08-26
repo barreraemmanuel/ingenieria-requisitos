@@ -132,6 +132,24 @@ Un riesgo de un flujo futuro, una mejora o un "esto convendría prepararlo para 
 reabre la unidad: se anota arriba como trabajo descubierto y sigue su camino. Solo un fallo
 crítico permite una segunda ronda.>
 
+## Aprendizajes (los escribe QUIEN LOS APRENDIÓ, al terminar su parte)
+
+<De **1-5 frases** por bloque: lo que sorprendió, lo que no volverías a hacer, lo que
+hubieras querido saber al empezar. Si de verdad no hubo ninguno, se escribe `ninguno`
+explícito — un hueco en blanco no distingue «no aprendí nada» de «se me olvidó». Cada frase
+con fecha y quién: `- 2026-08-27 · constructor: …`. Lo escribe cada uno EN EL MOMENTO, no el
+padre de memoria al cerrar: de aquí, y solo de aquí, sale lo que se promueve a
+`conocimiento/` (`runbooks/cierre.md`, paso 7). Los marcadores `—` no valen: mientras sigan
+ahí, `lint_cierre.py` no deja cerrar.>
+
+```aprendizajes-constructor
+- —
+```
+
+```aprendizajes-revisor
+- —
+```
+
 ## Bitácora del cierre (se marca AL TERMINAR CADA PASO, nunca al final)
 
 <Si la sesión que cierra se corta a la mitad, esto es lo único que sabrá la siguiente: lo

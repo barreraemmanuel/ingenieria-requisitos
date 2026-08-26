@@ -280,8 +280,10 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    y solo se desatasca con `--fusion <sha>`, que exige un commit que exista y esté de verdad
    dentro de la principal.
 7. **Lo que el script no hace, porque es criterio y no mecánica:** aplicar los deltas
-   declarados a `02-flujos/` y pasar el flujo a `entregada` · promover aprendizajes a
-   `conocimiento/` y decisiones/orden al ADR o ROADMAP · todo **trabajo descubierto aceptado
+   declarados a `02-flujos/` y pasar el flujo a `entregada` · promover a
+   `conocimiento/` **solo lo escrito en `## Aprendizajes` de `hallazgos.md`** —lo que
+   dejaron ahí, en el momento, el constructor y el revisor; lo recordado al cerrar es
+   inventado— y decisiones/orden al ADR o ROADMAP · todo **trabajo descubierto aceptado
    se marca `→ promovido a P-ID` antes de crear otra unidad** · actualizar `ESTADO.md` (e
    `INDICE.md` si es un bug).
 

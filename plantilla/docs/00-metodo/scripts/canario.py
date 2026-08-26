@@ -64,6 +64,13 @@ DEFECTOS = {
     "tests_sin_verde": 4,     # lanzadas seguidas del mismo test sin que pase a verde
     "turnos_sin_ficheros": 40,  # turnos CON herramienta y sin tocar un solo fichero
     "turnos_hook": 25,        # cada cuántos turnos habla el hook Stop
+    # Accidentes de sesión (unidad 072): no son rachas, pasan UNA vez y a partir de ahí el
+    # agente trabaja sobre una realidad que ya no es la que cree. Por eso casi todos valen 1.
+    "cwd_erroneo": 2,         # `cd` a una carpeta que no existe
+    "git_destructivo": 1,     # `git reset --hard`, `git checkout --`, `git restore`
+    "conflicto": 1,           # un CONFLICT resuelto dentro de la sesión
+    "stash": 1,               # `git stash` (prohibido por cierre.md)
+    "escritura_en_main": 1,   # escribir o commitear dentro de `main/`
 }
 
 # Ventanas de contexto conocidas, por familia de modelo. Se emparejan por prefijo porque el
@@ -127,6 +134,15 @@ AVISO_CONDUCTA = (
     "   Señal leída en {fichero}"
 )
 
+AVISO_INCIDENTE = (
+    "🚨 CANARIO DE CONTEXTO — esta sesión ha tenido un accidente\n"
+    "   {detalle} (turno {turno})\n"
+    "   Eso no se deshace solo: {accion}.\n"
+    "   (contexto: {contexto})\n"
+    "     python3 docs/00-metodo/scripts/canario.py retomada\n"
+    "   Señal leída en {fichero}"
+)
+
 AVISO_ATASCO = (
     "🚨 CANARIO DE CONTEXTO — la sesión YA está degradando\n"
     "   {detalle}\n"
@@ -185,7 +201,8 @@ def cargar_config(raiz):
         return config
     for clave in ("umbral_default", "repeticiones", "ventana_eventos", "turnos_aviso",
                   "ediciones_seguidas", "tests_sin_verde", "turnos_sin_ficheros",
-                  "turnos_hook"):
+                  "turnos_hook", "cwd_erroneo", "git_destructivo", "conflicto",
+                  "stash", "escritura_en_main"):
         valor = datos.get(clave)
         if isinstance(valor, (int, float)) and valor > 0:
             config[clave] = int(valor)
@@ -555,6 +572,152 @@ HERRAMIENTAS_QUE_EJECUTAN = {"bash", "shell", "local_shell", "exec", "execute", 
                              "container.exec", "bashoutput", "killshell"}
 
 
+# --------------------------------------------------------------------------- incidentes (072)
+#
+# Hay degradaciones que no son una racha ni un comando repetido: son un ACCIDENTE. Pasa una
+# vez —te equivocas de carpeta, deshaces commits, resuelves un conflicto a mano, escondes
+# cambios en un `stash`, escribes dentro de `main/`— y a partir de ahí el agente sigue
+# trabajando sobre una realidad que ya no es la que cree. gentle-ai lo tiene escrito como
+# «Delegation Stop Rules» (`docs/intended-usage.md`): tras un accidente de cwd/git/merge/
+# entorno, auditoría fresca. Aquí no se ventana: un accidente no caduca dentro de su sesión.
+#
+# Dos acciones, y cuál toca depende del patrón: perderse de carpeta es desorientación (se
+# corta), tocar la historia de git es trabajo que puede haberse perdido (se audita).
+ACCION_CORTAR = "corta y sigue en una sesión NUEVA: esta ya no sabe dónde está"
+ACCION_REVISION = "pide una revisión fresca de lo que llevas antes de seguir"
+
+# `cd` que se va a una carpeta que no existe. La marca se busca en la SALIDA y pegada a la
+# palabra `cd` a propósito: un «No such file or directory» suelto lo suelta cualquier `cat`
+# de un fichero que no está, y eso es rutina, no desorientación.
+CD_A_CIEGAS = re.compile(r"(?:^|[;&|(]\s*)cd\s+(?!-)\S+", re.I)
+FALLO_DE_CD = re.compile(
+    r"cd(?::| to)[^\n]*?(?:no such file or directory|not a directory|no existe|"
+    r"not found|blocked|denied)", re.I)
+
+# Deshacer trabajo. `git restore --staged` solo saca del índice: no borra nada escrito.
+GIT_DESTRUCTIVO = re.compile(
+    r"git\s+(?:-C\s+\S+\s+)*"
+    r"(?:reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))(?:\s*\S+)?", re.I)
+
+# Esconder cambios. `list`/`show` solo miran, y mirar no es esconder.
+GIT_STASH = re.compile(
+    r"git\s+(?:-C\s+\S+\s+)*stash\b(?!\s+(?:list|show))", re.I)
+
+# Un conflicto solo cuenta si lo produjo un comando que PUEDE producirlo: si no, el texto
+# «CONFLICT» de cualquier log o fichero leído bastaría para gritar.
+GIT_QUE_FUSIONA = re.compile(
+    r"git\s+(?:-C\s+\S+\s+)*(?:merge|rebase|cherry-pick|pull|revert|am|apply|"
+    r"stash\s+(?:pop|apply))\b", re.I)
+MARCA_DE_CONFLICTO = re.compile(
+    r"^CONFLICT \(|Automatic merge failed|Unmerged paths|both modified:", re.M)
+
+# `main/` es el clon canónico: solo `git pull`. Dos formas de escribir dentro, y las dos
+# medidas contra 63 transcripts reales de este workspace antes de darlas por buenas:
+#
+#   · un git que MUTA lanzado con `-C …/main`. Fuera de la lista quedan `pull`, `branch`,
+#     `worktree add` y `push`: actualizar el clon, mirar sus ramas y colgarle un worktree
+#     son justo el uso normal de `main/`, y meterlos disparaba en 24 de 63 sesiones sanas.
+#     El `(?![\w-])` no es adorno: sin él, `merge-base` —una CONSULTA— se leía como `merge`.
+#     `merge` tampoco está: el del paso 3 del cierre sin `gh` es la ÚNICA excepción nombrada
+#     y acotada del método (ADR-009), y avisar ahí sería gritar en todos los cierres —37 de
+#     los 44 disparos medidos eran justo eso—. Si ese merge choca, lo coge `conflicto`.
+#   · un comando cuyo DESTINO es una ruta `main/…`. Se exige que main/ sea el destino y no
+#     un argumento cualquiera: `cp main/x .` y un `python3 - <<EOF` que solo menciona
+#     `main/visor/…` de pasada leen, no escriben (44 falsos positivos medidos así).
+GIT_MUTA = (r"commit|add|rebase|cherry-pick|revert|reset|checkout|restore|stash|"
+            r"apply|am|rm|mv|clean")
+GIT_MUTA_EN_MAIN = re.compile(
+    r"git\s+-C\s+\S*?main/?\s+(?:" + GIT_MUTA + r")(?![\w-])", re.I)
+ESCRITURA_EN_MAIN = re.compile(
+    r">>?\s*(?:\./)?main/\S"
+    r"|sed\s+-[a-zA-Z]*i\b[^|;&\n]*?\s(?:\./)?main/\S"
+    r"|\b(?:tee|rm|rmdir|mkdir|touch|chmod|chown|patch)\b[^|;&\n]*?\s(?:\./)?main/\S"
+    r"|\b(?:cp|mv|install)\b[^|;&\n]*\s(?:\./)?main/\S*\s*(?:$|[|;&])", re.I | re.M)
+FICHERO_EN_MAIN = re.compile(r"(?:^|/)main/")
+
+# Lo que hace un SUBAGENTE no es de esta sesión (R3): su recibo viaja DENTRO de la salida
+# del comando que lo lanzó, con sus propios `git stash` y sus propios CONFLICT.
+HERRAMIENTAS_DE_SUBAGENTE = {"task", "agent", "dispatch_agent", "subagent"}
+LANZA_SUBAGENTE = re.compile(r"\bejecucion\.py\b|\bclaude\s+-p\b|\bcodex\s+exec\b", re.I)
+
+# Orden de severidad: con varios patrones a la vez manda el primero de esta lista.
+ORDEN_INCIDENTES = ("escritura_en_main", "git_destructivo", "conflicto", "stash",
+                    "cwd_erroneo")
+
+DETALLES_INCIDENTE = {
+    "cwd_erroneo": "{veces} veces `cd` a una carpeta que no existe: {comando}",
+    "git_destructivo": "se ha deshecho trabajo con git: {comando}",
+    "conflicto": "un conflicto de merge resuelto dentro de esta sesión: {comando}",
+    "stash": "`git stash` (prohibido por el runbook de cierre): {comando}",
+    "escritura_en_main": "escritura dentro de `main/`, que es de solo lectura: {comando}",
+}
+
+ACCIONES_INCIDENTE = {
+    "cwd_erroneo": ACCION_CORTAR,
+    "git_destructivo": ACCION_REVISION,
+    "conflicto": ACCION_REVISION,
+    "stash": ACCION_REVISION,
+    "escritura_en_main": ACCION_REVISION,
+}
+
+
+def es_de_subagente(herramienta, comando):
+    """¿Este turno delega en otro agente? Entonces lo que salga es suyo, no de esta sesión."""
+    if (herramienta or "").lower() in HERRAMIENTAS_DE_SUBAGENTE:
+        return True
+    return bool(comando and LANZA_SUBAGENTE.search(str(comando)))
+
+
+def _pillado(patron, encaje):
+    """(patrón, el TROZO que lo delató). Enseñar el trozo y no el comando entero importa:
+    un comando de campo son 400 caracteres y el `git checkout --` está en el medio."""
+    return patron, _sin_ruido(encaje.group(0))[:120]
+
+
+def incidente_por_comando(herramienta, comando, fichero=None):
+    """El patrón que se ve con solo mirar lo que se ordenó (sin esperar a la salida)."""
+    herramienta = (herramienta or "").lower()
+    if fichero and herramienta in HERRAMIENTAS_DE_FICHERO and FICHERO_EN_MAIN.search(
+            str(fichero).replace("\\", "/")):
+        return "escritura_en_main", str(fichero)[:120]
+    if not comando or herramienta not in HERRAMIENTAS_QUE_EJECUTAN:
+        return None, None
+    comando = str(comando)
+    if es_de_subagente(herramienta, comando):
+        return None, None
+    for regex, patron in ((GIT_MUTA_EN_MAIN, "escritura_en_main"),
+                          (ESCRITURA_EN_MAIN, "escritura_en_main"),
+                          (GIT_DESTRUCTIVO, "git_destructivo"),
+                          (GIT_STASH, "stash")):
+        encaje = regex.search(comando)
+        if encaje:
+            return _pillado(patron, encaje)
+    return None, None
+
+
+def incidente_por_salida(herramienta, comando, salida):
+    """El patrón que solo delata la SALIDA: el `cd` que no llegó y el merge que chocó."""
+    herramienta = (herramienta or "").lower()
+    if not salida or herramienta not in HERRAMIENTAS_QUE_EJECUTAN:
+        return None, None
+    comando = str(comando or "")
+    if es_de_subagente(herramienta, comando):
+        return None, None
+    if CD_A_CIEGAS.search(comando) and FALLO_DE_CD.search(salida):
+        return _pillado("cwd_erroneo", CD_A_CIEGAS.search(comando))
+    if GIT_QUE_FUSIONA.search(comando) and MARCA_DE_CONFLICTO.search(salida):
+        return _pillado("conflicto", GIT_QUE_FUSIONA.search(comando))
+    return None, None
+
+
+def apuntar_incidente(incidentes, hallazgo, turno):
+    """Añade el accidente a la lista de la sesión, con el turno en el que ocurrió."""
+    patron, trozo = hallazgo
+    if not patron:
+        return
+    incidentes.append({"patron": patron, "turno": turno, "comando": trozo or "—"})
+
+
 def _sin_ruido(texto, *, numeros=False):
     """El texto sin colas de pipe ni rutas temporales; con `numeros`, también sin cifras."""
     texto = COLA_DE_PIPE.sub("", str(texto))
@@ -617,11 +780,16 @@ def leer_claude(fichero):
     """
     modelo, tokens, turnos = None, None, 0
     comandos, fallos = {}, []
-    ediciones, pruebas, turnos_secos = [], [], []
+    ediciones, pruebas, turnos_secos, incidentes = [], [], [], []
+    # Turno en el que se ordenó cada cosa: el parte de retomada tiene que poder decir
+    # DÓNDE pasó el accidente, y `turnos` solo cuenta los mensajes que traen `usage`.
+    turno = 0
     for dato in _lineas(fichero):
         mensaje = dato.get("message")
         if not isinstance(mensaje, dict):
             continue
+        if dato.get("type") == "assistant" or mensaje.get("role") == "assistant":
+            turno += 1
         uso = mensaje.get("usage")
         if isinstance(uso, dict):
             suma = sum(int(uso.get(clave) or 0) for clave in
@@ -662,13 +830,21 @@ def leer_claude(fichero):
                 orden = entrada.get("command") or fichero_tocado or entrada.get(
                     "pattern") or json.dumps(entrada, sort_keys=True, ensure_ascii=False)
                 comandos[bloque.get("id")] = (
-                    nombre.lower(), f"{nombre}: {normalizar_comando(orden)}"[:200])
+                    nombre.lower(), f"{nombre}: {normalizar_comando(orden)}"[:200],
+                    entrada.get("command"), turno)
+                apuntar_incidente(
+                    incidentes,
+                    incidente_por_comando(nombre, entrada.get("command"), fichero_tocado),
+                    turno)
             elif bloque.get("type") == "tool_result":
                 par = comandos.get(bloque.get("tool_use_id"))
                 if not par:
                     continue
-                herramienta, orden = par
+                herramienta, orden, crudo, turno_orden = par
                 texto = _texto_de(bloque.get("content"))
+                apuntar_incidente(incidentes,
+                                  incidente_por_salida(herramienta, crudo, texto),
+                                  turno_orden)
                 # H3: la heurística por CONTENIDO solo para lo que ejecuta. Lo que lee o
                 # busca únicamente falla si el harness lo dice con el booleano.
                 roto = bool(bloque.get("is_error")) or bool(
@@ -687,7 +863,7 @@ def leer_claude(fichero):
         return None
     return {"modelo": modelo, "tokens": tokens, "ventana": None, "fallos": fallos,
             "turnos": turnos, "ediciones": ediciones, "pruebas": pruebas,
-            "turnos_secos": turnos_secos}
+            "turnos_secos": turnos_secos, "incidentes": incidentes}
 
 
 def leer_codex(fichero):
@@ -698,7 +874,8 @@ def leer_codex(fichero):
     eso signifique nada. La ventana la declara el propio rollout: aquí no hace falta tabla.
     """
     tokens, ventana, modelo, turnos = None, None, None, 0
-    comandos, fallos = {}, []
+    comandos, fallos, incidentes = {}, [], []
+    turno = 0
     for dato in _lineas(fichero):
         payload = dato.get("payload")
         if not isinstance(payload, dict):
@@ -715,22 +892,34 @@ def leer_codex(fichero):
                     ventana = int(info["model_context_window"])
         elif tipo in ("function_call", "custom_tool_call"):
             crudo = payload.get("arguments") or payload.get("input") or ""
+            turno += 1
+            orden_cruda = _orden(crudo)
             comandos[payload.get("call_id")] = (
-                f"{payload.get('name')}: {normalizar_comando(_orden(crudo))}"[:200])
+                f"{payload.get('name')}: {normalizar_comando(orden_cruda)}"[:200],
+                orden_cruda, turno)
+            # Codex ejecuta siempre por shell: aquí la herramienta se da por ejecutora.
+            apuntar_incidente(incidentes,
+                              incidente_por_comando("shell", orden_cruda), turno)
         elif tipo in ("function_call_output", "custom_tool_call_output"):
             texto = _texto_de(payload.get("output"))
-            orden = comandos.get(payload.get("call_id"))
+            par = comandos.get(payload.get("call_id"))
+            orden = par[0] if par else None
             if orden and MARCAS_DE_FALLO.search(texto):
                 fallos.append((orden, _firma(texto)))
+            if par:
+                apuntar_incidente(incidentes,
+                                  incidente_por_salida("shell", par[1], texto), par[2])
         elif tipo is None and dato.get("type") == "session_meta":
             modelo = payload.get("model") or modelo
     if tokens is None:
         return None
     # Codex no publica ediciones ni tests por separado: sus señales de atasco son las
     # mismas repeticiones de siempre. Las claves viajan vacías para que el veredicto no
-    # tenga que preguntar de qué harness viene.
+    # tenga que preguntar de qué harness viene. Los accidentes, en cambio, se leen igual
+    # que en Claude Code: son comandos de terminal y aquí también se ven.
     return {"modelo": modelo, "tokens": tokens, "ventana": ventana, "fallos": fallos,
-            "turnos": turnos, "ediciones": [], "pruebas": [], "turnos_secos": []}
+            "turnos": turnos, "ediciones": [], "pruebas": [], "turnos_secos": [],
+            "incidentes": incidentes}
 
 
 def _orden(crudo):
@@ -817,6 +1006,31 @@ def detectar_atasco(señal, config):
     return None
 
 
+def detectar_incidentes(incidentes, config):
+    """R1 de la 072: el accidente que ya ha pasado en esta sesión.
+
+    A diferencia de las rachas, esto NO se mide en una ventana reciente: un `git stash` de
+    hace cien turnos sigue escondiendo lo que escondió, y una carpeta equivocada sigue
+    siendo la carpeta desde la que se trabajó. Un accidente no caduca dentro de su sesión.
+
+    Con varios patrones a la vez manda el más grave (`ORDEN_INCIDENTES`), y se nombra la
+    ÚLTIMA vez que pasó: es la que la sesión nueva tiene que auditar primero.
+    """
+    if not incidentes:
+        return None
+    for patron in ORDEN_INCIDENTES:
+        casos = [i for i in incidentes if i["patron"] == patron]
+        if len(casos) < int(config.get(patron, DEFECTOS.get(patron, 1))):
+            continue
+        ultimo = casos[-1]
+        detalle = DETALLES_INCIDENTE[patron].format(veces=len(casos),
+                                                    comando=ultimo["comando"] or "—")
+        return {"tipo": "incidente", "patron": patron, "veces": len(casos),
+                "turno": ultimo["turno"], "sujeto": ultimo["comando"],
+                "detalle": detalle, "accion": ACCIONES_INCIDENTE[patron]}
+    return None
+
+
 def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=None,
                  transcript=None):
     """Informe completo de la sesión más reciente. Nunca lanza: como mucho, `sin_datos`.
@@ -835,7 +1049,8 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     config = cargar_config(raiz)
     informe = {"harness": None, "fichero": None, "modelo": None, "tokens": None,
                "ventana": None, "porcentaje": None, "umbral": config["umbral_default"],
-               "veredicto": "sin_datos", "sintoma": None, "candidatos": 0,
+               "veredicto": "sin_datos", "sintoma": None, "incidentes": [],
+               "candidatos": 0,
                "turnos": None, "turnos_aviso": config["turnos_aviso"],
                "ventana_incoherente": None, "ventana_asumida": False,
                "avisar_modelo": False,
@@ -884,8 +1099,12 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     if informe["ventana_asumida"]:
         informe["avisar_modelo"] = not modelo_ya_anunciado(raiz, señal["modelo"])
 
+    # Los accidentes van los ÚLTIMOS a propósito: los avisos de siempre —el comando
+    # repetido y el atasco sin error— no cambian ni de forma ni de prioridad por esto.
+    informe["incidentes"] = señal.get("incidentes") or []
     informe["sintoma"] = (detectar_sintomas(señal["fallos"], config)
-                          or detectar_atasco(señal, config))
+                          or detectar_atasco(señal, config)
+                          or detectar_incidentes(informe["incidentes"], config))
     if informe["sintoma"]:
         informe["veredicto"] = "sintomas"           # la conducta manda sobre la capacidad
     elif informe["porcentaje"] is not None and informe["porcentaje"] >= informe["umbral"]:
@@ -932,6 +1151,11 @@ def _cuerpo_veredicto(informe):
         contexto = ("%d %% de %s" % (round(informe["porcentaje"]), informe["ventana"])
                     if informe["porcentaje"] is not None else "sin porcentaje")
         sintoma = informe["sintoma"]
+        if sintoma.get("tipo") == "incidente":
+            return AVISO_INCIDENTE.format(detalle=sintoma["detalle"],
+                                          turno=sintoma["turno"],
+                                          accion=sintoma["accion"], contexto=contexto,
+                                          fichero=informe["fichero"])
         if sintoma.get("tipo", "repeticion") != "repeticion":
             return AVISO_ATASCO.format(detalle=sintoma["detalle"], contexto=contexto,
                                        fichero=informe["fichero"])
@@ -1057,7 +1281,7 @@ def unidad_en_obra(raiz):
     return {"ruta": ruta, "texto": texto, "fm": fm}
 
 
-def texto_retomada(raiz=None):
+def texto_retomada(raiz=None, *, incidentes=None):
     """R5: el parte de retomada, pre-rellenado desde los papeles vivos del workspace.
 
     No es un resumen libre de la conversación —eso es justo lo que un agente degradado hace
@@ -1115,8 +1339,26 @@ def texto_retomada(raiz=None):
         "## No repetir (ya hecho)\n\n" + ("\n".join(hechos[-6:]) if hechos else "- —"),
         "## Fuera de alcance\n\n" + "\n".join(fuera),
     ]
+    if incidentes:
+        # R2 de la 072: la sesión nueva tiene que saber qué le pasó a la vieja —el patrón,
+        # el turno y qué hacer—, o repetirá el trabajo sobre el mismo suelo movido. Una
+        # línea por PATRÓN, no por vez: cuatro `git checkout --` seguidos son un solo
+        # accidente que auditar, y el parte cabe en una pantalla o no lo lee nadie.
+        partes.append("## Incidentes de la sesión anterior\n\n" + "\n".join(
+            f"- turno {casos[-1]['turno']} · {patron}"
+            + (f" ({len(casos)} veces)" if len(casos) > 1 else "")
+            + f": {casos[-1]['comando']} → {ACCIONES_INCIDENTE.get(patron, ACCION_REVISION)}"
+            for patron, casos in _por_patron(incidentes)))
     parte = "\n\n".join(partes) + "\n"
     return _capar(parte)
+
+
+def _por_patron(incidentes):
+    """Los accidentes agrupados por patrón, en el orden en que ocurrió el primero de cada uno."""
+    grupos = {}
+    for incidente in incidentes:
+        grupos.setdefault(incidente["patron"], []).append(incidente)
+    return list(grupos.items())
 
 
 def _relativa(raiz, ruta):
@@ -1213,7 +1455,10 @@ def main(argv=None):
 
     raiz = Path(args.workspace or RAIZ)
     if args.comando == "retomada":
-        print(texto_retomada(raiz))
+        # El parte mira TAMBIÉN la sesión, no solo los papeles: sin los accidentes, la
+        # sesión nueva empieza a ciegas sobre lo que la vieja movió (072).
+        informe = diagnosticar(raiz=raiz, cwd=args.cwd or Path.cwd())
+        print(texto_retomada(raiz, incidentes=informe["incidentes"]))
         return 0
 
     if args.comando == "hook-stop":

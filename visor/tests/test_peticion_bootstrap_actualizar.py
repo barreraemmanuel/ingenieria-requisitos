@@ -1108,6 +1108,73 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
         self.assertIn("sobrescritos", resultado.stdout)
         self.assertEqual(actualizar.comprobar_aviso(ws), "")
 
+    def test_registro_de_version_se_reescribe_aunque_ningun_fichero_cambie(self):
+        """Bug 094: si los ficheros del método ya coinciden byte a byte pero el
+        METODO.json del workspace declara una versión anterior (por ejemplo porque
+        alguien copió los ficheros a mano antes de actualizar), `aplicar` decía
+        «Al día: nada que actualizar» y dejaba el registro mintiendo — con lo que el
+        aviso de arranque salía en CADA sesión. El registro debe reescribirse."""
+        version_publicada = (
+            RAIZ / "plantilla/docs/00-metodo/VERSION"
+        ).read_text(encoding="utf-8").strip()
+        ws = self.workspace_antiguo(con_trabajo=False, nombre="registro-agents")
+        primera = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+        self.assertEqual(primera.returncode, 0, primera.stdout + primera.stderr)
+
+        # El workspace queda con los ficheros al día pero con el registro atrasado.
+        marca = ws / "METODO.json"
+        datos = json.loads(marca.read_text(encoding="utf-8"))
+        datos["version"] = "0.0.1"
+        datos["huella"] = "0" * 64
+        marca.write_text(
+            json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+            encoding="utf-8",
+        )
+        subprocess.run(["git", "add", "METODO.json"], cwd=ws, check=True)
+        subprocess.run(
+            ["git", "commit", "-m", "registro atrasado a mano"],
+            cwd=ws, check=True, capture_output=True,
+        )
+
+        resultado = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertIn(f"registro de versión: 0.0.1 \u2192 {version_publicada}",
+                      resultado.stdout)
+        escrito = json.loads(marca.read_text(encoding="utf-8"))
+        self.assertEqual(escrito["version"], version_publicada)
+        self.assertNotEqual(escrito["huella"], "0" * 64)
+        self.assertTrue(escrito["archivos"])
+        # Y queda commiteado: el árbol del workspace no se ensucia.
+        estado = subprocess.run(
+            ["git", "status", "--porcelain"], cwd=ws,
+            check=True, capture_output=True, text=True,
+        )
+        self.assertEqual(estado.stdout.strip(), "")
+
+    def test_workspace_identico_sigue_diciendo_al_dia_y_no_escribe_nada(self):
+        """La otra mitad del bug 094: con ficheros Y registro iguales no se toca
+        nada — ni un commit de más, que reescribir METODO.json en cada `aplicar`
+        ensuciaría el árbol y bloquearía al propio Modo D (bug 088)."""
+        ws = self.workspace_antiguo(con_trabajo=False, nombre="aldia-registro-agents")
+        primera = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+        self.assertEqual(primera.returncode, 0, primera.stdout + primera.stderr)
+        antes = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ws,
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+
+        resultado = self.ejecutar(ACTUALIZAR, "aplicar", str(ws))
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertIn("Al día: nada que actualizar", resultado.stdout)
+        self.assertNotIn("registro de versión:", resultado.stdout)
+        despues = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=ws,
+            check=True, capture_output=True, text=True,
+        ).stdout.strip()
+        self.assertEqual(antes, despues)
+
     def test_agents_md_reparte_el_canal_proactivo(self):
         """El arranque del agente hijo (AGENTS.md, repartido por Modo D) trae el
         chequeo proactivo: preferencia en .claude/actualizaciones.md, el comando que

@@ -24,11 +24,6 @@
      en `visor/base.css`, que este mismo servidor sirve en `/base.css` y que
      comparten las cuatro webs. Abajo queda sólo lo propio de los flujos. */
 
-  nav.pestanas { position: sticky; top: 0; z-index: 5; display: flex; gap: 8px; overflow-x: auto; padding: var(--hueco) 0 var(--hueco-chico); margin-top: var(--hueco-grande); background: var(--paper); box-shadow: 0 1px 0 var(--line); }
-  nav.pestanas button { white-space: nowrap; font: bold 13px var(--sans); letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: var(--pildora); padding: 8px 16px; background: var(--sheet); cursor: pointer; }
-  nav.pestanas button:hover { border-color: var(--warn); color: var(--ink); }
-  nav.pestanas button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
-  nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); color: var(--paper); }
 
   .seccion { display: none; margin-top: var(--aire-seccion); }
   .seccion.activa { display: block; }
@@ -36,7 +31,6 @@
   .seccion > .nota { font-size: 13px; line-height: 1.6; color: var(--faint); margin-bottom: var(--hueco-grande); max-width: 65ch; }
 
   .contrato { border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); background: var(--sheet); font-size: var(--t-lectura); line-height: var(--lh-lectura); max-width: 70ch; }
-  .contrato .exito { font-size: 13px; color: var(--muted); margin-top: 6px; }
   .actores { margin-top: var(--hueco-grande); font-size: 13px; color: var(--muted); }
   .actores span { display: inline-block; background: var(--line-soft); border: 1px solid var(--line); border-radius: var(--pildora); padding: 4px 12px; margin: 5px 5px 0 0; }
   .progreso { margin-top: 18px; }
@@ -74,25 +68,11 @@
   .indice-mapa button { font: var(--t-nota) var(--sans); border: 1px solid var(--line); border-radius: var(--pildora); padding: 6px 14px; background: var(--sheet); cursor: pointer; color: var(--ink); }
   .indice-mapa button:hover { border-color: var(--warn); }
   .indice-mapa button:focus-visible { outline: 2px solid var(--warn); outline-offset: 2px; }
-  .pm { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 6px; }
-  .pm-entregada { background: var(--ink); } .pm-en.obra, .pm-obra { background: var(--accent); }
-  .pm-especificada { background: var(--ok); } .pm-entrevista { background: var(--warn); } .pm-sin { background: var(--line); }
   .fila-resaltada { outline: 2px solid var(--warn); outline-offset: 4px; border-radius: 4px; }
 
   /* El ancho lo da `.pagina` de base.css; aquí sólo el caso propio: con el
      menú lateral la web necesita más sitio que las otras tres. */
   body.con-menu .pagina { max-width: 1200px; }
-  .menu-actividades { flex: 0 0 235px; position: sticky; top: 0; max-height: 100vh; overflow-y: auto; padding: 14px 6px 20px 0; }
-  .menu-actividades .titulo-menu { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .12em; color: var(--muted); margin: 0 0 8px 10px; }
-  .menu-actividades .menu-vacio { font-size: 12.5px; line-height: 1.4; color: var(--faint); padding: 7px 10px; }
-  .menu-actividades .grupo { font-size: var(--t-etiqueta); font-weight: bold; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico) 10px; }
-  .menu-actividades button { display: block; width: 100%; text-align: left; font: 13px/1.5 var(--sans); padding: 10px 12px; border: 0; background: none; border-radius: var(--radio-chico); cursor: pointer; color: var(--ink); }
-  .menu-actividades button:hover { background: var(--line-soft); }
-  .menu-actividades button:focus-visible { outline: 2px solid var(--warn); outline-offset: 1px; }
-  .menu-actividades button.activo { background: var(--ink); color: var(--paper); }
-  .menu-filtros { display: grid; gap: 8px; margin: 0 6px var(--hueco); }
-  .menu-filtros input, .menu-filtros select { width: 100%; border: 1px solid var(--line); border-radius: var(--radio-chico); background: var(--paper); color: var(--ink); padding: 9px 12px; font: var(--t-nota) var(--sans); }
-  .menu-filtros input:focus, .menu-filtros select:focus { border-color: var(--warn); outline: 2px solid var(--warn-bg); }
   /* base.css apila el lateral bajo el contenido a 860px, que es lo que quieren
      las otras tres webs (allí el menú es una lista larga de unidades). Aquí NO:
      el índice de actividades tiene que quedarse a la izquierda a cualquier
@@ -102,15 +82,13 @@
     body.con-menu .cuerpo { display: flex; gap: 12px; }
   }
   @media (max-width: 760px) {
-    .menu-actividades { flex: 0 0 34vw; min-width: 120px; max-width: 180px; }
-    .menu-actividades button { overflow-wrap: anywhere; }
   }
   .flujo .descripcion { font-size: 13.5px; color: var(--muted); max-width: 65ch; }
   .lienzo { margin-top: var(--e-bloque); }
 
   .paso { max-width: 460px; margin: 0 auto; text-align: center; font-size: 14.5px; line-height: 1.55; }
   .paso .quien { font-weight: bold; }
-  .etiqueta-tipo { display: block; font-size: var(--t-etiqueta); font-weight: bold; letter-spacing: .12em; text-transform: uppercase; margin-bottom: 3px; }
+  .etiqueta-tipo { display: block; font-size: var(--t-etiqueta); font-weight: bold; text-transform: none; margin-bottom: 3px; }
   .humano .etiqueta-tipo { color: var(--warn); }
   .estatico .etiqueta-tipo { color: var(--accent); }
   .ia .etiqueta-tipo { color: var(--ok); }
@@ -135,13 +113,14 @@
   .rama .conector { height: 22px; }
   .vuelta { font-size: var(--t-nota); color: var(--faint); text-align: left; margin-top: 6px; }
 
-  .tarjeta { border: 1px solid var(--line); border-radius: var(--radio); padding: var(--aire-tarjeta); background: var(--sheet); margin: 0 0 var(--e-bloque); }
+  /* .tarjeta es el componente de base.css (27-08); aquí solo el ritmo vertical entre tarjetas apiladas */
+  .seccion .tarjeta { margin: 0 0 var(--e-bloque); }
   .tarjeta-cabecera { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
   .tarjeta-cabecera .nombre { font-weight: bold; font-size: 15px; }
   .tarjeta .objetivo { font-size: 13px; line-height: 1.6; color: var(--muted); margin-top: var(--hueco-chico); }
   .nombre { font-weight: bold; font-size: 15px; }
   .idtag { font-family: var(--mono); font-size: var(--t-nota); background: var(--line-soft); border: 1px solid var(--line); border-radius: 4px; padding: 1px 6px; }
-  .mini-titulo { font-size: 11px; font-weight: bold; text-transform: uppercase; letter-spacing: .16em; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); }
+  .mini-titulo { font-size: 11px; font-weight: bold; text-transform: none; color: var(--faint); margin: var(--hueco-grande) 0 var(--hueco-chico); }
   ul.lista { padding-left: 22px; display: grid; gap: 10px; font-size: 14px; line-height: 1.6; }
   ul.lista li::marker { color: var(--faint); }
   .req { display: flex; gap: 10px; align-items: baseline; font-size: 14px; line-height: 1.6; margin: 8px 0; }
@@ -150,12 +129,10 @@
   .tabla-envoltorio { overflow-x: auto; margin: var(--e-bloque) 0; }
   table { border-collapse: collapse; font-size: 13.5px; }
   th, td { border: 0; border-bottom: 1px solid var(--line-soft); padding: 12px 16px 12px 0; text-align: left; vertical-align: top; line-height: 1.5; }
-  th { font-size: 12.5px; font-weight: bold; letter-spacing: .12em; text-transform: uppercase; color: var(--faint); border-bottom: 1px solid var(--line); }
+  th { font-size: 12.5px; font-weight: bold; text-transform: none; color: var(--faint); border-bottom: 1px solid var(--line); }
   td.centrado { text-align: center; }
 
-  dl.vocab { display: grid; gap: 12px; font-size: 14px; line-height: 1.6; }
-  dl.vocab dt { font-weight: bold; display: inline; }
-  dl.vocab dd { display: inline; margin-left: 6px; color: var(--muted); }
+  /* dl.vocab es componente de base.css (27-08) */
   .aviso-preguntas { border-left: 1px solid var(--warn); }
 
   pre.doc { white-space: pre-wrap; word-break: break-word; font: 13px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; background: var(--sheet); border: 1px solid var(--line); border-radius: var(--radio); padding: var(--hueco) var(--hueco-grande); overflow-x: auto; margin-bottom: var(--hueco-grande); }
@@ -218,11 +195,11 @@
     solo cuando tu IA termine de escribir.</div>
 
     <div class="cuerpo">
-      <aside class="menu-actividades" id="menuIzq"
+      <aside class="menu-lateral" id="menuIzq"
              aria-label="Flujos de la aplicación">
         <div class="titulo-menu">Flujos</div>
         <div class="menu-filtros">
-          <input id="buscarFlujos" type="search" placeholder="Buscar flujo…">
+          <input id="buscarFlujos" type="search" placeholder="Buscar flujo…  ( / )">
           <select id="filtroFlujos">
             <option value="">Todos</option>
             <option value="futuro">Con la app</option>
@@ -447,14 +424,13 @@ function tabResumen(d, presentes) {
   s.appendChild(el("div", "mini-titulo", "El objetivo"));
   if (d.contrato && d.contrato.frase) {
     const c = el("div", "contrato");
-    c.appendChild(document.createTextNode(d.contrato.frase));
+    c.appendChild(el("p", "frase", d.contrato.frase));
     if (d.contrato.exito) {
       const lista = Array.isArray(d.contrato.exito) ? d.contrato.exito : [d.contrato.exito];
-      const t = el("div", "exito", "Sabremos que funcionó si:");
-      const ul = el("ul", "lista");
+      c.appendChild(el("div", "subtitulo", "Sabremos que funcionó si"));
+      const ul = el("ul", "lista-criterios");
       lista.forEach(x => ul.appendChild(el("li", null, x)));
-      t.appendChild(ul);
-      c.appendChild(t);
+      c.appendChild(ul);
     }
     s.appendChild(c);
   } else {
@@ -1002,7 +978,7 @@ function seleccionarFlujo(id) {
   pestanaActiva = "flujos";
   activar("flujos");
   document.querySelectorAll("#menuIzq button").forEach(
-    b => b.classList.toggle("activo", b.dataset.flujo === id)
+    b => b.classList.toggle("activa", b.dataset.flujo === id)
   );
   const destino = document.getElementById("flujo-" + id);
   if (!destino) return;
@@ -1059,7 +1035,7 @@ function pintarMenu(dRoot) {
   const actividades = Array.isArray(dRoot.actividades) ? dRoot.actividades : [];
   const flujos = Array.isArray(dRoot.flujos) ? dRoot.flujos : [];
   if (actividades.length) {
-    const bMapa = el("button", seleccion === "mapa" ? "activo" : null, "🗺 El mapa");
+    const bMapa = el("button", "menu-item" + (seleccion === "mapa" ? " activa" : ""), "El mapa");
     bMapa.dataset.busqueda = "mapa actividades";
     bMapa.dataset.filtros = "";
     bMapa.addEventListener("click", () => seleccionar("mapa"));
@@ -1067,9 +1043,9 @@ function pintarMenu(dRoot) {
     const areas = [];
     actividades.forEach(a => { if (!areas.includes(a.area)) areas.push(a.area); });
     areas.forEach(area => {
-      entradas.appendChild(el("div", "grupo", area));
+      entradas.appendChild(el("div", "menu-grupo grupo", area));
       actividades.filter(a => a.area === area).forEach(a => {
-        const b = el("button", seleccion === a.id ? "activo" : null);
+        const b = el("button", "menu-item" + (seleccion === a.id ? " activa" : ""));
         b.appendChild(el("span", "pm " + (PM_ESTADO[a.estado] || "pm-sin")));
         b.appendChild(document.createTextNode(a.nombre));
         b.dataset.busqueda = [a.nombre, a.area, a.resumen || ""].join(" ");
@@ -1304,6 +1280,9 @@ document.getElementById("filtroFlujos").addEventListener(
 );
 cargar();
 setInterval(cargar, 3000);
+document.addEventListener("keydown", function (ev) {
+  if (ev.key === "/" && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { ev.preventDefault(); document.getElementById("buscarFlujos").focus(); }
+});
 </script>
 <!-- /apartado:guion -->
 </body>
