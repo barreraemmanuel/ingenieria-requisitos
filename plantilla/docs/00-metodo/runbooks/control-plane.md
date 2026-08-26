@@ -111,6 +111,38 @@ Un prototipo no pasa por `unidad.py cerrar`: aunque declare descarte, el comando
 archivarlo o reconciliarlo como entrega. Se conserva la ficha en estado `descartada` y se cancela
 cada proceso con `peticion.py marcar-proceso P-ID --proceso unidad:NNN-slug --estado cancelado`.
 
+## Un lanzamiento interrumpido no deja rastro (bug 077)
+
+`ejecucion.py lanzar` sostiene tres cosas a la vez mientras corre el harness: el proceso hijo,
+los leases de la unidad y la ficha en solo lectura (0444). Si lo interrumpes —Ctrl-C, `kill`,
+cierre de la terminal— atiende la señal y las suelta **en este orden**, deja un checkpoint
+`interrumpido` en el recibo y muere con la misma señal (salida distinta de 0):
+
+1. **el harness hijo**, entero: nace en su propio grupo de procesos, así que se termina el
+   grupo completo (`taskkill /T /F` en Windows). Si ignora el cierre amable, se escala.
+2. **los leases** de la unidad y de sus recursos, para que quede lanzable otra vez.
+3. **la ficha**, que recupera su modo con la escritura del dueño puesta.
+
+Lo que NINGÚN programa puede atender es `kill -9`, un corte de luz o la sesión cortada de
+golpe: ahí no corre ningún manejador. Lo que queda es un lease a nombre de un PID muerto y,
+detrás, un harness huérfano y la ficha congelada. El siguiente `lanzar` sobre esa unidad **no
+lo atraviesa en silencio**: para y nombra el comando que lo deshace.
+
+```
+python3 docs/00-metodo/scripts/lease.py desbloquear NNN-slug
+```
+
+Retira los leases huérfanos, remata al harness que quedara vivo (comprobando la marca de
+arranque, para no matar a otro proceso que herede el PID), devuelve la escritura a la ficha y
+marca el recibo como recuperado. **Nunca le quita el lease a un dueño vivo**: con el proceso
+todavía ahí, se niega y te dice cómo comprobarlo. Eso no es un rodeo del bloqueo de otra
+sesión, es lo contrario.
+
+En Windows no hay SIGHUP ni grupos de proceso POSIX: el Ctrl-C y el `kill` sí se atienden
+(consola + `CREATE_NEW_PROCESS_GROUP`), pero **cerrar la ventana de la consola no garantiza
+ninguna limpieza**. Ese hueco lo cubre `desbloquear`, y es la vía declarada para esa
+plataforma.
+
 ## Suites de este método
 
 Viven en la herramienta de ingeniería de requisitos (el repositorio que montó este workspace),

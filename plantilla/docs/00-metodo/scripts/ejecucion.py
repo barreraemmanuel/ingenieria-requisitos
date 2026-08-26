@@ -24,6 +24,7 @@ import stat
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 from pathlib import Path
 
@@ -789,6 +790,16 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         "lease": {"session_id": session_id, "fencing": dict(fencing)},
         "git": {"inicial": git_inicial, "final": None},
         "skills_tecnicas": list(args.skill_tecnica),
+        # Bug 077 · R2: lo que necesita `lease.py desbloquear` para recuperar un
+        # lanzamiento que murió sin señal (`kill -9`, terminal cerrada). Sin esto, el
+        # recibo decía quién tenía el lease pero no QUÉ proceso hijo había quedado vivo
+        # ni qué ficha había que descongelar, y la recuperación seguía siendo a mano.
+        "lanzador": {
+            "pid": os.getpid(),
+            "process_started": gestion_leases.process_start_marker(os.getpid()),
+        },
+        "harness_proceso": None,
+        "ficha_bloqueada": None,
         "checkpoints": [],
         "exit_code": None,
     }
@@ -846,6 +857,205 @@ SENALES_DE_MUERTE = tuple(
 )
 
 
+class _EnVuelo:
+    """Lo que un lanzamiento tiene EN LA MANO y debe soltar si lo interrumpen.
+
+    Bug 077 (Fernando en Windows, Manuel en macOS): al cancelar la espera, cerrar la
+    terminal o perder la conexión, el lanzador moría y dejaba tres cosas atrás — el
+    harness hijo VIVO, los leases de la unidad retenidos por un PID que ya no existía y
+    la ficha congelada en 0444. Cada una exigía cirugía a mano.
+
+    El arreglo de la 065 solo cubría la tercera, y solo desde dentro de
+    `_ficha_solo_lectura`: un manejador local que restauraba el modo y se moría. No podía
+    hacer más porque desde ahí no se ve ni el hijo ni los leases. Este objeto es lo que
+    faltaba: el estado vivo del lanzamiento, en UN sitio, para que UN solo manejador de
+    señal pueda limpiar las tres cosas EN EL ORDEN que manda R1 — primero el hijo (si no,
+    sigue escribiendo en el worktree mientras se suelta su autoridad), luego los leases
+    (para que la unidad quede lanzable) y por último la ficha.
+    """
+
+    def __init__(self):
+        self.hijo = None                 # Popen del harness, mientras corre
+        self.autoridades = ()            # LeaseGroup adquiridos para esta unidad
+        self.restaurar_ficha = None      # callable de `_ficha_solo_lectura`, si está abierta
+        self.recibo = None
+        self.ruta_recibo = None
+
+
+_EN_VUELO = None
+
+
+def comando_matar_windows(pid):
+    """`taskkill` con /T: Windows no tiene grupos de proceso POSIX y matar solo al PID
+    deja viva a la descendencia (el harness real arranca desde un shim .cmd, así que
+    SIEMPRE hay descendencia). /F porque el hijo puede estar ignorando el cierre amable.
+
+    Función aparte para que la forma del comando sea comprobable desde cualquier
+    plataforma, igual que `comando_subproceso` (bug 017)."""
+    return ["taskkill", "/T", "/F", "/PID", str(int(pid))]
+
+
+def opciones_de_aislamiento():
+    """El hijo nace en su PROPIO grupo/sesión: sin esto no hay forma de matarlo entero.
+
+    Además le quita el Ctrl-C del terminal: la señal la recibe SOLO el lanzador, que es
+    quien sabe en qué orden hay que soltar las cosas. Con el hijo en el mismo grupo, el
+    Ctrl-C llegaba a los dos a la vez y el harness moría (o no: el de Fernando no lo
+    hacía) sin que nadie liberase su autoridad."""
+    if os.name == "nt":  # pragma: no cover - rama Windows, la ejercita su CI
+        return {"creationflags": getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0)}
+    return {"start_new_session": True}
+
+
+def _grupo_de(pid):
+    """Grupo de procesos del hijo, o None donde no exista el concepto (Windows)."""
+    if os.name == "nt":  # pragma: no cover - rama Windows, la ejercita su CI
+        return None
+    try:
+        return os.getpgid(pid)
+    except OSError:
+        return None
+
+
+def matar_arbol(pid, *, pgid=None, gracia=5.0, proceso=None):
+    """Termina al harness y a toda su descendencia. Devuelve qué se hizo, para el recibo.
+
+    Primero el cierre amable y, si sigue vivo pasada la gracia, el que no se puede
+    ignorar: el hijo simulado del bug 077 IGNORA SIGTERM a propósito porque un harness
+    ocupado tampoco lo atiende."""
+    if pid is None:
+        return "no había harness que matar"
+    if os.name == "nt":  # pragma: no cover - rama Windows, la ejercita su CI
+        subprocess.run(comando_matar_windows(pid), capture_output=True)
+        if proceso is not None:
+            with contextlib.suppress(Exception):
+                proceso.wait(timeout=gracia)
+        return f"taskkill /T /F sobre el PID {pid}"
+
+    def sigue_vivo():
+        if proceso is not None and proceso.poll() is not None:
+            return False
+        try:
+            os.kill(pid, 0)
+        except ProcessLookupError:
+            return False
+        except PermissionError:
+            return True
+        return True
+
+    def golpear(senal):
+        objetivo = pgid
+        if objetivo is None:
+            try:
+                objetivo = os.getpgid(pid)
+            except OSError:
+                objetivo = None
+        try:
+            if objetivo is not None and objetivo != os.getpgrp():
+                os.killpg(objetivo, senal)
+            else:
+                os.kill(pid, senal)
+        except (ProcessLookupError, PermissionError, OSError):
+            return False
+        return True
+
+    if not sigue_vivo():
+        return "el harness ya había terminado"
+    golpear(signal.SIGTERM)
+    limite = time.monotonic() + gracia
+    while sigue_vivo() and time.monotonic() < limite:
+        time.sleep(0.05)
+    if not sigue_vivo():
+        detalle = f"harness {pid} terminado con SIGTERM"
+    else:
+        golpear(signal.SIGKILL)
+        limite = time.monotonic() + gracia
+        while sigue_vivo() and time.monotonic() < limite:
+            time.sleep(0.05)
+        detalle = f"harness {pid} terminado con SIGKILL (ignoraba SIGTERM)"
+    if proceso is not None:
+        with contextlib.suppress(Exception):
+            proceso.wait(timeout=1)
+    return detalle
+
+
+def _limpiar_lo_que_quede(numero):
+    """Suelta, EN ORDEN (R1), lo que el lanzamiento tuviera en la mano.
+
+    Cada paso va aislado: que falle uno no puede impedir los otros dos. Un lease que no
+    se pudo soltar aquí no queda perdido — lo recupera `lease.py desbloquear`, que es
+    justo la red de R2 para cuando ni siquiera hay señal que atender (`kill -9`)."""
+    estado = _EN_VUELO
+    if estado is None:
+        return
+    partes = []
+    try:
+        proceso = estado.hijo
+        if proceso is not None:
+            partes.append(matar_arbol(proceso.pid, proceso=proceso))
+    except Exception as exc:                       # nunca abortar la limpieza a medias
+        partes.append(f"no pude terminar el harness: {exc}")
+    for autoridad in reversed(list(estado.autoridades)):
+        try:
+            autoridad.release()
+            partes.append("leases liberados")
+        except Exception as exc:
+            partes.append(f"no pude liberar leases: {exc}")
+    if estado.restaurar_ficha is not None:
+        try:
+            estado.restaurar_ficha()
+            partes.append("ficha devuelta a escritura")
+        except Exception as exc:
+            partes.append(f"no pude devolver la ficha: {exc}")
+    if estado.recibo is not None and estado.ruta_recibo is not None:
+        with contextlib.suppress(Exception):
+            estado.recibo["resultado"] = "interrumpido"
+            estado.recibo["error"] = (
+                f"lanzamiento interrumpido por la señal {numero}: el trabajo parcial queda "
+                f"en el worktree"
+            )
+            checkpoint(
+                estado.recibo, "interrumpido", "fail",
+                f"señal {numero} · " + " · ".join(partes),
+            )
+            guardar_recibo(estado.ruta_recibo, estado.recibo)
+
+
+@contextlib.contextmanager
+def red_de_seguridad(autoridades):
+    """UN manejador para las tres señales de muerte, durante TODO el lanzamiento.
+
+    Antes esto vivía dentro de `_ficha_solo_lectura` y solo existía mientras la ficha
+    estaba congelada; ahora la ventana cubre desde que hay autoridad hasta que se
+    devuelve, que es cuando hay algo que soltar. Se muere IGUAL que se iba a morir
+    —misma señal, restaurando el manejador previo— para no tragarse nada ni mentir sobre
+    el código de salida."""
+    global _EN_VUELO
+    previo_en_vuelo = _EN_VUELO
+    estado = _EnVuelo()
+    estado.autoridades = list(autoridades)
+    _EN_VUELO = estado
+    previos = {}
+
+    def morir(numero, _marco):
+        _limpiar_lo_que_quede(numero)
+        signal.signal(numero, previos.get(numero, signal.SIG_DFL))
+        os.kill(os.getpid(), numero)
+
+    try:
+        for numero in SENALES_DE_MUERTE:
+            try:
+                previos[numero] = signal.signal(numero, morir)
+            except (OSError, ValueError):
+                pass   # sin hilo principal o sin esa señal en esta plataforma: se sigue
+        yield estado
+    finally:
+        for numero, previo in previos.items():
+            with contextlib.suppress(OSError, ValueError):
+                signal.signal(numero, previo)
+        _EN_VUELO = previo_en_vuelo
+
+
 @contextlib.contextmanager
 def _ficha_solo_lectura(ruta):
     """Fuerza `ruta` a modo lectura mientras dura el bloque y le devuelve la escritura al
@@ -867,10 +1077,15 @@ def _ficha_solo_lectura(ruta):
          que no se salía sin `chmod` a mano, que es exactamente lo que le pasó al padre con
          la 046. Se restaura el modo previo **con la escritura del dueño puesta**: la
          ventana devuelve la ficha viva aunque llegara muerta.
+
+    Bug 077: el manejador de señales ya NO vive aquí. Desde aquí no se ve ni el harness
+    hijo ni los leases, así que un manejador local solo podía arreglar un tercio del
+    problema. Lo que hace ahora es DECLARAR su restauración en `red_de_seguridad`, que es
+    quien lo llama en el orden correcto (hijo → leases → ficha). El `finally` sigue igual
+    para el camino normal.
     """
     modo_previo = stat.S_IMODE(ruta.stat().st_mode)
     modo_restaurado = modo_previo | stat.S_IWUSR
-    previos = {}
 
     def restaurar():
         try:
@@ -878,25 +1093,14 @@ def _ficha_solo_lectura(ruta):
         except OSError:
             pass                       # la ficha ya no está: no hay permiso que devolver
 
-    def morir(numero, _marco):
-        restaurar()
-        signal.signal(numero, previos.get(numero, signal.SIG_DFL))
-        os.kill(os.getpid(), numero)
-
     ruta.chmod(0o444)
+    if _EN_VUELO is not None:
+        _EN_VUELO.restaurar_ficha = restaurar
     try:
-        for numero in SENALES_DE_MUERTE:
-            try:
-                previos[numero] = signal.signal(numero, morir)
-            except (OSError, ValueError):
-                pass       # sin hilo principal o sin esa señal en esta plataforma: se sigue
         yield
     finally:
-        for numero, previo in previos.items():
-            try:
-                signal.signal(numero, previo)
-            except (OSError, ValueError):
-                pass
+        if _EN_VUELO is not None:
+            _EN_VUELO.restaurar_ficha = None
         restaurar()
 
 
@@ -918,7 +1122,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
     # lo que lee el guardián de ADR-022 (`test_ejecucion_gate_real`) sobre el código
     # fuente de `_lanzar_bajo_lease`, y partirla en dos habría vaciado esa comprobación
     # sin que nadie lo decidiera.
-    with worktree_de_la_ejecucion(args, datos) as (worktree, efimero, origen_worktree):
+    with red_de_seguridad(autoridades) as vuelo, \
+            worktree_de_la_ejecucion(args, datos) as (worktree, efimero, origen_worktree):
         home_original = Path(os.environ.get("HOME", str(Path.home()))).resolve()
         texto = encargo(
             args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original
@@ -984,6 +1189,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             + (f" ({recibo['motivo_modelo']})" if recibo["motivo_modelo"] else ""),
         )
         guardar_recibo(ruta_recibo, recibo)
+        vuelo.recibo = recibo
+        vuelo.ruta_recibo = ruta_recibo
         tmp = Path(tempfile.mkdtemp(prefix=f"ejecucion-{args.unidad}-", dir=str(runtime))).resolve()
         tmp.chmod(0o700)
         try:
@@ -1007,6 +1214,10 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 if ficha_bloqueada is not None
                 else contextlib.nullcontext()
             )
+            modo_previo_ficha = (
+                stat.S_IMODE(ficha_bloqueada.stat().st_mode)
+                if ficha_bloqueada is not None else None
+            )
 
             def _correr_harness():
                 for autoridad in autoridades:
@@ -1023,10 +1234,34 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 # cuando el rol es constructor (R3): es la única denegación real posible sin
                 # sandbox de SO, porque --add-dir concede el directorio entero.
                 with contexto_ficha:
-                    return tope, subprocess.run(
+                    if ficha_bloqueada is not None:
+                        recibo["ficha_bloqueada"] = {
+                            "ruta": str(ficha_bloqueada),
+                            "modo_previo": modo_previo_ficha,
+                        }
+                    # Popen y no `run` (bug 077): hace falta el PID del hijo ANTES de
+                    # esperarlo, para poder matarlo desde el manejador de señal y para
+                    # dejarlo escrito en el recibo — es lo único que le permite a
+                    # `lease.py desbloquear` rematar a un huérfano de `kill -9`.
+                    proceso = subprocess.Popen(
                         comando_subproceso(ejecutable, argv, env), cwd=str(worktree), env=env,
-                        stdin=subprocess.DEVNULL, timeout=tope * 60 if tope else None,
+                        stdin=subprocess.DEVNULL, **opciones_de_aislamiento(),
                     )
+                    vuelo.hijo = proceso
+                    recibo["harness_proceso"] = {
+                        "pid": proceso.pid,
+                        "pgid": _grupo_de(proceso.pid),
+                        "process_started": gestion_leases.process_start_marker(proceso.pid),
+                    }
+                    guardar_recibo(ruta_recibo, recibo)
+                    try:
+                        proceso.wait(timeout=tope * 60 if tope else None)
+                    except subprocess.TimeoutExpired:
+                        matar_arbol(proceso.pid, proceso=proceso)
+                        raise
+                    finally:
+                        vuelo.hijo = None
+                    return tope, proceso
 
             try:
                 tope, resultado = _correr_harness()
@@ -1080,10 +1315,43 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             shutil.rmtree(tmp, ignore_errors=True)
 
 
+def avisar_de_lanzamiento_interrumpido(manager, unidad):
+    """R2 del bug 077: un lease cuyo dueño ya no vive NO se atraviesa en silencio.
+
+    `kill -9`, la terminal cerrada de golpe o la conexión perdida no dejan que corra
+    ningún manejador: lo que queda atrás es un lease con el PID de un proceso muerto y,
+    detrás, un harness huérfano que puede seguir escribiendo en el worktree y una ficha
+    en 0444. El adquirente normal retiraba ese lease él solo y seguía adelante, así que
+    el huérfano y la ficha congelada quedaban ahí, invisibles, hasta que alguien se
+    encontraba a mano con el desastre de Fernando.
+
+    Se comprueba ANTES de adquirir, sin retirar nada, y se para nombrando el comando que
+    lo resuelve. Un dueño VIVO no cae por aquí: eso sigue siendo el "ocupado" de siempre
+    (P-20260818-3ad156c4, un lease nunca se roba)."""
+    scope = f"unit:{unidad}"
+    try:
+        hallado = manager.inspeccionar(scope)
+    except gestion_leases.LeaseError:
+        return                   # lease corrupto o ilegible: lo diagnostica `acquire`
+    if hallado is None:
+        return
+    registro, vivo = hallado
+    if vivo is not False:
+        return
+    owner = registro.get("owner", {})
+    raise ErrorEjecucion(
+        f"la unidad {unidad} tiene un lanzamiento INTERRUMPIDO: el lease {scope} sigue "
+        f"a nombre de la sesión {owner.get('session_id', '?')} (PID {owner.get('pid', '?')}), "
+        f"que ya no existe. Puede haber quedado un harness vivo y la ficha en solo lectura. "
+        f"SALIDA: python3 {Path(__file__).with_name('lease.py')} desbloquear {unidad}"
+    )
+
+
 def lanzar(args):
     if not RE_NOMBRE.fullmatch(args.unidad):
         raise ErrorEjecucion("unidad inválida: se esperaba NNN-slug")
     manager = gestion_leases.LeaseManager(RAIZ)
+    avisar_de_lanzamiento_interrumpido(manager, args.unidad)
     try:
         with manager.acquire(f"unit:{args.unidad}") as autoridad_unidad:
             ficha, datos = ficha_unidad(args.unidad, rol=args.rol)
