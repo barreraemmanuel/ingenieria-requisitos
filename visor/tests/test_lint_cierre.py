@@ -18,8 +18,9 @@ import unittest
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[2]
-SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
-PLANTILLAS = RAIZ / "plantilla/docs/00-metodo/plantillas"
+METODO = RAIZ / "plantilla/docs/00-metodo"
+SCRIPTS = METODO / "scripts"
+PLANTILLAS = METODO / "plantillas"
 LINT_CIERRE = SCRIPTS / "lint_cierre.py"
 
 SPEC = """---
@@ -68,6 +69,25 @@ def cabecera(**cambios):
     return "```parte-de-cierre\n" + cuerpo + "\n```\n"
 
 
+# --- Unidad 071: la sección `## Aprendizajes` del hallazgos.md ---------------------------
+def seccion_aprendizajes(constructor="- 2026-08-27 · constructor: el linter lee el fichero "
+                                     "entero, no solo la cabecera.",
+                         revisor="- 2026-08-27 · revisor: ninguno"):
+    """La sección tal y como la trae la plantilla, con el contenido que pida cada caso."""
+    partes = ["## Aprendizajes\n"]
+    if constructor is not None:
+        partes.append("```aprendizajes-constructor\n" + constructor + "\n```\n")
+    if revisor is not None:
+        partes.append("```aprendizajes-revisor\n" + revisor + "\n```\n")
+    return "\n".join(partes)
+
+
+APRENDIZAJES_OK = seccion_aprendizajes()
+APRENDIZAJES_MARCADOR = seccion_aprendizajes(constructor="- —", revisor="- —")
+APRENDIZAJES_NINGUNO = seccion_aprendizajes(constructor="- 2026-08-27 · constructor: ninguno",
+                                            revisor="- 2026-08-27 · revisor: ninguno")
+
+
 class ValidadorTest(unittest.TestCase):
     """Un workspace de juguete con una unidad coherente; cada caso introduce una mentira."""
 
@@ -93,9 +113,11 @@ class ValidadorTest(unittest.TestCase):
             ruta.write_text(f"salida real de {nombre}\n", encoding="utf-8")
             self.hashes[nombre] = hashlib.sha256(ruta.read_bytes()).hexdigest()
 
-    def escribir_parte(self, texto):
+    def escribir_parte(self, texto, aprendizajes=APRENDIZAJES_OK):
+        """`aprendizajes=None` escribe un hallazgos.md de la plantilla ANTERIOR a la 071."""
+        cuerpo = texto + ("\n" + aprendizajes if aprendizajes else "")
         (self.carpeta / "hallazgos.md").write_text(
-            "---\nunidad: 001-demo\n---\n\n# 001 · Hallazgos\n\n" + texto,
+            "---\nunidad: 001-demo\n---\n\n# 001 · Hallazgos\n\n" + cuerpo,
             encoding="utf-8")
 
     def parte_honesto(self, **cambios):
@@ -200,6 +222,39 @@ class ValidadorTest(unittest.TestCase):
                 fallos = [l for l in texto.splitlines() if l.strip().startswith("FAIL ")]
                 self.assertEqual(len(fallos), texto.count("salida:"))
 
+    # --- 071/R2: lo aprendido se escribe, y se escribe en el momento --------------------
+    def test_aprendizajes_con_el_marcador_de_plantilla_se_deniegan(self):
+        self.escribir_parte(self.parte_honesto(), APRENDIZAJES_MARCADOR)
+        texto = self.denegado(self.validar())
+        self.assertIn("aprendizajes-constructor", texto)
+        self.assertIn("aprendizajes-revisor", texto)
+
+    def test_falta_el_bloque_del_revisor_y_se_deniega_nombrandolo(self):
+        self.escribir_parte(self.parte_honesto(), seccion_aprendizajes(revisor=None))
+        texto = self.denegado(self.validar())
+        self.assertIn("aprendizajes-revisor", texto)
+
+    def test_ninguno_explicito_cuenta_como_rellenado(self):
+        self.escribir_parte(self.parte_honesto(), APRENDIZAJES_NINGUNO)
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
+    # --- 071/R3: la plantilla vieja no se re-exige (ausencia ≠ sección vacía) ------------
+    def test_seccion_de_aprendizajes_en_prosa_sin_bloques_no_se_reexige(self):
+        """Hueco H1 del revisor: hay hallazgos.md archivados (059) con `## Aprendizajes`
+        escrito en prosa y sin bloques. La puerta se ancla en los BLOQUES, no en el título."""
+        self.escribir_parte(
+            self.parte_honesto(),
+            "## Aprendizajes\n\n**Lo que más costó.** Prosa larga, de la plantilla anterior,\n"
+            "sin ningún bloque cercado.\n")
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
+    def test_hallazgos_sin_seccion_de_aprendizajes_no_se_reexige(self):
+        self.escribir_parte(self.parte_honesto(), None)
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
     def test_sin_argumento_recorre_las_unidades_activas(self):
         self.escribir_parte(self.parte_honesto())
         salida = subprocess.run(
@@ -244,8 +299,12 @@ class CierreBloqueaTest(unittest.TestCase):
             ruta.write_text(f"salida real de {nombre}\n", encoding="utf-8")
             self.hashes[nombre] = hashlib.sha256(ruta.read_bytes()).hexdigest()
 
-    def escribir_hallazgos(self, parte):
+    def escribir_hallazgos(self, parte, aprendizajes=APRENDIZAJES_OK):
         plantilla = (PLANTILLAS / "hallazgos.md").read_text(encoding="utf-8")
+        # 071: la sección llega con marcadores; cada caso pone lo suyo (o los deja).
+        if aprendizajes:
+            plantilla = re.sub(r"(?ms)^## Aprendizajes.*?(?=^## |\Z)", aprendizajes + "\n",
+                               plantilla, count=1)
         plantilla = re.sub(r"^revisor:.*$", "revisor: agente-fresco", plantilla,
                            count=1, flags=re.M)
         plantilla = re.sub(r"^revisado:.*$", "revisado: 2026-08-25", plantilla,
@@ -277,6 +336,18 @@ class CierreBloqueaTest(unittest.TestCase):
         self.assertIn("tests_exit", del_parte[0])
         self.assertIn("SALIDA:", del_parte[0])
 
+    def test_aprendizajes_sin_rellenar_bloquean_el_cierre(self):
+        honesto = {"tests_sha256": self.hashes["tests.txt"],
+                   "build_sha256": self.hashes["lint.txt"]}
+        self.escribir_hallazgos(cabecera(**honesto), aprendizajes=None)
+        salida = self.cerrar()
+        texto = salida.stdout + salida.stderr
+        self.assertEqual(salida.returncode, 1, texto)
+        self.assertIn("CIERRE BLOQUEADO", texto)
+        del_parte = [b for b in self.bloqueos(texto) if b.startswith("· parte de cierre")]
+        self.assertTrue(del_parte, texto)
+        self.assertIn("aprendizajes", " ".join(del_parte))
+
     def test_con_la_cabecera_bien_el_parte_deja_de_ser_el_bloqueo(self):
         honesto = {"tests_sha256": self.hashes["tests.txt"],
                    "build_sha256": self.hashes["lint.txt"]}
@@ -286,6 +357,33 @@ class CierreBloqueaTest(unittest.TestCase):
         self.assertIn("parte de cierre: veredicto", texto)
         self.assertFalse([b for b in self.bloqueos(texto) if b.startswith("· parte de cierre")],
                          texto)
+
+
+class PlantillaYRunbookTest(unittest.TestCase):
+    """071/R1: el hueco existe donde lo va a leer quien construye y quien revisa."""
+
+    def setUp(self):
+        self.plantilla = (PLANTILLAS / "hallazgos.md").read_text(encoding="utf-8")
+
+    def test_la_plantilla_trae_la_seccion_con_los_dos_bloques(self):
+        self.assertRegex(self.plantilla, r"(?m)^##\s+Aprendizajes\b")
+        self.assertIn("```aprendizajes-constructor", self.plantilla)
+        self.assertIn("```aprendizajes-revisor", self.plantilla)
+
+    def test_la_plantilla_dice_cuantas_frases_y_que_ninguno_vale(self):
+        seccion = self.plantilla.split("## Aprendizajes", 1)[1]
+        self.assertIn("1-5", seccion)
+        self.assertIn("ninguno", seccion)
+
+    def test_la_plantilla_sin_rellenar_no_pasa_su_propio_linter(self):
+        """El hueco llega con marcadores: la plantilla tal cual NO es un parte válido."""
+        sys.path.insert(0, str(SCRIPTS))
+        import lint_cierre  # noqa: E402 - se importa tras fijar la ruta de los scripts
+        self.assertTrue(lint_cierre.revisar_aprendizajes("001-demo", self.plantilla))
+
+    def test_el_cierre_promueve_solo_desde_aprendizajes(self):
+        cierre = (METODO / "runbooks/cierre.md").read_text(encoding="utf-8")
+        self.assertIn("## Aprendizajes", cierre)
 
 
 if __name__ == "__main__":

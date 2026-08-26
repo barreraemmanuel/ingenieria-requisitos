@@ -6,6 +6,7 @@ de la plantilla sin rellenar, que es justo lo que la puerta deniega. Esto la rel
 parte HONESTO —salidas reales volcadas a `.runtime/`, hashes calculados, números contados
 sobre la propia especificación— para que esas pruebas sigan comprobando lo suyo y no la 045.
 """
+import datetime
 import hashlib
 import re
 import sys
@@ -57,5 +58,18 @@ def escribir_parte_honesto(ws, hallazgos):
         texto = re.sub(r"```parte-de-cierre.*?```\n", bloque, texto, count=1, flags=re.S)
     else:
         texto += "\n" + bloque
-    hallazgos.write_text(texto, encoding="utf-8")
+    hallazgos.write_text(rellenar_aprendizajes(texto), encoding="utf-8")
     return bloque
+
+
+def rellenar_aprendizajes(texto):
+    """Unidad 071: la sección `## Aprendizajes` también llega con marcadores, y desde la 071
+    la puerta del cierre la exige rellena. Aquí se pone una frase honesta por bloque para que
+    las pruebas que CIERRAN unidades de juguete sigan comprobando lo suyo y no la 071."""
+    hoy = datetime.date.today().isoformat()
+    for quien in ("constructor", "revisor"):
+        texto = re.sub(
+            r"(```aprendizajes-" + quien + r"[ \t]*\n).*?(```)",
+            lambda m, q=quien: (m.group(1) + f"- {hoy} · {q}: ninguno\n" + m.group(2)),
+            texto, count=1, flags=re.S)
+    return texto
