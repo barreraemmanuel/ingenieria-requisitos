@@ -1,17 +1,29 @@
 #!/usr/bin/env python3
 """Compila la documentación final de la aplicación: especificaciones/.
 
-Estructura de salida, siempre la misma:
-    especificaciones/
-      README.md                  (índice)
-      01-constitution/
-        constitution.md          (los principios y el mapa: lo global)
-      02-flows/
-        <area>/<actividad>.md    (un spec por actividad con planos)
+Dos formatos de salida, y manda el que YA tiene el proyecto (bug 092):
 
-Se regenera ENTERA en cada ejecución: no se edita a mano. Solo stdlib.
+  carpetas (el de una salida nueva)      plano (el de los workspaces del bootstrap)
+    especificaciones/                      docs/02-flujos/
+      README.md          (índice)            INDICE.md        (lo mantiene el padre)
+      01-constitution/                       <actividad>.md   (un spec por actividad,
+        constitution.md  (lo global)                           hermanos del índice)
+      02-flows/
+        <area>/<actividad>.md
+
+Antes de escribir se mira `--salida`: si ya hay .md planos con el nombre de las
+actividades del mapa (o un índice que enlaza a ellos) y NO hay 01-constitution/ ni
+02-flows/, se recompila el plano; si están las carpetas, se hacen carpetas; si hay
+las dos cosas —o documentación que no se reconoce— no se escribe nada y se piden
+`--formato plano` o `--formato carpetas`. Migrar de un formato al otro no es cosa
+de este script: cambiaría sin permiso ficheros que el usuario versiona.
+
+Lo que este script controla se regenera ENTERO en cada ejecución: no se edita a
+mano. En formato plano solo son suyos los `<actividad>.md`; el índice y la
+constitución los mantiene el padre del workspace. Solo stdlib.
 
 Uso: python3 compilar.py --mapa <ruta/planos.json> [--salida <dir>]
+                         [--formato plano|carpetas]
 (por defecto escribe en especificaciones/ junto al planos.json)
 """
 
@@ -158,10 +170,84 @@ def md_constitution(d):
     return "\n".join(L) + "\n"
 
 
+def nombres_planos(d):
+    """Los .md que tendría este mapa compilado en formato plano (uno por actividad)."""
+    actividades = d.get("actividades", [])
+    if actividades:
+        return [x["id"] + ".md" for x in actividades]
+    return [slug(d.get("proyecto") or d.get("titulo") or "aplicacion") + ".md"]
+
+
+def detectar_formato(out, esperados):
+    """Qué formato tiene YA la carpeta de salida: 'plano', 'carpetas' o None (ambiguo).
+
+    Segundo valor: el motivo, para poder explicarlo cuando no se puede decidir.
+    Una salida que todavía no existe (o sin ningún .md) no es ambigua: es nueva, y
+    ahí el formato de siempre es el de carpetas.
+    """
+    if not os.path.isdir(out):
+        return "carpetas", "salida nueva"
+    entradas = sorted(os.listdir(out))
+    marcas_carpetas = [x for x in ("01-constitution", "02-flows")
+                       if os.path.isdir(os.path.join(out, x))]
+    if os.path.isfile(os.path.join(out, "README.md")):
+        marcas_carpetas.append("README.md")
+    marcas_planas = [x for x in esperados if os.path.isfile(os.path.join(out, x))]
+    indice = os.path.join(out, "INDICE.md")
+    if os.path.isfile(indice):
+        try:
+            with open(indice, "r", encoding="utf-8", errors="replace") as f:
+                texto = f.read()
+        except OSError:
+            texto = ""
+        for nombre in esperados:
+            if ("](%s)" % nombre) in texto and nombre not in marcas_planas:
+                marcas_planas.append("INDICE.md → %s" % nombre)
+    if marcas_carpetas and marcas_planas:
+        return None, "conviven %s con %s" % (", ".join(marcas_planas),
+                                             ", ".join(marcas_carpetas))
+    if marcas_planas:
+        return "plano", ", ".join(marcas_planas)
+    if marcas_carpetas:
+        return "carpetas", ", ".join(marcas_carpetas)
+    ajenos = [x for x in entradas if x.lower().endswith(".md")]
+    if ajenos:
+        return None, ("ya hay documentación (%s) que no corresponde a ninguna "
+                      "actividad del mapa" % ", ".join(ajenos))
+    return "carpetas", "salida vacía"
+
+
+def compilar_plano(d, ruta_mapa, raiz, out):
+    """Un .md por actividad, hermanos del índice. No toca nada más de la carpeta."""
+    escritos = []
+    actividades = d.get("actividades", [])
+    if actividades:
+        sin_planos = []
+        for x in actividades:
+            pj = os.path.join(raiz, "actividades", x["id"], "planos.json")
+            if os.path.isfile(pj):
+                nombre = x["id"] + ".md"
+                generar(pj, os.path.join(out, nombre))
+                escritos.append(nombre)
+            else:
+                sin_planos.append(x["nombre"])
+        resumen = "%d actividad(es) recompilada(s)" % len(escritos)
+        if sin_planos:
+            resumen += ", %d aún sin planos (%s)" % (len(sin_planos), ", ".join(sin_planos))
+    else:
+        nombre = nombres_planos(d)[0]
+        generar(ruta_mapa, os.path.join(out, nombre))
+        escritos.append(nombre)
+        resumen = "proyecto de una sola actividad"
+    return escritos, resumen
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--mapa", required=True, help="El planos.json del mapa (o de un proyecto de una sola actividad)")
     ap.add_argument("--salida", help="Carpeta destino (defecto: especificaciones/ junto al mapa)")
+    ap.add_argument("--formato", choices=("plano", "carpetas"),
+                    help="Fuerza el formato de salida en vez de deducirlo de lo que ya hay")
     args = ap.parse_args()
 
     ruta_mapa = os.path.abspath(args.mapa)
@@ -173,6 +259,35 @@ def main():
 
     raiz = os.path.dirname(ruta_mapa)
     out = os.path.abspath(args.salida or os.path.join(raiz, "especificaciones"))
+
+    # Antes de escribir, mirar qué estructura tiene YA el proyecto: escribir la
+    # estructura de carpetas encima de un proyecto plano dejaba su .md histórico
+    # huérfano y la documentación incoherente (bug 092).
+    formato, motivo = detectar_formato(out, nombres_planos(d))
+    if args.formato:
+        formato = args.formato
+    elif formato is None:
+        sys.exit(
+            "compilar: no sé en qué formato está %s (%s), así que no escribo nada "
+            "para no pisar el que ya usas.\n"
+            "SALIDA: dime cuál quieres con --formato plano (un .md por actividad, "
+            "hermanos del índice) o --formato carpetas (01-constitution/ + 02-flows/ "
+            "+ README.md)." % (out, motivo)
+        )
+
+    if formato == "plano":
+        os.makedirs(out, exist_ok=True)
+        escritos, resumen = compilar_plano(d, ruta_mapa, raiz, out)
+        print("Especificaciones compiladas en %s, formato plano (%s): %s" %
+              (out, resumen, ", ".join(escritos) or "nada que compilar"))
+        print("No he tocado el índice ni la constitución: en este formato los "
+              "mantiene el padre del workspace.")
+        sobrantes = [x for x in sorted(os.listdir(out))
+                     if x.lower().endswith(".md") and x != "INDICE.md" and x not in escritos]
+        if sobrantes:
+            print("Tampoco he tocado, y ya no salen del mapa: %s" % ", ".join(sobrantes))
+        return
+
     c1 = os.path.join(out, "01-constitution")
     c2 = os.path.join(out, "02-flows")
     # Estas rutas son propiedad exclusiva del compilador. Se reconstruyen
