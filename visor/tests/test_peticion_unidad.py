@@ -1063,6 +1063,88 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         self.assertIn("Construye el padre", resultado.stdout)
         self.assertNotIn("ejecucion.py lanzar", resultado.stdout)
+    # ------------------------------------------------------ 096 · reencuadre de carril
+    def despachar_directo(self, slug):
+        """Una unidad directo ya en obra: el punto en que se descubre que era más grande."""
+        pid = self.capturar()
+        self.evaluar(pid, ruta="directo")
+        creada = self.ejecutar(
+            self.unidad, "nueva", "feature", slug, "--directo", "--desde", pid
+        )
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        nombre = f"001-{slug}"
+        self.aprobar_para_despacho(nombre)
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        return pid, nombre
+
+    def metadata_del_despacho(self, pid, nombre):
+        datos = json.loads(
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json").read_text(
+                encoding="utf-8")
+        )
+        proceso = next(p for p in datos["procesos"] if p.get("ref") == nombre)
+        return proceso.get("metadata") or {}
+
+    def test_reencuadrar_sube_el_carril_en_el_registro_y_en_la_ficha(self):
+        pid, nombre = self.despachar_directo("cambio-que-crecio")
+        antes = self.metadata_del_despacho(pid, nombre)
+        self.assertEqual(antes.get("carril"), "directo")
+
+        resultado = self.ejecutar(
+            self.unidad, "reencuadrar", nombre,
+            "--carril", "normal", "--motivo", "el diff mide 346 lineas",
+        )
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        despues = self.metadata_del_despacho(pid, nombre)
+        self.assertEqual(despues.get("carril"), "normal")
+        # La base de despacho es el dato con el que el cierre MIDE: el reencuadre la conserva.
+        self.assertEqual(despues.get("base_sha"), antes.get("base_sha"))
+        self.assertEqual(despues.get("ejecucion"), antes.get("ejecucion"))
+        ficha = (self.ws / "docs/05-trabajo" / nombre / "especificacion.md").read_text(
+            encoding="utf-8")
+        self.assertRegex(ficha, r"(?m)^carril: normal\b")
+        self.assertIn("el diff mide 346 lineas", ficha)
+        self.assertIn(datetime.date.today().isoformat(), ficha)
+        self.assertIn("directo", ficha.split("---", 2)[2][:400])
+
+    def test_reencuadrar_no_baja_de_carril_ni_toca_una_unidad_ya_mergeada(self):
+        pid, nombre = self.despachar_directo("no-se-achica")
+        ruta = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+
+        bajada = self.ejecutar(
+            self.unidad, "reencuadrar", nombre,
+            "--carril", "directo", "--motivo", "quiero saltarme la revisión",
+        )
+
+        self.assertEqual(bajada.returncode, 1, bajada.stdout)
+        self.assertIn("SALIDA", bajada.stdout + bajada.stderr)
+        self.assertEqual(self.metadata_del_despacho(pid, nombre).get("carril"), "directo")
+
+        ruta.write_text(
+            re.sub(r"(?m)^estado:.*$", "estado: mergeada",
+                   ruta.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8",
+        )
+        tarde = self.ejecutar(
+            self.unidad, "reencuadrar", nombre,
+            "--carril", "normal", "--motivo", "me di cuenta al cerrar",
+        )
+
+        self.assertEqual(tarde.returncode, 1, tarde.stdout)
+        self.assertIn("SALIDA", tarde.stdout + tarde.stderr)
+        self.assertEqual(self.metadata_del_despacho(pid, nombre).get("carril"), "directo")
+
+    def test_el_guardian_del_directo_ofrece_el_reencuadre_como_salida(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            modulo = importlib.import_module("unidad")
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        mensaje = modulo.mensaje_directo_desbordado("001-x", 5, 400, ["app/otro.py"])
+        self.assertIn("unidad.py reencuadrar 001-x --carril normal", mensaje)
+        self.assertNotIn("NO tiene comando", mensaje)
 
     def test_orden_existente_adopta_revision_material_sin_perder_historia(self):
         pid = self.capturar()

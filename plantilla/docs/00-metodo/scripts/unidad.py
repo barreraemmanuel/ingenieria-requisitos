@@ -2116,6 +2116,119 @@ def cmd_despachar(args):
         return 1
 
 
+# ---------------------------------------------------------------------- subcomando: reencuadrar
+
+# El carril solo SUBE. El reencuadre existe para reconocer que un trabajo era más grande de lo
+# que se creyó al despacharlo, nunca para achicar el que ya se pasó: bajarlo apagaría justo las
+# puertas que el tamaño real reclama (regla 9, «ante la duda se SUBE de carril»).
+ORDEN_CARRILES = {"expres": 0, "directo": 1, "normal": 2, "completo": 3}
+ESTADOS_REENCUADRABLES = ("en_obra", "en_revision")
+RASTRO_REENCUADRES = ".runtime/reencuadres.log"
+
+
+def anotar_reencuadre(ruta, anterior, nuevo, motivo):
+    """`carril:` nuevo en la ficha + la nota con fecha y motivo, justo bajo la cabecera.
+
+    Es la segunda excepción de escritura de frontmatter por script, junto a `marcar_en_obra`,
+    y por el mismo motivo: el carril decide qué puertas aplican, así que dejarlo a mano es
+    dejar el interruptor junto a la cerradura. La nota no sustituye al registro de despacho —
+    ese es el que mandan las puertas—: es lo que el revisor y el usuario van a LEER.
+    """
+    ruta = fichero_unidad_seguro(ruta)
+    texto = leer_fichero_unidad(ruta)
+    texto = re.sub(r"^carril:.*$", f"carril: {nuevo}", texto, count=1, flags=re.M)
+    texto = re.sub(r"^actualizado:\s*\S+", f"actualizado: {HOY}", texto, count=1, flags=re.M)
+    lineas = texto.splitlines()
+    corte = 0
+    if lineas and lineas[0].strip() == "---":
+        for i, linea in enumerate(lineas[1:], start=1):
+            if linea.strip() == "---":
+                corte = i + 1
+                break
+    lineas[corte:corte] = [
+        "",
+        f"> **Reencuadre de carril ({HOY}):** {anterior} → {nuevo}. Motivo: {motivo}",
+        "> El despacho anterior no se borra: su base de rama sigue en la petición de origen, "
+        "que es contra lo que el cierre mide.",
+    ]
+    escribir_fichero_unidad(ruta, "\n".join(lineas) + "\n")
+
+
+def cmd_reencuadrar(args):
+    """Sube de carril un trabajo ya en obra, de forma auditable (unidad 096).
+
+    Reescribe el registro que dejó `despachar` en la petición —misma revisión, misma base de
+    rama, carril y ficheros de hoy— en vez de registrar un despacho nuevo: `registrar_despacho`
+    rechaza una segunda base y el reencuadre a mano acababa editando el JSON de la petición.
+    """
+    nombre = args.unidad.strip("/")
+    nuevo = (args.carril or "").strip().lower()
+    motivo = (args.motivo or "").strip()
+    unidad = buscar_unidad(nombre) if RE_UNIDAD.match(nombre) else None
+    if not unidad or not unidad.get("fm"):
+        fail(f"no encuentro la unidad {nombre}")
+        err(f"\n  {SALIDA} mira qué hay en vuelo con "
+            f"`python3 {rel(__file__)} estado --sin-navegador`")
+        return 1
+    fm, ruta = unidad["fm"], unidad["ruta"]
+    estado = (fm.get("estado") or "").strip()
+    if estado not in ESTADOS_REENCUADRABLES:
+        fail(f"{nombre} está en estado '{estado or 'sin estado'}': el reencuadre de carril "
+             f"solo vale ANTES del cierre ({' o '.join(ESTADOS_REENCUADRABLES)}), porque lo "
+             f"que cambia es qué puertas aplica el cierre")
+        err(f"\n  {SALIDA} si la unidad ya está fusionada, el carril con el que salió es "
+            f"historia y se deja escrito en el cierre; si el trabajo sigue vivo, devuélvela "
+            f"a revisión y repite:\n      python3 {rel(__file__)} reencuadrar {nombre} "
+            f"--carril {nuevo or 'normal'} --motivo \"...\"")
+        return 1
+    tipo_proceso = "bug" if unidad["clase"] == "bug" else "unidad"
+    try:
+        referencias = revalidar_origenes(fm, proceso=(tipo_proceso, nombre))
+        registro = gestion_peticiones.despacho_registrado(referencias, tipo_proceso, nombre)
+    except gestion_peticiones.ErrorPeticion as exc:
+        fail(f"no pude leer el despacho de {nombre} en sus peticiones: {exc}")
+        err(f"\n  {SALIDA} mira qué dice la petición de origen y con qué revisión enlaza:\n"
+            f"      python3 docs/00-metodo/scripts/peticion.py estado "
+            f"{(peticiones_de(fm) or ['<P-ID>'])[0].split('@')[0]}")
+        return 1
+    registro = registro or {}
+    actual = (registro.get("carril") or fm.get("carril") or "normal").strip().lower()
+    if ORDEN_CARRILES.get(nuevo, -1) <= ORDEN_CARRILES.get(actual, -1):
+        fail(f"{nombre} salió por el carril {actual} y pides {nuevo or 'un carril vacío'}: el "
+             f"reencuadre solo SUBE de carril "
+             f"({' < '.join(sorted(ORDEN_CARRILES, key=ORDEN_CARRILES.get))})")
+        err(f"\n  {SALIDA} si el trabajo cabe de verdad en {nuevo or 'ese carril'}, déjalo "
+            f"dentro de sus topes y ciérralo tal cual:\n"
+            f"      python3 {rel(__file__)} cerrar {nombre}")
+        return 1
+    try:
+        gestion_peticiones.registrar_despacho(
+            referencias, tipo_proceso, nombre,
+            carril=nuevo,
+            ejecucion=(registro.get("ejecucion") or fm.get("ejecucion") or "").strip(),
+            ficheros=sorted(ficheros_de(fm)),
+        )
+    except gestion_peticiones.ErrorPeticion as exc:
+        fail(f"no pude reescribir el registro de despacho; no toco la ficha: {exc}")
+        err(f"\n  {SALIDA} la ficha queda como estaba; mira en qué revisión anda la petición "
+            f"y repite el reencuadre:\n      python3 docs/00-metodo/scripts/peticion.py "
+            f"estado {(peticiones_de(fm) or ['<P-ID>'])[0].split('@')[0]}")
+        return 1
+    anotar_reencuadre(ruta, actual, nuevo, motivo)
+    rastro = RAIZ / RASTRO_REENCUADRES
+    rastro.parent.mkdir(parents=True, exist_ok=True)
+    with open(rastro, "a", encoding="utf-8") as registro_txt:
+        registro_txt.write(f"{HOY} {nombre}: {actual} → {nuevo} · {motivo} · "
+                           f"{', '.join(referencias)}\n")
+    ok(f"{nombre} reencuadrada a {nuevo} (venía de {actual}) en {', '.join(referencias)} "
+       f"y en {rel(ruta)}; el registro de despacho anterior conserva su base de rama")
+    print(f"\n  Siguientes pasos:\n"
+          f"    1. El cierre aplica ya las puertas del carril {nuevo} (runbooks/feature.md).\n"
+          f"    2. Actualiza ESTADO.md con el carril nuevo y su motivo (lo escribe el padre).\n"
+          f"    3. Rastro: {rel(rastro)}")
+    return 0
+
+
 # --------------------------------------------------------------------------- subcomando: cerrar
 
 # La línea de veredicto de hallazgos.md y la de revisión de una ficha de bug. Si el valor
@@ -2387,13 +2500,11 @@ def mensaje_directo_desbordado(nombre, ficheros, lineas, fuera, contra=""):
         + "; ".join(razones)
         + (f" (medido desde su base de despacho hasta {contra})" if contra else "")
         + ". Eso no era un trabajo directo: un directo es un contrato de una pantalla que se "
-        f"deshace revirtiendo. {SALIDA} el reencuadre de carril NO tiene comando: "
-        f"`peticion.py reencuadrar-orden` hace otra cosa (que una orden adopte una revisión "
-        f"material ya reevaluada) y `reabrir` solo toca peticiones ya cerradas. Es un paso "
-        f"de mano, en tres tiempos: (1) no cierres {nombre} y pasa al padre esta misma "
-        f"medida; (2) el padre reevalúa la petición y la vuelve a despachar por el carril "
-        f"que le corresponde, que es quien escribe el registro de despacho; (3) se cierra "
-        f"por el ritual de `runbooks/feature.md`. Si el cambio sí cabía en directo, la otra "
+        f"deshace revirtiendo. {SALIDA} reencuádralo, que reescribe el registro de despacho "
+        f"y deja el motivo con fecha en la ficha: "
+        f"`python3 docs/00-metodo/scripts/unidad.py reencuadrar {nombre} --carril normal "
+        f"--motivo \"<por qué se pasó>\"`; después se cierra por el ritual de "
+        f"`runbooks/feature.md`, con sus puertas. Si el cambio sí cabía en directo, la otra "
         f"salida es dejarlo dentro de los topes y volver a cerrar"
     )
 
@@ -3632,7 +3743,7 @@ def main():
                     "creación de rama/worktree con precondiciones que bloquean.")
     sub = ap.add_subparsers(
         dest="comando",
-        metavar="{nnn,nueva,despachar,validar,prefusion,cerrar,estado}")
+        metavar="{nnn,nueva,despachar,reencuadrar,validar,prefusion,cerrar,estado}")
 
     p_nnn = sub.add_parser("nnn", help="imprime el siguiente NNN libre")
     p_nnn.add_argument("--detalle", action="store_true",
@@ -3684,6 +3795,22 @@ def main():
                         help="emergencia declarada por el usuario, en una frase; obligatorio "
                              'con --force (p. ej. --motivo "produccion caida: 500 en el login")')
     p_desp.set_defaults(func=cmd_despachar)
+
+    p_ree = sub.add_parser(
+        "reencuadrar",
+        help="sube de carril una unidad en obra o en revisión que resultó más grande de lo "
+             "que el carril con el que se despachó permite")
+    p_ree.add_argument("unidad", help="nombre completo NNN-slug")
+    # Sin `choices`: pedir `--carril directo` sobre un directo es el error que este comando
+    # tiene que EXPLICAR (R2), y un `invalid choice` de argparse no nombra ninguna salida.
+    p_ree.add_argument("--carril", required=True, metavar="{normal,completo}",
+                       help="carril al que sube. El reencuadre solo sube: un directo que se "
+                            "pasó de tamaño pasa a normal, y lo transversal o arriesgado, a "
+                            "completo")
+    p_ree.add_argument("--motivo", required=True,
+                       help="por qué ya no cabía en su carril, en una frase con el dato que "
+                            'lo prueba (p. ej. --motivo "el diff mide 346 líneas")')
+    p_ree.set_defaults(func=cmd_reencuadrar)
 
     p_cer = sub.add_parser("cerrar",
                            help="cierra una unidad revisada y ya fusionada: puertas + los "
