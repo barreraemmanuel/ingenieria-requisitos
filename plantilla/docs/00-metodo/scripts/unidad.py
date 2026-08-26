@@ -2831,8 +2831,19 @@ def escribir_ok_usuario(ruta, fecha):
     escribir_fichero_unidad(ruta, texto)
 
 
+# Tope de espera de `lsof` en el guard de procesos vivos. Es un dato con nombre porque los
+# tests lo bajan para provocar el timeout sin dormir 15 s (bug 086).
+TIMEOUT_LSOF = 15
+
+
 def procesos_dentro(destino):
     """PIDs ajenos con ficheros abiertos bajo `destino` (best-effort: lsof en POSIX).
+
+    Tres respuestas, no dos (bug 086): una lista de PIDs («hay vida»), `[]` («miré y no hay
+    nadie», o no hay lsof que mirar) y `None` («no lo sé»: lsof no contestó antes del tope).
+    Antes el timeout salía como `[]` y quien llamaba lo leía como «nadie dentro» — en este
+    Mac `lsof -t +D` tarda ~90 s con un volumen SMB montado, así que la ignorancia autorizaba
+    un borrado irreversible.
 
     Sin lsof (o en Windows) devuelve [] y el borrado sigue como siempre: es un guard de
     máximo esfuerzo, no una promesa — pero cubre el caso real (macOS/Linux, una suite de
@@ -2841,23 +2852,38 @@ def procesos_dentro(destino):
         return []
     try:
         r = subprocess.run(["lsof", "-t", "+D", str(destino)], capture_output=True,
-                           text=True, encoding="utf-8", errors="replace", timeout=15)
-    except (OSError, subprocess.TimeoutExpired):
+                           text=True, encoding="utf-8", errors="replace", timeout=TIMEOUT_LSOF)
+    except subprocess.TimeoutExpired:
+        return None
+    except OSError:
+        # No se pudo ni lanzar: mismo caso que "aquí no hay lsof", best-effort declarado.
         return []
     propios = {str(os.getpid()), str(os.getppid())}
     return sorted({pid.strip() for pid in r.stdout.split()
                    if pid.strip() and pid.strip() not in propios})
 
 
-def borrar_worktree(repo, destino):
+def borrar_worktree(repo, destino, sin_guardian=False):
     """Quita el worktree. Se ha comprobado antes que no tiene cambios: --force solo vence a
     los ficheros IGNORADOS (node_modules, .venv, build/), que `git status` no ve y que en un
-    proyecto real siempre están ahí. Sin esto el comando no valdría fuera de un repo de juguete."""
+    proyecto real siempre están ahí. Sin esto el comando no valdría fuera de un repo de juguete.
+
+    `sin_guardian=True` es la salida del gate: quien la usa afirma haber mirado él que dentro
+    no trabaja nadie."""
     if not destino.exists():
         return True, "ya no existía"
     # Borrar el directorio de trabajo de un proceso vivo lo mata sin aviso — así murieron
     # suites de tests de campo (07-08). Daño irreversible ⇒ gate duro con salida (ADR-026).
-    vivos = procesos_dentro(destino)
+    vivos = [] if sin_guardian else procesos_dentro(destino)
+    if vivos is None:
+        # Un timeout es "no sé", nunca "nadie": el borrado es irreversible y la duda no lo
+        # autoriza (bug 086).
+        return False, (
+            f"no he podido comprobar si hay procesos vivos dentro: `lsof` no contestó en "
+            f"{TIMEOUT_LSOF} s (pasa con un volumen de red montado o con la máquina cargada). "
+            f"No lo borro con la duda. SALIDA: repite el cierre con la máquina descargada, o "
+            f"cierra tú lo que trabaje dentro y repítelo, o borra el worktree a mano; si ya "
+            f"has mirado que no hay nadie, `--sin-guardian` lo borra bajo tu palabra")
     if vivos:
         return False, (f"hay procesos vivos trabajando dentro (PID {', '.join(vivos)}): "
                        f"no lo borro para no matarlos a mitad; espera a que terminen o "
@@ -3300,7 +3326,8 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             return codigo_lint
 
     if politica.require_merge and hay_repo:
-        borrado, detalle = borrar_worktree(repo, destino)
+        borrado, detalle = borrar_worktree(repo, destino,
+                                           sin_guardian=getattr(args, "sin_guardian", False))
         (ok if borrado else warn)(f"worktree worktrees/{nombre}: {detalle}")
         if git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{nombre}",
                silencioso=True)[0] == 0:
@@ -3523,6 +3550,11 @@ def main():
              "de verdad la misma fecha de OK del usuario. Es la única vía de salida de la "
              "puerta que impide firmar entregas en lote con una sola fecha",
     )
+    p_cer.add_argument(
+        "--sin-guardian", action="store_true",
+        help="borra el worktree aunque `lsof` no haya podido decir si hay procesos vivos "
+             "dentro (en máquinas donde tarda decenas de segundos). Lo usas cuando has "
+             "mirado tú que nadie trabaja ahí: bajo tu palabra, no bajo la del método")
     p_cer.set_defaults(func=cmd_cerrar)
 
     p_val = sub.add_parser(
