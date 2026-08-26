@@ -1308,6 +1308,40 @@ else:
     else:
         ok("las tres juntas del método cuadran (vocabulario, tope directo, puertas con dueño)")
 
+# --- 8e. La sanidad del workspace tiene fecha de caducidad (unidad 079, R-2405) ---
+# `sanidad.py atraso` sabe desde la 059 cuántos cierres y cuántos días lleva el workspace sin
+# medirse, pero nadie se lo preguntaba: el ejecutor existía y el aviso no. Se pregunta aquí,
+# donde ya se mira todo al arrancar sesión y al cerrar, y se publica TAL CUAL lo que conteste
+# —con su cuenta y su SALIDA:— para no tener dos maneras distintas de contar lo mismo (R3).
+# Siempre WARN, nunca FAIL: la sanidad guía, no bloquea (ADR-026).
+COMO_PASAR_SANIDAD = "python3 docs/00-metodo/scripts/sanidad.py medir --anotar"
+sanidad_py = RAIZ / "docs/00-metodo/scripts/sanidad.py"
+if not sanidad_py.is_file():
+    # Falta una pieza del MÉTODO, no del proyecto: avisa y no bloquea (ADR-026).
+    warn("no se pudo comprobar si la sanidad del workspace está atrasada: falta "
+         "docs/00-metodo/scripts/sanidad.py; actualiza el método con "
+         "`python3 visor/actualizar.py revisar --todos` desde la herramienta de ingeniería "
+         f"de requisitos, o pásala a mano: {COMO_PASAR_SANIDAD}")
+else:
+    resultado_sanidad = subprocess.run(
+        [sys.executable, str(sanidad_py), "atraso"], cwd=str(RAIZ),
+        capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+    )
+    veredicto = next((l.strip() for l in (resultado_sanidad.stdout or "").splitlines()
+                      if l.strip().startswith(("OK", "WARN"))), "")
+    if resultado_sanidad.returncode or not veredicto:
+        # `atraso` sin `--estricto` sale 0 aunque avise: un returncode≠0 (o una salida que no
+        # empieza por OK/WARN) es que se rompió. Un solo WARN con el error y el lint sigue.
+        detalle = ((resultado_sanidad.stderr or "").strip().splitlines()
+                   or (resultado_sanidad.stdout or "").strip().splitlines() or ["sin salida"])[-1]
+        warn(f"no se pudo comprobar si la sanidad del workspace está atrasada: {detalle} · "
+             f"pásala a mano: {COMO_PASAR_SANIDAD}")
+    elif veredicto.startswith("WARN"):
+        # Ya viene con cierres, días y `SALIDA:`; se reenvía sin reescribir la cuenta.
+        warn(veredicto[len("WARN"):].strip())
+    else:
+        ok(veredicto[len("OK"):].strip())
+
 # --- 9. Higiene ---
 if (RAIZ / "codebase").exists():
     fail("codebase/ existe (estructura vieja: debe ser main/ + worktrees/)")
