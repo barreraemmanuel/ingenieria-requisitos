@@ -47,6 +47,15 @@ Si cambia comportamiento, **nunca** es exprés. Producción caída para usuarios
 carril sino una **excepción de despacho**: runbook `hotfix.md` (bug P0 que se salta la espera de
 aprobación, nunca la verificación).
 
+**El carril no dice cuántas unidades caben a la vez: eso lo dice el cruce de ficheros.** Desde
+el ADR-036 se trabaja **en paralelo por defecto** — todo contrato aprobado cuyos `ficheros:` no
+choquen con los de otra unidad en vuelo se despacha ya, con un subagente por unidad (ADR-033) y
+su recibo visible en el tablero y en `unidad.py estado`. Con choque, `despachar` bloquea y nombra
+la otra unidad y el fichero. `--serie` pide expresamente ir de uno en uno y deja `paralelo: no`
+escrito en el registro de despacho. El único límite que ningún script puede imponer, porque desde
+una sesión no se ven las demás: **UNA suite completa a la vez** (dos ponen rojos de timeout que
+no son del código).
+
 **Lo que ninguna ruta recorta jamás**, porque no es ceremonia sino garantía: evidencia ligada al
 target, no perder datos y no filtrar secretos. Revisión, fusión y OK sobre una app son obligatorios
 cuando existe una entrega desplegable; documental y prototipo no los fingen. La matriz y los
@@ -70,7 +79,7 @@ presupuestos viven en `runbooks/control-plane.md` (ADR-024).
   `planificada → en_obra → en_revision → mergeada` · desvíos: `bloqueada`, `descartada`.
   Entre medias cabe `en_validacion` (ADR-010): la rama ya está fusionada y el trabajo
   de construcción terminó; lo único pendiente es que el usuario pruebe la app, así que
-  NO cuenta como trabajo en vuelo y no ocupa cupo de paralelismo.
+  NO cuenta como trabajo en vuelo.
   Al cerrar, la carpeta pasa a `archivo/` (estado final implícito: archivada).
 - **Actividad**: la fuente de verdad es `02-flujos/planos/planos.json`, que lo escribe el
   aparato heredado de ingeniería de requisitos (ADR-007); `02-flujos/INDICE.md` lo refleja.
@@ -174,7 +183,9 @@ fallo crítico permite una segunda ronda. Preparar hoy problemas que aún no exi
   `despachar <NNN-slug>` (crea rama y worktree, registra `preparado`/`sin_hook` en
   `.runtime/worktree-readiness/` y BLOQUEA/deshace si el hook explícito falla; también bloquea
   si falta la aprobación del usuario —`aprobado:` sin fecha—, si la spec no tiene prosa real
-  o si ya hay trabajo en vuelo;
+  o si los `ficheros:` declarados chocan con los de otra unidad en vuelo —el ÚNICO freno del
+  paralelismo, que por defecto está ABIERTO (ADR-036): `--serie` es la excepción y `--paralelo`
+  ya no hace falta—;
   `--force` es la válvula de producción caída: **solo** unidades tipo `bug` con severidad
   **P0** declarada y `--motivo "…"` obligatorio, que se escribe en la ficha junto a la deuda) ·
   `cerrar <NNN-slug> --ok-usuario YYYY-MM-DD` (**el cierre**: puertas —OK del usuario con

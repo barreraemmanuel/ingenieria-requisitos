@@ -135,6 +135,7 @@ DECISIONES = (
     "032-receta-de-despliegue-de-serie.md",
     "033-el-constructor-es-un-subagente-del-padre.md",
     "035-sin-ci-remoto-por-defecto.md",
+    "036-paralelizar-por-defecto.md",
     "037-paridad-codex-claude.md",
 )
 METODO_RAIZ = (

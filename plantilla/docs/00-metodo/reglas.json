@@ -180,9 +180,9 @@
    "ejecutor": null,
    "por_diseno": "es una decisión de lectura ANTES de tocar nada: no deja artefacto que mirar"
   },
-  "AGENTS.md::Trabajo en vuelo: UNA unidad de código por defecto": {
+  "AGENTS.md::Trabajo en vuelo: en PARALELO por defecto": {
    "fichero": "AGENTS.md",
-   "texto": "Trabajo en vuelo: UNA unidad de código por defecto",
+   "texto": "Trabajo en vuelo: en PARALELO por defecto",
    "ejecutor": null,
    "por_diseno": null
   },

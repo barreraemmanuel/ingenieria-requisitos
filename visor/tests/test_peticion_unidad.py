@@ -1,4 +1,6 @@
+import contextlib
 import importlib
+import io
 import json
 import datetime
 import re
@@ -9,6 +11,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 import ayuda_cierre  # noqa: E402 - módulo hermano de la suite
@@ -819,6 +822,92 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
         self.assertIn("comparten ficheros declarados", resultado.stderr)
         self.assertIn("app/terminal.py", resultado.stderr)
+
+    # ------------------------------------------------------------------ 099 · ADR-036
+    def test_despacho_en_paralelo_por_defecto_sin_pedir_ningun_flag(self):
+        """099 R1 (criterio portante): con tres unidades en vuelo y ficheros disjuntos,
+        la cuarta despacha SIN flags. El paralelismo deja de ser la excepción que hay
+        que recordar y pasa a ser el defecto (ADR-036)."""
+        for numero, fichero in enumerate(("app/uno.py", "app/dos.py", "app/tres.py"), start=1):
+            self.preparar_unidad_en_vuelo(numero, [fichero])
+        nombre = self.preparar_con_ficheros("cuarta-por-defecto", ["app/cuatro.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("--paralelo", salida)
+        self.assertIn("ficheros disjuntos", salida)
+
+    def test_flag_paralelo_se_acepta_y_avisa_de_que_ya_es_el_defecto(self):
+        """099 R1: `--paralelo` sigue en los runbooks y en las sesiones abiertas, así que
+        no puede reventar el despacho: se acepta y se dice que ya no hace falta."""
+        self.preparar_unidad_en_vuelo(1, ["app/uno.py"])
+        nombre = self.preparar_con_ficheros("acepta-paralelo", ["app/dos.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre, "--paralelo")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("ya es el defecto", salida)
+
+    def test_serie_bloquea_cuando_hay_otra_unidad_en_vuelo(self):
+        """099 R1: `--serie` es la excepción — pide explícitamente ir de uno en uno, así
+        que con trabajo en vuelo bloquea, y el bloqueo dice por dónde se sale."""
+        self.preparar_unidad_en_vuelo(1, ["app/uno.py"])
+        nombre = self.preparar_con_ficheros("pide-serie", ["app/dos.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre, "--serie")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("001-en-vuelo-1", salida)
+        self.assertIn("SALIDA:", salida)
+
+    def test_serie_deja_escrito_paralelo_no_en_el_registro_de_despacho(self):
+        """099 R1: la excepción deja rastro del lado de quien despacha, no en el
+        frontmatter que teclea el constructor."""
+        pid = self.capturar("Va en serie")
+        self.evaluar(pid)
+        creada = self.ejecutar(self.unidad, "nueva", "feature", "sola-en-serie", "--desde", pid)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        nombre = next(
+            p.name for p in (self.ws / "docs/05-trabajo").iterdir()
+            if p.name.endswith("-sola-en-serie")
+        )
+        ruta = self.aprobar_para_despacho(nombre)
+        ruta.write_text(
+            ruta.read_text(encoding="utf-8").replace(
+                "ficheros: []", "ficheros: [app/terminal.py]"),
+            encoding="utf-8",
+        )
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre, "--serie")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        datos = json.loads(
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+            .read_text(encoding="utf-8")
+        )
+        procesos = [p for p in datos["procesos"] if p.get("ref") == nombre]
+        self.assertTrue(procesos, datos)
+        self.assertEqual((procesos[0].get("metadata") or {}).get("paralelo"), "no", procesos)
+
+    def test_fichero_compartido_bloquea_tambien_sin_flags(self):
+        """099 R2: el defecto en paralelo NO relaja el cruce de `ficheros:` — sigue
+        bloqueando, y nombra la otra unidad y el fichero compartido."""
+        self.preparar_unidad_en_vuelo(1, ["app/terminal.py"])
+        nombre = self.preparar_con_ficheros("choca-sin-flags", ["app/terminal.py"])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("comparten ficheros declarados", salida)
+        self.assertIn("001-en-vuelo-1", salida)
+        self.assertIn("app/terminal.py", salida)
+        self.assertIn("SALIDA:", salida)
 
     def preparar_con_ficheros(self, slug, ficheros, nivel=None):
         """Unidad feature aprobada, con `ficheros:` escritos tal cual y el nivel de test
@@ -2812,6 +2901,41 @@ class ContratoTextualPeticionesTest(unittest.TestCase):
         self.assertIn("sin tope numérico", agents)
         self.assertNotIn("tope 3", agents)
 
+    def test_regla_cinco_manda_paralelizar_por_defecto_y_una_suite_a_la_vez(self):
+        """099 R3 y R5: la regla 5 dice lo mismo que hace el script —paralelo por
+        defecto, el freno es el cruce de ficheros— y escribe el único límite que el
+        script no puede imponer porque no ve las otras sesiones: una suite a la vez."""
+        agents = self.texto("AGENTS.md")
+        duras = agents[agents.index("## Reglas duras"):]
+        regla = duras[duras.index("\n5. **"):duras.index("\n6. **")].lower()
+
+        self.assertIn("en paralelo", regla)
+        self.assertIn("no compartan ficheros", regla)
+        self.assertIn("una suite completa a la vez", regla)
+        self.assertIn("en_validacion", regla)
+        self.assertIn("documental", regla)
+        self.assertNotIn("una unidad de código por defecto", regla)
+
+    def test_roles_y_readme_no_limitan_las_unidades_en_vuelo(self):
+        """099 R3: el CONSTRUCTOR ya no tiene prohibido «abrir más de 1 unidad en
+        vuelo», y el README cuenta el paralelismo como norma."""
+        roles = self.texto("docs/00-metodo/roles.md")
+        readme = self.texto("docs/00-metodo/README.md")
+
+        self.assertNotIn("abrir más de 1 unidad en vuelo", roles)
+        self.assertIn("un subagente por unidad", roles.lower())
+        self.assertIn("en paralelo", readme.lower())
+        self.assertNotIn("o si ya hay trabajo en vuelo", readme)
+
+    def test_adr_036_existe_y_viaja_en_el_manifiesto_del_bootstrap(self):
+        """099 R3: una decisión que no viaja en `bootstrap.py` no llega a ningún
+        workspace nuevo, así que no existe para nadie salvo para este repo."""
+        adr = self.texto("docs/00-metodo/decisiones/036-paralelizar-por-defecto.md")
+        bootstrap = (RAIZ / "visor/bootstrap.py").read_text(encoding="utf-8")
+
+        self.assertIn("ADR-036", adr)
+        self.assertIn("036-paralelizar-por-defecto.md", bootstrap)
+
     def test_runbooks_no_abren_unidades_sin_desde(self):
         runbooks = RAIZ / "plantilla/docs/00-metodo/runbooks"
         infracciones = []
@@ -3127,3 +3251,89 @@ class SenalesDeRiesgoTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class EstadoParalelismoTest(unittest.TestCase):
+    """099 R4: `unidad.py estado` es lo que el padre mira antes de repartir trabajo.
+
+    Hasta ADR-036 avisaba de «N unidades en vuelo» como si fuera una anomalía —lo que
+    ahora es la norma— y no decía quién las está construyendo, aunque el recibo del
+    subagente ya estuviera escrito en `.runtime/ejecuciones/`.
+    """
+
+    def setUp(self):
+        self.modulo = cargar_modulo_unidad()
+        self.tmp = tempfile.TemporaryDirectory(prefix="estado-paralelo-")
+        self.addCleanup(self.tmp.cleanup)
+        self.raiz = Path(self.tmp.name).resolve()
+        (self.raiz / "docs/05-trabajo").mkdir(parents=True)
+        (self.raiz / "docs/bugs").mkdir(parents=True)
+        (self.raiz / "worktrees").mkdir()
+        for parche in (
+            mock.patch.object(self.modulo, "RAIZ", self.raiz),
+            mock.patch.object(self.modulo, "TRABAJO", self.raiz / "docs/05-trabajo"),
+            mock.patch.object(self.modulo, "ARCHIVO", self.raiz / "docs/05-trabajo/archivo"),
+            mock.patch.object(self.modulo, "BUGS", self.raiz / "docs/bugs"),
+            mock.patch.object(self.modulo, "WORKTREES", self.raiz / "worktrees"),
+            mock.patch.object(self.modulo, "siguiente_nnn", lambda: ("999", {})),
+            mock.patch.object(self.modulo, "repo_codigo", lambda: (self.raiz, "main")),
+        ):
+            parche.start()
+            self.addCleanup(parche.stop)
+
+    def unidad_en_obra(self, nombre, ficheros):
+        carpeta = self.raiz / "docs/05-trabajo" / nombre
+        carpeta.mkdir(parents=True)
+        (self.raiz / "worktrees" / nombre).mkdir(exist_ok=True)
+        (carpeta / "especificacion.md").write_text(
+            "---\n"
+            f"unidad: {nombre}\n"
+            "tipo: feature\ncarril: normal\nestado: en_obra\n"
+            "aprobado: 2026-08-27\nactividad: REC-1\n"
+            f"ficheros: [{', '.join(ficheros)}]\n"
+            "peticiones: []\nactualizado: 2026-08-27\n---\n\n# Contrato\n",
+            encoding="utf-8",
+        )
+
+    def recibo_de_subagente(self, nombre, modelo="claude-opus-5"):
+        ruta = self.raiz / ".runtime/ejecuciones"
+        ruta.mkdir(parents=True, exist_ok=True)
+        (ruta / f"{nombre}-abc123.json").write_text(json.dumps({
+            "schema": "ejecucion/v1", "id": "abc123", "unidad": nombre,
+            "harness": "subagente-del-padre", "rol": "constructor",
+            "modelo": modelo, "esfuerzo": "medio", "exit_code": None,
+        }), encoding="utf-8")
+
+    def estado(self):
+        salida, errores = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(errores):
+            codigo = self.modulo.cmd_estado(None)
+        return codigo, salida.getvalue() + errores.getvalue()
+
+    def test_tres_unidades_en_vuelo_no_se_denuncian_como_anomalia(self):
+        for numero, fichero in enumerate(("a.py", "b.py", "c.py"), start=1):
+            self.unidad_en_obra(f"10{numero}-paralela-{numero}", [fichero])
+
+        codigo, salida = self.estado()
+
+        self.assertEqual(codigo, 0, salida)
+        self.assertIn("3 unidades en vuelo", salida)
+        self.assertNotIn("WARN", salida.split("Coherencia:")[1].split("Siguiente NNN")[0])
+        self.assertIn("101-paralela-1", salida)
+
+    def test_estado_enseña_el_subagente_de_cada_unidad_por_su_recibo(self):
+        self.unidad_en_obra("101-con-recibo", ["a.py"])
+        self.unidad_en_obra("102-sin-recibo", ["b.py"])
+        self.recibo_de_subagente("101-con-recibo", modelo="claude-opus-5")
+
+        codigo, salida = self.estado()
+
+        self.assertEqual(codigo, 0, salida)
+        linea = next(l for l in salida.splitlines() if "101-con-recibo" in l
+                     and "subagente" in l)
+        self.assertIn("claude-opus-5", linea)
+        self.assertNotIn(
+            "subagente",
+            next(l for l in salida.splitlines()
+                 if l.strip().startswith("102-sin-recibo")),
+        )

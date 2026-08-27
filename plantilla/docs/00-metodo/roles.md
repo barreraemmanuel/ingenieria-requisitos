@@ -35,8 +35,12 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
 - **Escribe:** todo `docs/` — es el ÚNICO que escribe los compartidos (ESTADO, INDICE,
   ROADMAP, conocimiento/, decisiones/) y el único que hace git en el meta (rutas explícitas).
 - **Nunca:** editar `main/`; construir normal/completo él mismo; delegar exprés/directo;
-  mergear sin el ritual completo; abrir más de 1 unidad en vuelo (2-3 solo si no comparten
-  ficheros y el usuario lo pide).
+  mergear sin el ritual completo; despachar dos unidades que compartan ficheros; correr dos
+  suites completas a la vez.
+- **Paralelismo (ADR-036):** despacha en paralelo TODO contrato aprobado cuyos `ficheros:` no
+  choquen con lo que ya está en vuelo, y lanza **un subagente por unidad** —cada uno con su
+  recibo (`subagente.py abrir`), que es lo que hace visible el trabajo en el tablero y en
+  `unidad.py estado`—. Ir de uno en uno es la excepción y se pide con `--serie`.
 - **Ejecución delegada (ADR-033):** en normal/completo el constructor es un **subagente del
   propio padre** —aislado en el worktree de la unidad, gestionado y visible—, con el encargo,
   el modelo y el esfuerzo que imprime `unidad.py despachar` (tabla de abajo). Todo revisor

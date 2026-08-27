@@ -77,9 +77,8 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
    petición accionable es `peticion.py capturar`; después se evalúa por `runbooks/peticiones.md`.
    Una unidad nace con `unidad.py nueva <tipo> <slug> --desde P-ID [--directo]`: asigna el NNN
    y bloquea trabajo sin origen. `--force` solo sirve para el hotfix y deja deuda escrita. **Pedir un OK sobre un contrato (unidad o bug) no se recuerda, se ejecuta:** `unidad.py nueva` y `unidad.py estado` levantan solos el visor de contratos y lo abren en el que falta por aprobar (`--sin-navegador` para que solo lo impriman); el comando a mano sigue siendo `python3 main/web/abrir.py --workspace . --apartado contratos` (una sola web, cuatro apartados: tablero, contratos, presentaciones y flujos). Sin el rastro del visor, `despachar` bloquea aunque `aprobado:` tenga fecha (regla 16).
-5. **Trabajo en vuelo: UNA unidad de código por defecto**, sin tope numérico, solo si no
-   comparten ficheros (`ficheros:`, que el script cruza). Las `en_validacion` no cuentan. Las unidades
-   `--documental` (leen, no escriben código) tampoco: pueden ir en paralelo.
+5. **Trabajo en vuelo: en PARALELO por defecto** (ADR-036), sin tope numérico: tantas unidades
+   como no compartan ficheros (`ficheros:`, que el script cruza y BLOQUEA; `--serie` es la excepción). Un subagente por unidad (ADR-033), con su recibo. Las `en_validacion` y las `--documental` no cuentan. El límite es la máquina: UNA suite completa a la vez.
 6. **Búsquedas de código: dentro de `main/` o de tu worktree.** Desde la raíz no verás código
    (el gitignore lo oculta a las herramientas de búsqueda); eso es intencional.
 7. **Merge y cierre son indivisibles.** Verificar + `lint_ci.py` → revisar (quien no construyó,

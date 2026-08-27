@@ -445,10 +445,6 @@
    "fichero": "unidad.py",
    "mensaje": "FAIL --documental no vale: la ficha declara rutas del repo de código (…). Un bug que toca main/ se despacha normal"
   },
-  "unidad.py::8a1c7b801bfcd361": {
-   "fichero": "unidad.py",
-   "mensaje": "FAIL ya hay … unidad(es) en vuelo: …"
-  },
   "unidad.py::8dd4dc646003db31": {
    "fichero": "unidad.py",
    "mensaje": "FAIL no existe la rama principal '…' en …"
@@ -456,10 +452,6 @@
   "unidad.py::a4c80d139f4270a9": {
    "fichero": "unidad.py",
    "mensaje": "FAIL … sigue siendo la plantilla: solo … caracteres de prosa propia (mínimo …)"
-  },
-  "unidad.py::a607152a264e26a1": {
-   "fichero": "unidad.py",
-   "mensaje": "FAIL … y … comparten ficheros declarados: …"
   },
   "unidad.py::a6aad726b3d2d93e": {
    "fichero": "unidad.py",
