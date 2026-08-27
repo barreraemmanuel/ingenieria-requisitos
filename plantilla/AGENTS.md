@@ -33,13 +33,7 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
 6. **Mira el canario:** `python3 docs/00-metodo/scripts/canario.py`, y otra vez tras cada tarea larga. Si avisa
    —capacidad ("zona de riesgo") o conducta ("ya está degradando")— pega el parte de `canario.py retomada` y di que
    esta sesión está degradada: mejor cortar y seguir en una NUEVA. En Codex, sin hook, es el ÚNICO mecanismo.
-7. **Si abres la sesión con Codex CLI, confía los hooks del método UNA vez.** Un hook declarado en
-   `.codex/hooks.json` no corre hasta que alguien revisa y confía su huella: escribe `/hooks` en la
-   sesión y acéptalos. Si no lo haces, Codex **no los ejecuta y no te avisa** — te quedas sin el
-   canario del contexto y sin el aviso de fin de turno, con la sesión con la misma pinta de siempre.
-   (Con Claude Code esta puerta no existe.) El constructor y el revisor que lanza
-   `docs/00-metodo/scripts/ejecucion.py` NO necesitan este paso: el lanzador ya pasa
-   `--dangerously-bypass-hook-trust`, porque los hooks son los del propio método.
+7. **Si abres la sesión con Codex CLI, confía los hooks del método UNA vez** (`/hooks` en la sesión y acéptalos): sin eso Codex NO los ejecuta ni avisa — te quedas sin canario ni aviso de fin de turno. En Claude Code no existe esta puerta; el constructor y el revisor de `ejecucion.py` no lo necesitan (el lanzador pasa `--dangerously-bypass-hook-trust`: los hooks son los del método).
 
 ## Orden de lectura (router) — lee solo lo que tu tarea necesita
 

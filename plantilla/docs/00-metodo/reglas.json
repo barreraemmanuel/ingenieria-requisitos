@@ -3,7 +3,7 @@
  "base": {
   "sin_ejecutor": 11,
   "fecha": "2026-08-27",
-  "sha": "f444951"
+  "sha": "7f7e738"
  },
  "reglas": {
   "AGENTS.md::Actualiza el taller:": {
@@ -172,6 +172,12 @@
    "fichero": "AGENTS.md",
    "texto": "Se escribe según se hace:",
    "ejecutor": null,
+   "por_diseno": null
+  },
+  "AGENTS.md::Si abres la sesión con Codex CLI, confía los hooks del método UNA vez": {
+   "fichero": "AGENTS.md",
+   "texto": "Si abres la sesión con Codex CLI, confía los hooks del método UNA vez",
+   "ejecutor": "ejecucion.py:argv_harness",
    "por_diseno": null
   },
   "AGENTS.md::Solo-consulta arranca ligero.": {
