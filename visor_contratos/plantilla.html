@@ -250,7 +250,7 @@
 
   function accionesDe(u) {
     // Bug 123: una ficha que sigue siendo plantilla no es un contrato: nada que decidir.
-    if (u.sin_escribir) return '<p class="secundario">El agente aún no lo ha escrito: lo que ves es la plantilla. Cuando la rellene, aquí aparecerán los botones para aprobarlo o pedir cambios.</p>';
+    if (u.sin_escribir) return '<p class="seccion-nota">El agente aún no lo ha escrito: lo que ves es la plantilla. Cuando la rellene, aquí aparecerán los botones para aprobarlo o pedir cambios.</p>';
     if (!u.pendiente_de_aprobar) return "";
     return '<div class="acciones" data-carpeta="' + esc(u.carpeta) + '">' +
            '<button type="button" class="boton boton-ok" data-accion="aprobar">Aprobar este contrato</button>' +

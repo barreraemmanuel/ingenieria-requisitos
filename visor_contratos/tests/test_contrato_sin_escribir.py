@@ -102,5 +102,41 @@ class ContratoSinEscribirTest(unittest.TestCase):
         self.assertIn("no lo ha escrito", html)
 
 
+class JuntaConLasPlantillasRealesTest(unittest.TestCase):
+    """R1: el criterio del visor es el de `unidad.titulo_de_plantilla` (bug 120) y se comprueba
+    contra las plantillas REALES del método, no contra copias del test: si alguien cambia el
+    H1 de `plantillas/{directo,especificacion,bug}.md`, esto se pone rojo."""
+
+    RAIZ = Path(__file__).resolve().parents[2]
+    PLANTILLAS = RAIZ / "plantilla/docs/00-metodo/plantillas"
+    SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
+
+    def cargar_servir(self):
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("servir_contratos", self.RAIZ / "visor_contratos/servir.py")
+        modulo = importlib.util.module_from_spec(spec); spec.loader.exec_module(modulo)
+        return modulo
+
+    def plantillas_rellenas(self):
+        for nombre in ("directo.md", "especificacion.md", "bug.md"):
+            texto = (self.PLANTILLAS / nombre).read_text(encoding="utf-8")
+            yield nombre, texto.replace("NNN", "013").replace("<slug>", "recien-creada")
+
+    def test_las_tres_plantillas_reales_son_contratos_sin_escribir(self):
+        servir = self.cargar_servir()
+        for nombre, texto in self.plantillas_rellenas():
+            self.assertTrue(servir.contrato_sin_escribir(texto), f"{nombre}: la plantilla real no se detecta")
+
+    def test_el_criterio_coincide_con_el_de_unidad_py(self):
+        servir = self.cargar_servir()
+        if str(self.SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(self.SCRIPTS))
+        import unidad
+        for nombre, texto in self.plantillas_rellenas():
+            self.assertEqual(bool(unidad.titulo_de_plantilla(texto)), servir.contrato_sin_escribir(texto), nombre)
+        self.assertFalse(servir.contrato_sin_escribir(base.CONTRATO_010))
+        self.assertIsNone(unidad.titulo_de_plantilla(base.CONTRATO_010))
+
+
 if __name__ == "__main__":
     unittest.main()
