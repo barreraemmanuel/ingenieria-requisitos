@@ -171,6 +171,36 @@ class RamaFusionadaTest(unittest.TestCase):
         self.assertIsNone(ejecucion.ronda_declarada("---\nrevisor: no\n---\n"))
         self.assertIsNone(ejecucion.ronda_declarada("---\nronda: —\n---\n"))
 
+    # --- R1 de punta a punta: la ficha REAL (`frontmatter()`) → petición → base → ancla ---
+    def test_la_base_registrada_se_lee_de_la_ficha_real_y_ancla_el_ff(self):
+        """Ronda 2 (H1 del revisor): `frontmatter()` devuelve `peticiones` con corchetes
+        (`[P-…@1]`); sin limpiarlos, `parsear_referencias` lo rechazaba y la vía principal
+        de R1 se quedaba en «sin base registrada» justo en el caso ff de 107/108."""
+        self.fusionar_por_ff()
+        ws = Path(self.temporal.name).resolve() / "ws"   # macOS: /var → /private/var
+        ficha = ws / "docs/bugs/001-demo.md"
+        ficha.parent.mkdir(parents=True)
+        ficha.write_text(
+            "---\nunidad: 001-demo\ntipo: bug\nestado: en_validacion\n"
+            "peticiones: [P-20260827-25ca49dc@1]            # referencias P-ID@revision\n"
+            "---\n# Bug\n",
+            encoding="utf-8",
+        )
+        with mock.patch.object(ejecucion, "RAIZ", ws):
+            datos = ejecucion.frontmatter(ficha)   # el parser real, no un dict a mano
+            self.assertEqual(datos["peticiones"], "[P-20260827-25ca49dc@1]")
+            import peticion as gestion_peticiones
+            registro = {"procesos": [{
+                "tipo": "bug", "ref": "001-demo", "revision": 1,
+                "metadata": {"base_sha": self.base},
+            }]}
+            with mock.patch.object(gestion_peticiones, "cargar", return_value=registro):
+                base = ejecucion.base_registrada_de_la_unidad(datos, "001-demo", ficha)
+        self.assertEqual(base, self.base)
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo, base_registrada=base)
+        self.assertEqual(patch_id, patch_id_esperado(self.repo, self.base, "HEAD"))
+        self.assertIn("base de despacho registrada", motivo)
+
 
 if __name__ == "__main__":
     unittest.main()

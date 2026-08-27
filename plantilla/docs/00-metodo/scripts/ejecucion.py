@@ -683,7 +683,12 @@ def base_registrada_de_la_unidad(datos, unidad, ficha):
     —módulo ausente, referencia mal escrita, petición borrada— devuelve None: el ancla es
     una medida, no una puerta de lanzamiento.
     """
-    referencias = [r.strip() for r in (datos.get("peticiones") or "").split(",") if r.strip()]
+    # `frontmatter()` devuelve la lista EN LÍNEA tal cual, corchetes incluidos
+    # (`[P-…@1]`): la misma limpieza que `unidad.peticiones_de`, sin parser YAML.
+    valor = (datos.get("peticiones") or "").strip()
+    if valor.startswith("[") and valor.endswith("]"):
+        valor = valor[1:-1].strip()
+    referencias = [r.strip().strip("'\"") for r in valor.split(",") if r.strip()]
     if not referencias:
         return None
     tipo = "bug" if ficha.parent == RAIZ / "docs/bugs" else "unidad"
