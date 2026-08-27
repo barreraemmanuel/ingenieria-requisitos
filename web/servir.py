@@ -44,6 +44,7 @@ import io
 import json
 import os
 import re
+import signal
 import socket
 import sys
 import threading
@@ -60,6 +61,10 @@ for _salida in (sys.stdout, sys.stderr):
 BASE = Path(__file__).resolve().parent
 CASCARA = BASE / "plantilla.html"
 SERVICIO = "web-metodo"
+# Bug 124 (R2): una web que nadie mira no tiene por qué seguir en pie mañana. Cuatro
+# horas sin una sola petición HTTP y se apaga sola; `--minutos 0` sigue siendo la
+# forma de pedir una sesión eterna, pero hay que pedirla.
+MINUTOS_POR_DEFECTO = 240
 PUERTO_BASE = 8770
 RASTRO_FLUJOS = "visor-%d.log"
 NOMBRE_UNIDAD = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*$")
@@ -954,6 +959,20 @@ def anotar_apertura(workspace):
     return registro
 
 
+def olvidar_registro(workspace, puerto):
+    """Borra el `.runtime/web-<puerto>.log` de ESTE servidor al apagarse (R2, 124).
+
+    Ese fichero es el rastro por el que `abrir.py` busca webs vivas e Inicio las lista.
+    Si sobrevive al servidor, lo que queda es un puerto fantasma que alguien tendrá que
+    descartar preguntando. Se borra el propio, nunca el de otro puerto."""
+    registro = Path(workspace) / ".runtime" / ("web-%d.log" % puerto)
+    try:
+        registro.unlink()
+    except OSError:
+        return False
+    return True
+
+
 def main():
     p = argparse.ArgumentParser(description="La web del método: los cuatro apartados")
     p.add_argument("--workspace", required=True,
@@ -963,8 +982,9 @@ def main():
                         "workspace (docs/02-flujos/planos/planos.json)")
     p.add_argument("--puerto", type=int, default=0,
                    help="puerto local; 0 pide uno libre")
-    p.add_argument("--minutos", type=float, default=0,
-                   help="minutos sin actividad antes de apagarse; 0 = no caduca")
+    p.add_argument("--minutos", type=float, default=MINUTOS_POR_DEFECTO,
+                   help="minutos sin actividad antes de apagarse; 0 = no caduca. "
+                        "Por defecto, %d" % MINUTOS_POR_DEFECTO)
     p.add_argument("--sin-navegador", action="store_true",
                    help="No abrir el navegador")
     p.add_argument("--solo-lectura", action="store_true",
@@ -1015,6 +1035,16 @@ def main():
         import webbrowser
         webbrowser.open(url)
 
+    # Un `terminate()` (lo que usan `abrir.py: detener` y Modo D al retirar lanzadores)
+    # tiene que pasar por el mismo cierre ordenado que Ctrl-C: si no, el registro del
+    # puerto queda huérfano y la web sigue "viva" para quien lo lea.
+    def adios(*_):
+        raise KeyboardInterrupt
+    try:
+        signal.signal(signal.SIGTERM, adios)
+    except (AttributeError, ValueError, OSError):
+        pass
+
     try:
         while True:
             if not args.minutos:
@@ -1027,6 +1057,7 @@ def main():
     except KeyboardInterrupt:
         pass
     servidor.shutdown()
+    olvidar_registro(workspace, puerto)
     print("La web del método se cerró.", flush=True)
 
 

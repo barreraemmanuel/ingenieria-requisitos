@@ -29,6 +29,7 @@ import hashlib
 import json
 import os
 import re
+import signal
 import stat
 import subprocess
 import sys
@@ -627,6 +628,85 @@ def informe(ruta, titulo, cambios, retirados, sobrantes, avisos, registro=""):
             print(f"          {f}")
     for a in avisos:
         print(f"    AVISO: {a}")
+
+
+def procesos_de(workspace, retirados, tiempo_maximo=10):
+    """[(pid, ruta relativa)] de los procesos que ejecutan un lanzador retirado de ESTE
+    workspace, y el motivo por el que no se pudo mirar (uno de los dos, nunca ambos).
+
+    El filtro es la RUTA ABSOLUTA del fichero dentro del workspace: por construcción no
+    puede casar con el proceso de otro workspace, que vive en otra carpeta. Se compara
+    la ruta REAL (`os.path.realpath`) de los dos lados porque la línea de órdenes conserva
+    la que se tecleó (`/var/folders/…`) y aquí el workspace ya viene resuelto
+    (`/private/var/folders/…`): son el mismo fichero y tienen que casar.
+    Nada de `pkill -f` ni `killall` (los prohíbe `lint_metodo.py`, y con razón: matarían
+    por nombre los procesos de cualquiera).
+    """
+    if not retirados:
+        return [], ""
+    candidatos = {}          # ruta real -> ruta relativa del método
+    nombres = set()          # basenames, para descartar líneas de ps a coste cero
+    for relativo in retirados:
+        ruta = Path(workspace) / relativo
+        candidatos[os.path.realpath(str(ruta))] = relativo
+        nombres.add(ruta.name)
+    try:
+        salida = subprocess.run(
+            ["ps", "-axo", "pid=,command="], capture_output=True, text=True,
+            encoding="utf-8", errors="replace", timeout=tiempo_maximo)
+    except (OSError, subprocess.SubprocessError) as exc:
+        return [], f"no pude listar los procesos con ps: {exc}"
+    if salida.returncode:
+        return [], f"ps devolvió {salida.returncode}: {salida.stderr.strip()}"
+    yo = os.getpid()
+    encontrados = []
+    for linea in salida.stdout.splitlines():
+        partes = linea.strip().split(None, 1)
+        if len(partes) != 2 or not partes[0].isdigit():
+            continue
+        pid, orden = int(partes[0]), partes[1]
+        if pid == yo or not any(nombre in orden for nombre in nombres):
+            continue
+        for pieza in orden.split():
+            if os.path.basename(pieza) not in nombres:
+                continue
+            relativo = candidatos.get(os.path.realpath(pieza))
+            if relativo:
+                encontrados.append((pid, relativo))
+                break
+    return encontrados, ""
+
+
+def apagar_lanzadores_retirados(workspace, retirados):
+    """Lo que se retira del disco se apaga también en memoria (R3, bug 124).
+
+    Sin esto, `aplicar` borraba el fichero y dejaba el proceso corriendo un binario que
+    ya no existe: visores de anteayer escuchando puertos y saliendo en Inicio. Se apagan
+    con SIGTERM (cierre ordenado, el mismo de Ctrl-C) y se listan uno a uno; lo que no se
+    pueda apagar se dice, con el comando para hacerlo a mano.
+    """
+    procesos, problema = procesos_de(workspace, retirados)
+    if problema:
+        print(f"    AVISO: {problema}. Si algún launcher retirado sigue vivo, míralo con"
+              f"  ps -axo pid=,command=  y apágalo con  kill <pid>")
+        return []
+    apagados, fallidos = [], []
+    for pid, relativo in procesos:
+        try:
+            os.kill(pid, signal.SIGTERM)
+        except OSError as exc:
+            fallidos.append((pid, relativo, exc))
+        else:
+            apagados.append((pid, relativo))
+    if apagados:
+        print(f"    {len(apagados)} proceso(s) que seguían ejecutando un launcher "
+              f"retirado, apagados:")
+        for pid, relativo in apagados:
+            print(f"          pid {pid} — {relativo}")
+    for pid, relativo, exc in fallidos:
+        print(f"    AVISO: no pude apagar el pid {pid} ({relativo}): {exc}. "
+              f"Apágalo a mano con  kill {pid}")
+    return apagados
 
 
 def punto_de_retorno(workspace):
@@ -1276,6 +1356,8 @@ def _aplicar_bajo_lease(workspace, titulo, autoridad, confirmar_metodo=False):
               f"registro de METODO.json ({bootstrap.version_metodo()}).")
     print(f"    Para volver atrás:  git -C {workspace} checkout {sha[:8]}")
     print(f"    Queda anotado en:   {HISTORIAL}")
+    if retirados:
+        apagar_lanzadores_retirados(workspace, retirados)
     return 0
 
 

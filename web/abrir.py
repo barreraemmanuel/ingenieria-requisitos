@@ -38,6 +38,10 @@ BASE = Path(__file__).resolve().parent
 PUERTO_BASE = 8770
 VARIABLE_PUERTO = "INGENIERIA_REQUISITOS_PUERTO"
 APARTADOS = ("tablero", "contratos", "presentaciones", "flujos")
+# Bug 124 (R2): lo que se levanta para enseñar un contrato o una validación no se queda
+# vivo para siempre. Cuatro horas sin que nadie pida una página son de sobra para la
+# sesión más larga y poco para acumular visores de anteayer.
+MINUTOS_POR_DEFECTO = 240
 
 
 @dataclass
@@ -77,8 +81,25 @@ def abrir_navegador(url, args):
 
 
 def argumentos_prueba(apartado=None, puerto=None, minutos=0):
+    """Los argumentos que usan los tests y los lanzadores del método al llamar en
+    proceso. `minutos` va como PEDIDO explícitamente: un test que dice 0 quiere 0."""
     return argparse.Namespace(apartado=apartado, puerto=puerto, minutos=minutos,
-                              sin_navegador=True)
+                              minutos_explicito=True, sin_navegador=True)
+
+
+def minutos_efectivos(args):
+    """Cuántos minutos de inactividad aguanta la web que se va a levantar (R2, 124).
+
+    `unidad.py validar/nueva/estado` construyen su Namespace con `minutos=0` sin
+    haberlo pedido nadie: ese 0 heredado significaba «no caduca nunca» y es lo que
+    dejó siete servidores vivos desde anteayer. Aquí un 0 (o un `None`, o la
+    ausencia del campo) que llega SIN `minutos_explicito` quiere decir «el defecto»;
+    para pedir de verdad una web eterna hay que decirlo: `--minutos 0`.
+    """
+    minutos = getattr(args, "minutos", None)
+    if getattr(args, "minutos_explicito", False) and minutos is not None:
+        return minutos
+    return MINUTOS_POR_DEFECTO if not minutos else minutos
 
 
 def _puerto_libre():
@@ -143,6 +164,40 @@ def _identidad(meta, workspace):
             and meta.get("huella_workspace") == huella_workspace(workspace))
 
 
+def puertos_anotados(workspace):
+    """Los puertos que alguna vez levantó ESTE workspace, por sus `.runtime/web-<puerto>.log`.
+
+    Es el único rastro que deja una web al arrancar, y el mismo que lee Inicio para
+    listar servidores. Un registro puede estar caduco (el servidor murió): quien lo
+    use tiene que preguntar por `meta.json`, no fiarse del fichero.
+    """
+    puertos = []
+    for registro in sorted((Path(workspace) / ".runtime").glob("web-*.log")):
+        try:
+            puerto = int(registro.stem.split("-", 1)[1])
+        except (IndexError, ValueError):
+            continue
+        if 0 < puerto <= 65535:
+            puertos.append(puerto)
+    return puertos
+
+
+def servidor_vivo(workspace, puerto):
+    """El puerto donde YA está la web de este workspace, o None (R1, bug 124).
+
+    Mira primero el puerto que toca y después los que anotaron los arranques
+    anteriores: la web del método vale igual sirva donde sirva, y dos webs del
+    mismo meta-repo (`:8790` y `:9041`) es exactamente lo que este bug quita.
+    La identidad la firma `meta.json`; jamás se reutiliza la web de OTRO workspace.
+    """
+    if _identidad(_meta(puerto), workspace):
+        return puerto
+    for otro in puertos_anotados(workspace):
+        if otro != puerto and _identidad(_meta(otro), workspace):
+            return otro
+    return None
+
+
 def abrir(workspace, args):
     """Levanta la web del workspace, o REUTILIZA la que ya esté en pie, y abre
     el navegador en el apartado pedido."""
@@ -159,9 +214,11 @@ def abrir(workspace, args):
     apartado = getattr(args, "apartado", None)
     url = url_de(puerto, apartado)      # valida el apartado ANTES de levantar nada
 
-    meta = _meta(puerto)
-    if _identidad(meta, workspace):
+    vivo = servidor_vivo(workspace, puerto)
+    if vivo is not None:
+        url = url_de(vivo, apartado)
         return Resultado(url, navegador=abrir_navegador(url, args))
+    meta = _meta(puerto)
     if meta is not None:
         raise ValueError(
             "el puerto %d ya lo usa otra sesión (%s). Fija otro con %s=<puerto>"
@@ -171,7 +228,7 @@ def abrir(workspace, args):
     registro.parent.mkdir(parents=True, exist_ok=True)
     comando = [sys.executable, str(BASE / "servir.py"),
                "--workspace", str(workspace), "--puerto", str(puerto),
-               "--minutos", str(getattr(args, "minutos", 0) or 0),
+               "--minutos", str(minutos_efectivos(args)),
                "--sin-navegador"]
     with registro.open("ab") as salida:
         # Desasido a propósito: la web tiene que seguir en pie cuando el comando
@@ -210,10 +267,14 @@ def main():
                         help="apartado y ancla: tablero | contratos[#unidad] | "
                              "presentaciones[/unidad] | flujos[#actividad]")
     parser.add_argument("--puerto", type=int)
-    parser.add_argument("--minutos", type=float, default=0,
-                        help="minutos sin actividad antes de apagarse; 0 = no caduca")
+    parser.add_argument("--minutos", type=float, default=None,
+                        help="minutos sin actividad antes de apagarse; 0 = no caduca. "
+                             "Por defecto, %d" % MINUTOS_POR_DEFECTO)
     parser.add_argument("--sin-navegador", action="store_true")
     args = parser.parse_args()
+    # Haberlo escrito en la línea de órdenes es lo que distingue «no caduca» (0 pedido)
+    # de «lo de siempre» (nada dicho): ver `minutos_efectivos`.
+    args.minutos_explicito = args.minutos is not None
     try:
         resultado = abrir(args.workspace, args)
         print(resultado.url)
