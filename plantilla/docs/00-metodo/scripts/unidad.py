@@ -497,6 +497,66 @@ def rastro_visor_contrato(nombre):
     ]
 
 
+# Unidad 107 — R5. La 054 hizo COMPROBABLE que el contrato se MOSTRÓ, pero la fecha de
+# `aprobado:` la seguía tecleando el agente «tomándola del chat». Desde la 107 el gesto lo
+# hace el usuario en la web y `web/servir.py` lo deja escrito en
+# `.runtime/aprobaciones/<unidad>-<fecha>.json` (ruta, huella, hora y cliente). Aquí se exige.
+RASTRO_APROBACIONES_WEB = ".runtime/aprobaciones"
+# Las fichas aprobadas ANTES de que esta puerta existiera se aprobaron con lo único que
+# había —el rastro «contrato mostrado» y la fecha— y siguen valiendo: la 107 se fusionó el
+# 2026-08-27, así que la exigencia empieza al día siguiente. No es una fecha decorativa:
+# sin ella, esta puerta invalidaría de golpe todo el trabajo ya aprobado del workspace.
+APROBACION_WEB_DESDE = "2026-08-28"
+
+
+def rastro_aprobacion_web(nombre):
+    """Fechas en las que el USUARIO pulsó Aprobar en la web sobre ESTE contrato.
+
+    Sin la carpeta, o sin ningún fichero de esta unidad, lista vacía: nadie ha pulsado.
+    Un fichero ilegible o de otra unidad no acredita nada y se ignora, igual que los
+    recibos de la validación guiada.
+    """
+    carpeta = RAIZ / RASTRO_APROBACIONES_WEB
+    if not carpeta.is_dir():
+        return []
+    fechas = []
+    for fichero in sorted(carpeta.glob(f"{nombre}-*.json")):
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(datos, dict) or datos.get("unidad") != nombre:
+            continue
+        fecha = str(datos.get("fecha", ""))[:10]
+        if RE_FECHA.match(fecha):
+            fechas.append(fecha)
+    return sorted(fechas)
+
+
+def puerta_aprobacion_web(nombre, aprobado):
+    """(problema, nota) — R5: `aprobado: FECHA` sin el rastro del clic es una fecha tecleada.
+
+    Devuelve `(None, None)` para todo lo aprobado ANTES de que la puerta existiera: eso se
+    aprobó con lo único que había —el rastro «contrato mostrado» y la fecha— y no se
+    invalida a posteriori. `--force` (hotfix P0) no entra aquí: lo decide quien llama.
+    """
+    if not aprobado or aprobado < APROBACION_WEB_DESDE:
+        return None, None
+    clics = [c for c in rastro_aprobacion_web(nombre) if c <= aprobado]
+    if not clics:
+        return (
+            f"'aprobado: {aprobado}' sin rastro de que el usuario pulsara Aprobar en la "
+            f"web ({RASTRO_APROBACIONES_WEB}/{nombre}-{aprobado}.json). "
+            f"LA APROBACIÓN LA PULSA EL USUARIO, NO LA TECLEA EL AGENTE: una fecha escrita "
+            f"a mano «tomada del chat» es justo la firma que ADR-029 quitó. {SALIDA} abre la "
+            f"web, enséñale el contrato y que pulse Aprobar él — el botón escribe la fecha, "
+            f"el «quién» y el rastro, y tú no escribes nada: {COMANDO_VISOR_CONTRATOS}",
+            None,
+        )
+    return None, (f"el usuario pulsó Aprobar en la web el {max(clics)} "
+                  f"(rastro en {RASTRO_APROBACIONES_WEB}/)")
+
+
 # ------------------------------------------- bug 057: las webs del OK se abren solas
 # La 054 hizo COMPROBABLE que un contrato se mostró, pero abrirlo seguía siendo un acto
 # manual del agente; y la validación guiada (051/056) ni comando tenía: el manifiesto se
@@ -1815,6 +1875,16 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         if vistas_a_tiempo:
             ok(f"visor de contratos mostró {nombre} el {max(vistas_a_tiempo)} "
                f"(≤ aprobado: {aprobado})")
+        # R5 (unidad 107): que el contrato se MOSTRARA no dice quién lo aprobó. El clic del
+        # usuario en la web deja su propio rastro, y es el que se exige desde
+        # APROBACION_WEB_DESDE: antes de esa fecha el botón no existía y no se pide.
+        problema_web, nota_web = puerta_aprobacion_web(nombre, aprobado)
+        if problema_web and not args.force:
+            fail(f"{rel(ruta)}: {problema_web}")
+            err(f"\n  Producción caída (bug P0): runbooks/hotfix.md → --force --motivo \"...\".")
+            return 1
+        if nota_web:
+            ok(nota_web)
 
     # --- Precondición 4: el contrato está escrito (la spec va antes que la rama) -------------
     plantilla = PLANTILLAS / plantilla_de(unidad["clase"], fm)

@@ -124,6 +124,142 @@
     });
   })();
 </script>
+<script>
+  /* Unidad 107 · APROBAR DESDE LA WEB, los dos gestos que faltaban.
+
+     La 091 dejó el botón Aprobar en Contratos (lo pinta la sección de contratos,
+     que es suya). Los otros dos —aprobar los planos de flujos y dar el OK final de
+     una validación guiada— no viven en ninguna sección: son de la CÁSCARA, porque
+     es la única pieza que sabe en qué apartado estamos y si la web se lanzó en
+     solo lectura. Aquí se pintan y aquí se disparan.
+
+     Las tres reglas del gesto, iguales para los tres botones:
+       1. Se pide la HUELLA de lo que la página tiene delante y se manda con el POST.
+          Si el fichero cambió, el servidor contesta «relee» y no escribe nada.
+       2. La confirmación es EN LÍNEA (el botón cambia a «¿seguro?»): un `confirm()`
+          del navegador bloquea la página y no hay forma de probarlo.
+       3. Con `--solo-lectura` no se pinta ninguno, y además se retiran los que
+          traiga la sección: la web sin manos no tiene manos en ningún apartado. */
+  (function () {
+    var IR = window.IR || (window.IR = {});
+    var SOLO_LECTURA = !!IR.solo_lectura;
+
+    function quitarLosBotonesDeEscribir() {
+      var selector = "[data-accion], [data-aprobar], .acciones-aprobar";
+      Array.prototype.forEach.call(document.querySelectorAll(selector), function (nodo) {
+        nodo.remove();
+      });
+    }
+
+    function json(ruta, opciones) {
+      return fetch(ruta, opciones || {}).then(function (r) {
+        return r.json().catch(function () { return {}; }).then(function (datos) {
+          return { ok: r.ok, codigo: r.status, datos: datos };
+        });
+      });
+    }
+
+    function post(ruta, cuerpo) {
+      return json(ruta, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(cuerpo),
+      });
+    }
+
+    /* La huella de lo que se está mirando: `/api/huella?tipo=...&ref=...`. */
+    function huella(tipo, ref) {
+      var ruta = "/api/huella?tipo=" + encodeURIComponent(tipo) +
+                 (ref ? "&ref=" + encodeURIComponent(ref) : "");
+      return json(ruta).then(function (r) {
+        return r.ok ? r.datos.huella : null;
+      });
+    }
+    IR.huella = huella;
+
+    function barra(rotulo, alPulsar) {
+      var caja = document.createElement("div");
+      caja.className = "acciones-aprobar";
+      caja.setAttribute("data-aprobar", "");
+      caja.style.cssText = "position:fixed; right:24px; bottom:24px; z-index:20;" +
+        "display:flex; gap:12px; align-items:center;";
+      var aviso = document.createElement("span");
+      aviso.className = "dato";
+      var boton = document.createElement("button");
+      boton.type = "button";
+      boton.className = "boton";
+      boton.textContent = rotulo;
+      var armado = false;
+      boton.addEventListener("click", function () {
+        if (!armado) {                       /* confirmación EN LÍNEA, no `confirm()` */
+          armado = true;
+          boton.textContent = "¿seguro? pulsa otra vez";
+          return;
+        }
+        boton.disabled = true;
+        boton.textContent = "…";
+        alPulsar(function (mensaje, bien) {
+          aviso.textContent = mensaje;
+          if (bien) {
+            boton.remove();
+          } else {
+            armado = false;
+            boton.disabled = false;
+            boton.textContent = rotulo;
+          }
+        });
+      });
+      caja.appendChild(aviso);
+      caja.appendChild(boton);
+      document.body.appendChild(caja);
+      return caja;
+    }
+
+    function aprobarPlanos(terminado) {
+      huella("planos", null).then(function (h) {
+        return post("/api/aprobar-planos", h ? { huella: h } : {});
+      }).then(function (r) {
+        if (r.ok) return terminado("planos aprobados · por ti (web)", true);
+        terminado(r.datos.error || "no pude aprobar los planos", false);
+      });
+    }
+
+    function unidadDeLaValidacion() {
+      var trozos = (IR.base || "").split("/").filter(Boolean);
+      return trozos.length > 1 ? trozos[1] : null;
+    }
+
+    function darElOk(terminado) {
+      var unidad = unidadDeLaValidacion();
+      if (!unidad) return terminado("no hay ninguna validación guiada abierta", false);
+      json(IR.ruta("/manifiesto.json")).then(function (r) {
+        var p = (r.datos.presentaciones || [])[0];
+        if (!p) return terminado("esta validación no tiene pasos que confirmar", false);
+        return huella("validacion", unidad).then(function (h) {
+          return post("/api/validar-ok", {
+            unidad: unidad,
+            huella: h,
+            presentacion: p.id,
+            version: p.version,
+            contenido_revisado: (p.pasos || []).join("\n"),
+            eleccion: "confirmado",
+            comentario: "",
+            confirmado: true,
+          });
+        }).then(function (r2) {
+          if (r2.ok) return terminado("OK dado · " + unidad + " queda validada", true);
+          terminado(r2.datos.error || "no pude registrar el OK", false);
+        });
+      });
+    }
+
+    document.addEventListener("DOMContentLoaded", function () {
+      if (SOLO_LECTURA) return quitarLosBotonesDeEscribir();
+      if (IR.apartado === "flujos") barra("Aprobar planos", aprobarPlanos);
+      if (IR.apartado === "presentaciones") barra("OK, funciona", darElOk);
+    });
+  })();
+</script>
 <!--{CUERPO}-->
 <script src="/render.js"></script>
 <!--{GUION}-->

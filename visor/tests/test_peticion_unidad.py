@@ -1,5 +1,6 @@
 import contextlib
 import importlib
+import importlib.util
 import io
 import json
 import datetime
@@ -189,15 +190,33 @@ class PeticionUnidadTest(unittest.TestCase):
         ficha.write_text(texto, encoding="utf-8")
         return ficha.stem
 
-    def dejar_rastro_visor_contratos(self, nombre, fecha=None):
+    def dejar_rastro_visor_contratos(self, nombre, fecha=None, con_web=True):
         """Lo que `visor_contratos/servir.py` anota por contrato mostrado (R2, bug 054):
         estos fixtures aprueban a mano, así que dejan también el rastro que la puerta 3
-        de `despachar` exige (R3) — sin él, `despachar` bloquearía un fixture legítimo."""
+        de `despachar` exige (R3) — sin él, `despachar` bloquearía un fixture legítimo.
+
+        Desde la unidad 107 hay una puerta MÁS (R5): una fecha en `aprobado:` sin rastro
+        de que el clic viniera de la web ya no vale. La aprobación de verdad deja los DOS
+        rastros a la vez —el visor mostró el contrato y el usuario pulsó Aprobar—, así
+        que el fixture deja los dos. `con_web=False` reproduce la fecha tecleada."""
         fecha = fecha or datetime.date.today().isoformat()
         registro = self.ws / ".runtime" / "visor-contratos.log"
         registro.parent.mkdir(parents=True, exist_ok=True)
         with open(registro, "a", encoding="utf-8") as rastro:
             rastro.write(f"{fecha}T00:00:00 contrato mostrado: {nombre}\n")
+        if con_web:
+            self.dejar_rastro_aprobacion_web(nombre, fecha)
+
+    def dejar_rastro_aprobacion_web(self, nombre, fecha=None):
+        """Lo que `web/servir.py` escribe cuando el usuario pulsa Aprobar (unidad 107):
+        `.runtime/aprobaciones/<unidad>-<fecha>.json` con ruta, huella, hora y cliente."""
+        fecha = fecha or datetime.date.today().isoformat()
+        carpeta = self.ws / ".runtime" / "aprobaciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / f"{nombre}-{fecha}.json").write_text(json.dumps({
+            "unidad": nombre, "fecha": fecha, "ruta": f"docs/05-trabajo/{nombre}",
+            "huella": "0" * 64, "hora": f"{fecha}T00:00:00", "cliente": "127.0.0.1",
+        }), encoding="utf-8")
 
     def aprobar_para_despacho(self, nombre, nivel=None):
         nivel = nivel or "unitario, porque la conducta es una regla local."
@@ -3337,3 +3356,97 @@ class EstadoParalelismoTest(unittest.TestCase):
             next(l for l in salida.splitlines()
                  if l.strip().startswith("102-sin-recibo")),
         )
+
+
+class PuertaAprobacionWebTest(unittest.TestCase):
+    """Unidad 107, R5 — `despachar` deja de creerse una fecha escrita a mano.
+
+    Nivel unitario, que es el que declara §Verificación del contrato: la decisión vive
+    en `puerta_aprobacion_web(nombre, aprobado)` y aquí se prueba directamente, sin
+    montar un workspace entero. La fecha desde la que se exige (`APROBACION_WEB_DESDE`)
+    se mueve en el test porque lo que se prueba es la REGLA, no el calendario.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="puerta-aprobacion-web-")
+        self.addCleanup(self.tmp.cleanup)
+        self.ws = Path(self.tmp.name).resolve()
+        if str(SCRIPTS) not in sys.path:
+            sys.path.insert(0, str(SCRIPTS))
+        spec = importlib.util.spec_from_file_location(
+            "unidad_puerta_web", SCRIPTS / "unidad.py")
+        self.unidad_mod = importlib.util.module_from_spec(spec)
+        sys.modules["unidad_puerta_web"] = self.unidad_mod
+        spec.loader.exec_module(self.unidad_mod)
+        self.unidad_mod.RAIZ = self.ws
+        self.unidad_mod.APROBACION_WEB_DESDE = "2026-01-01"
+
+    def dejar_clic(self, nombre, fecha, **cambios):
+        """Lo que escribe `web/servir.py` cuando el usuario pulsa Aprobar (unidad 107)."""
+        carpeta = self.ws / ".runtime" / "aprobaciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        datos = {"unidad": nombre, "fecha": fecha,
+                 "ruta": f"docs/05-trabajo/{nombre}/especificacion.md",
+                 "huella": "0" * 64, "hora": f"{fecha}T09:00:00",
+                 "cliente": "127.0.0.1"}
+        datos.update(cambios)
+        (carpeta / f"{nombre}-{fecha}.json").write_text(
+            json.dumps(datos), encoding="utf-8")
+
+    def test_una_fecha_sin_clic_bloquea_y_manda_a_la_web(self):
+        problema, nota = self.unidad_mod.puerta_aprobacion_web(
+            "001-fecha-tecleada", "2026-06-01")
+        self.assertIsNotNone(problema)
+        self.assertIn(".runtime/aprobaciones", problema)
+        self.assertIn("SALIDA:", problema)
+        self.assertIn("web/abrir.py", problema)
+        self.assertIsNone(nota)
+
+    def test_con_el_clic_del_usuario_pasa_y_lo_dice(self):
+        self.dejar_clic("001-clic-de-verdad", "2026-06-01")
+        problema, nota = self.unidad_mod.puerta_aprobacion_web(
+            "001-clic-de-verdad", "2026-06-01")
+        self.assertIsNone(problema, problema)
+        self.assertIn("pulsó Aprobar en la web", nota)
+
+    def test_un_clic_posterior_a_la_fecha_aprobada_no_cuenta(self):
+        """Mismo criterio que el rastro del visor (bug 054): pulsar el botón DESPUÉS de
+        haber escrito la fecha no prueba que la fecha saliera del botón."""
+        self.dejar_clic("001-tardio", "2026-06-05")
+        problema, _ = self.unidad_mod.puerta_aprobacion_web("001-tardio", "2026-06-01")
+        self.assertIsNotNone(problema)
+
+    def test_el_rastro_de_otra_unidad_no_sirve(self):
+        self.dejar_clic("001-otra", "2026-06-01")
+        problema, _ = self.unidad_mod.puerta_aprobacion_web("001-mia", "2026-06-01")
+        self.assertIsNotNone(problema)
+
+    def test_un_rastro_con_el_nombre_de_otra_unidad_dentro_no_cuela(self):
+        """El fichero se llama como la unidad, pero dentro dice otra: el contenido manda."""
+        self.dejar_clic("001-mia", "2026-06-01", unidad="001-otra")
+        problema, _ = self.unidad_mod.puerta_aprobacion_web("001-mia", "2026-06-01")
+        self.assertIsNotNone(problema)
+
+    def test_un_rastro_ilegible_no_acredita_nada(self):
+        carpeta = self.ws / ".runtime" / "aprobaciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / "001-rota-2026-06-01.json").write_text("{", encoding="utf-8")
+        problema, _ = self.unidad_mod.puerta_aprobacion_web("001-rota", "2026-06-01")
+        self.assertIsNotNone(problema)
+
+    def test_lo_aprobado_antes_de_que_existiera_la_puerta_sigue_valiendo(self):
+        """R5, la otra mitad: la puerta no invalida a posteriori lo que se aprobó cuando
+        el botón todavía no existía."""
+        problema, nota = self.unidad_mod.puerta_aprobacion_web(
+            "001-vieja", "2025-12-31")
+        self.assertIsNone(problema)
+        self.assertIsNone(nota)
+
+    def test_la_fecha_desde_la_que_se_exige_es_la_de_la_fusion_de_la_107(self):
+        """El valor de verdad, sin monkeypatch: si alguien lo adelanta, invalida de golpe
+        todo lo ya aprobado del workspace; si lo retrasa, la puerta no llega nunca."""
+        self.assertRegex(
+            (SCRIPTS / "unidad.py").read_text(encoding="utf-8"),
+            r'APROBACION_WEB_DESDE = "2026-08-2[78]"')
+
+

@@ -12,6 +12,19 @@ de servidor. Aquí hay un solo `ThreadingHTTPServer` y una tabla de prefijos:
     GET /<apartado>/<dato>      los datos de ese apartado, tal cual los daba su visor
     GET /render.js /base.css    el motor de bloques y la hoja común, una sola copia
     GET /meta.json              identidad del servicio, para `abrir.py`
+    GET /api/huella             la huella de lo que se está mirando (unidad 107)
+
+Y TRES escrituras, ni una más (unidades 091 y 107), que dispara el USUARIO con un
+clic y nunca el agente:
+
+    POST /contratos/aprobar/<NNN-slug>   `aprobado:` + `aprobado_por:` + rastro
+    POST /api/aprobar-planos             lo mismo que `requisitos aprobar`
+    POST /api/validar-ok                 el OK final de una validación guiada
+
+Las tres llaman a la función que YA escribía eso desde el comando: la web no tiene
+un segundo escritor para el mismo fichero. Las tres exigen cliente local, y admiten
+la huella de lo que se sirvió: si el fichero cambió desde entonces, se manda releer.
+Con `--solo-lectura` las tres responden 405 y ningún botón se pinta.
 
 Los cuatro visores anteriores siguen siendo los dueños de sus datos y de sus
 rastros: esta cáscara IMPORTA su `hacer_handler` y le delega la petición con la
@@ -23,9 +36,11 @@ Uso:
 """
 
 import argparse
+import email.message
 import hashlib
 import http.server
 import importlib.util
+import io
 import json
 import os
 import re
@@ -34,7 +49,7 @@ import sys
 import threading
 import time
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 
 
 # Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
@@ -48,6 +63,100 @@ SERVICIO = "web-metodo"
 PUERTO_BASE = 8770
 RASTRO_FLUJOS = "visor-%d.log"
 NOMBRE_UNIDAD = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*$")
+
+# --------------------------------------------------- unidad 107: aprobar desde la web
+# Quien aprueba, escrito igual en los tres sitios: la ficha, el recibo de los planos y
+# el rastro. Si esto cambia, cambia en un solo sitio.
+QUIEN = "usuario (web)"
+# El rastro de cada clic, que es lo que `unidad.py despachar` exige desde la 107 (R5).
+CARPETA_APROBACIONES = ".runtime/aprobaciones"
+API_HUELLA = "/api/huella"
+API_APROBAR_PLANOS = "/api/aprobar-planos"
+API_VALIDAR_OK = "/api/validar-ok"
+RUTA_APROBAR_CONTRATO = re.compile(r"^/contratos/aprobar/(\d{3}-[a-z0-9][a-z0-9-]*)$")
+RUTA_PEDIR_CAMBIOS = re.compile(r"^/contratos/pedir-cambios/(\d{3}-[a-z0-9][a-z0-9-]*)$")
+RUTA_DECISIONES = re.compile(r"^/presentaciones/\d{3}-[a-z0-9][a-z0-9-]*/decisiones$")
+LINEA_APROBADO = re.compile(r"^aprobado:\s*(\d{4}-\d{2}-\d{2})", re.M)
+LINEA_APROBADO_POR = re.compile(r"^aprobado_por:[^\n]*$", re.M)
+CUALQUIER_APROBADO = re.compile(r"^aprobado:[^\n]*$", re.M)
+MENSAJE_RELEER = ("lo que tienes delante ya no es lo que hay en disco: relee la página "
+                  "antes de aprobar (recárgala y vuelve a pulsar)")
+
+
+def cliente_local(direccion):
+    """¿La petición viene de esta misma máquina?
+
+    El bind a `127.0.0.1` ya lo garantiza hoy, pero el bind es configuración y esto es
+    la REGLA: si alguien sirviera en `0.0.0.0`, aquí es donde se sigue diciendo que no.
+    """
+    if not direccion:
+        return False
+    ip = direccion[0] if isinstance(direccion, (tuple, list)) else str(direccion)
+    return ip in ("127.0.0.1", "::1", "::ffff:127.0.0.1")
+
+
+def es_escritura(pedida):
+    """Las rutas que ESCRIBEN. Todo lo demás de la web sigue siendo de lectura."""
+    return bool(
+        RUTA_APROBAR_CONTRATO.match(pedida)
+        or RUTA_PEDIR_CAMBIOS.match(pedida)
+        or RUTA_DECISIONES.match(pedida)
+        or pedida in (API_APROBAR_PLANOS, API_VALIDAR_OK)
+    )
+
+
+def huella_fichero(ruta):
+    """SHA-256 del fichero tal cual se sirvió: la huella que el POST trae de vuelta."""
+    return hashlib.sha256(Path(ruta).read_bytes()).hexdigest()
+
+
+def fecha_aprobado(texto):
+    """La fecha de `aprobado:` si ya la hay; `None` si el contrato sigue pendiente."""
+    hallado = LINEA_APROBADO.search(texto)
+    return hallado.group(1) if hallado else None
+
+
+def anotar_aprobado_por(ruta, quien=QUIEN):
+    """`aprobado_por: usuario (web)` como CAMPO del frontmatter, no como comentario.
+
+    La 091 dejaba el «quién» dentro del comentario YAML de la línea `aprobado:`; eso lo
+    lee una persona, pero no un script. Se escribe justo debajo, y si ya estaba se pisa.
+    """
+    ruta = Path(ruta)
+    texto = ruta.read_text(encoding="utf-8")
+    linea = "aprobado_por: %s" % quien
+    if LINEA_APROBADO_POR.search(texto):
+        texto = LINEA_APROBADO_POR.sub(linea, texto, count=1)
+    else:
+        hallado = CUALQUIER_APROBADO.search(texto)
+        if not hallado:
+            return None
+        texto = texto[:hallado.end()] + "\n" + linea + texto[hallado.end():]
+    ruta.write_text(texto, encoding="utf-8")
+    return linea
+
+
+def escribir_rastro_aprobacion(workspace, que, ruta, huella, cliente, extra=None):
+    """El rastro del clic: `.runtime/aprobaciones/<que>-<fecha>.json`.
+
+    Cuatro datos, que son los que hacen falta para volver a mirarlo dentro de un año:
+    QUÉ se aprobó (ruta), QUÉ decía entonces (huella), CUÁNDO y QUIÉN estaba delante.
+    Es lo que lee `unidad.py despachar` (unidad 107, R5).
+    """
+    hoy = time.strftime("%Y-%m-%d")
+    carpeta = Path(workspace) / CARPETA_APROBACIONES
+    datos = {"unidad": que, "fecha": hoy, "ruta": str(ruta), "huella": huella,
+             "hora": time.strftime("%Y-%m-%dT%H:%M:%S"), "cliente": cliente,
+             "aprobado_por": QUIEN}
+    datos.update(extra or {})
+    try:
+        carpeta.mkdir(parents=True, exist_ok=True)
+        destino = carpeta / ("%s-%s.json" % (que, hoy))
+        destino.write_text(json.dumps(datos, ensure_ascii=False, indent=2) + "\n",
+                           encoding="utf-8")
+    except OSError:
+        return None
+    return destino
 
 # Los cuatro apartados, en el orden de la barra común (desde la 076):
 # (clave, ruta, rótulo, marca de la cabecera).
@@ -177,7 +286,8 @@ def barra(actual, cascara=None):
                        'data-web="%s" class="actual" aria-current="page"' % actual)
 
 
-def pagina(actual, base, cuerpo_alternativo=None, titulo=None):
+def pagina(actual, base, cuerpo_alternativo=None, titulo=None,
+           solo_lectura=False):
     """La página completa de un apartado: cáscara + su sección.
 
     Las plantillas de los cuatro visores siguen siendo documentos válidos por su
@@ -191,7 +301,8 @@ def pagina(actual, base, cuerpo_alternativo=None, titulo=None):
     else:
         piezas = {"estilos": "", "barra": "", "cuerpo": cuerpo_alternativo,
                   "guion": ""}
-    contexto = json.dumps({"apartado": actual, "base": base}, ensure_ascii=False)
+    contexto = json.dumps({"apartado": actual, "base": base,
+                           "solo_lectura": bool(solo_lectura)}, ensure_ascii=False)
     nav = barra(actual, cascara)
     # El `<template>` es la FUENTE de la barra, no contenido de la página: si
     # viajara al navegador, cada página llevaría la barra dos veces en el DOM.
@@ -326,7 +437,7 @@ PRESTADOS = ("rfile", "wfile", "headers", "command", "request_version",
              "connection", "raw_requestline")
 
 
-def hacer_handler(workspace, estado=None, planos=None):
+def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
     workspace = str(Path(workspace).resolve())
     planos = str(Path(planos).resolve()) if planos else None
     estado = estado if estado is not None else {"ultimo": time.time()}
@@ -375,6 +486,8 @@ def hacer_handler(workspace, estado=None, planos=None):
                                      "text/javascript; charset=utf-8")
             if pedida == "/base.css":
                 return self._fichero(ruta_base_css(), "text/css; charset=utf-8")
+            if pedida == API_HUELLA:
+                return self._huella(urlsplit(self.path).query)
             if pedida == "/meta.json":
                 return self._json(200, {
                     "servicio": SERVICIO,
@@ -386,7 +499,26 @@ def hacer_handler(workspace, estado=None, planos=None):
 
         def do_POST(self):
             estado["ultimo"] = time.time()
-            return self._enrutar("POST", urlsplit(self.path).path)
+            pedida = urlsplit(self.path).path
+            # R6 y R4: la frontera se comprueba ANTES de mirar qué se pedía, para que
+            # una ruta nueva no pueda nacer por fuera de ella sin darse cuenta.
+            if es_escritura(pedida):
+                if solo_lectura:
+                    return self._json(405, {"error": (
+                        "esta web se lanzó en solo lectura (--solo-lectura): aquí no se "
+                        "aprueba nada. SALIDA: relánzala sin ese flag y vuelve a pulsar")})
+                if not cliente_local(self.client_address):
+                    return self._json(403, {"error": (
+                        "solo se aprueba desde esta máquina (127.0.0.1). SALIDA: abre la "
+                        "web en el ordenador donde corre el método y pulsa allí")})
+            aprobar = RUTA_APROBAR_CONTRATO.match(pedida)
+            if aprobar:
+                return self._aprobar_contrato(aprobar.group(1))
+            if pedida == API_APROBAR_PLANOS:
+                return self._aprobar_planos()
+            if pedida == API_VALIDAR_OK:
+                return self._validar_ok()
+            return self._enrutar("POST", pedida)
 
         def do_HEAD(self):
             estado["ultimo"] = time.time()
@@ -461,6 +593,222 @@ def hacer_handler(workspace, estado=None, planos=None):
             return self._delegar_a(handler, "/" + "/".join(resto), metodo,
                                    "presentaciones")
 
+        # -------------------------------------------- unidad 107: aprobar desde la web
+
+        def _cuerpo(self, permitidos):
+            """El JSON del POST, con los campos CERRADOS (R4).
+
+            Un campo no previsto no se ignora: se rechaza. Ignorarlo es como acaban
+            entrando escrituras que nadie decidió («ya que estamos, esto también»).
+            """
+            largo = int(self.headers.get("Content-Length") or 0)
+            if largo <= 0:
+                return {}
+            if largo > 40_000:
+                raise ValueError("cuerpo demasiado grande")
+            datos = json.loads(self.rfile.read(largo) or b"{}")
+            if not isinstance(datos, dict):
+                raise ValueError("el cuerpo debe ser un objeto JSON")
+            sobra = sorted(set(datos) - set(permitidos))
+            if sobra:
+                raise ValueError("campo no previsto: %s. SALIDA: manda solo %s"
+                                 % (", ".join(sobra), ", ".join(sorted(permitidos))))
+            return datos
+
+        def _cliente(self):
+            direccion = getattr(self, "client_address", None)
+            return direccion[0] if direccion else "desconocido"
+
+        def _aprobar_contrato(self, nombre):
+            """R1 — el clic sobre un contrato PENDIENTE.
+
+            Quien escribe la fecha sigue siendo `visor_contratos.aprobar_contrato`, la
+            misma función de la 091: aquí se le ponen delante las dos puertas que le
+            faltaban (ya aprobado → 409; huella distinta → 409) y detrás el «quién» como
+            campo y el rastro que lee `despachar`.
+            """
+            mod = modulo("contratos")
+            try:
+                datos = self._cuerpo(("huella",))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self._json(400, {"error": str(exc)})
+            ruta = mod.ruta_contrato(workspace, nombre)
+            if not ruta:
+                return self._json(404, {"error": "no hay contrato de " + nombre})
+            try:
+                texto = Path(ruta).read_text(encoding="utf-8")
+                huella = huella_fichero(ruta)
+            except OSError as exc:
+                return self._json(400, {"error": str(exc)})
+            ya = fecha_aprobado(texto)
+            if ya:
+                return self._json(409, {
+                    "error": "%s ya estaba aprobada el %s: aprobar es un gesto sobre lo "
+                             "pendiente y no reescribe una firma. SALIDA: no hay nada que "
+                             "hacer aquí; si el contrato cambió, pide cambios"
+                             % (nombre, ya),
+                    "unidad": nombre, "aprobado": ya})
+            if datos.get("huella") and datos["huella"] != huella:
+                return self._json(409, {"error": MENSAJE_RELEER, "unidad": nombre})
+            try:
+                fecha = mod.aprobar_contrato(workspace, nombre, QUIEN)
+            except FileNotFoundError:
+                return self._json(404, {"error": "no hay contrato de " + nombre})
+            except (ValueError, OSError) as exc:
+                return self._json(400, {"error": str(exc)})
+            anotar_aprobado_por(ruta)
+            rastro = escribir_rastro_aprobacion(workspace, nombre, ruta, huella,
+                                                self._cliente())
+            return self._json(200, {"unidad": nombre, "aprobado": fecha,
+                                    "aprobado_por": QUIEN,
+                                    "rastro": str(rastro) if rastro else None})
+
+        def _revision(self):
+            """El módulo que YA aprueba planos desde el comando (`requisitos aprobar`)."""
+            return modulo("flujos").revision
+
+        def _aprobar_planos(self):
+            """R2 — el mismo `revision.aprobar` que el comando, disparado por el clic.
+
+            Ni una línea de escritura propia: `aprobacion.json`, el `historial/` y el
+            `definicion.estado` de cada plano salen de la función de siempre, con sus
+            puertas de siempre (planos válidos, sin feedback pendiente, visor visto).
+            """
+            try:
+                datos = self._cuerpo(("huella", "por", "ref", "confirmar_supuestos"))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self._json(400, {"error": str(exc)})
+            mapa = ruta_planos(workspace, planos)
+            if not mapa.is_file():
+                return self._json(404, {"error": "este proyecto todavía no tiene planos"})
+            if datos.get("ref") and not self._ref_en_docs(datos["ref"]):
+                return self._json(400, {"error": (
+                    "esa referencia cae fuera de docs/: aquí solo se aprueba lo del "
+                    "workspace. SALIDA: pulsa Aprobar en el apartado Flujos")})
+            revision = self._revision()
+            try:
+                huella = revision.huella_planos(str(mapa))
+            except (ValueError, OSError) as exc:
+                return self._json(400, {"error": str(exc)})
+            if datos.get("huella") and datos["huella"] != huella:
+                return self._json(409, {"error": MENSAJE_RELEER})
+            try:
+                recibo = revision.aprobar(str(mapa), datos.get("por") or QUIEN,
+                                          bool(datos.get("confirmar_supuestos")))
+            except (ValueError, KeyError) as exc:
+                return self._json(400, {"error": str(exc)})
+            except OSError as exc:
+                return self._json(400, {"error": str(exc)})
+            rastro = escribir_rastro_aprobacion(workspace, "planos", mapa, huella,
+                                                self._cliente(),
+                                                {"version": recibo.get("version")})
+            return self._json(200, {"aprobacion": recibo,
+                                    "rastro": str(rastro) if rastro else None})
+
+        def _ref_en_docs(self, ref):
+            """Una `ref` solo vale si cae DENTRO de `docs/` del workspace servido."""
+            try:
+                candidata = (Path(workspace) / str(ref)).resolve()
+                candidata.relative_to(Path(workspace).resolve() / "docs")
+            except (ValueError, OSError, RuntimeError):
+                return False
+            return True
+
+        def _validar_ok(self):
+            """R2 (segunda mitad) — el OK final de una validación guiada.
+
+            El recibo lo sigue escribiendo el visor de presentaciones, con su propia
+            validación contra el manifiesto: aquí se le entrega la decisión tal cual, por
+            su ruta de siempre (`/decisiones`), para que el fichero que cae en
+            `.runtime/presentaciones/<unidad>/recibos/` sea EXACTAMENTE el que
+            `unidad.py cerrar --ok-usuario` sabe leer.
+            """
+            try:
+                datos = self._cuerpo(("unidad", "huella", "presentacion", "version",
+                                      "contenido_revisado", "eleccion", "comentario",
+                                      "confirmado"))
+            except (ValueError, TypeError, json.JSONDecodeError) as exc:
+                return self._json(400, {"error": str(exc)})
+            unidad = str(datos.pop("unidad", "") or "")
+            if not NOMBRE_UNIDAD.match(unidad):
+                return self._json(400, {"error": (
+                    "falta la unidad de la validación guiada (NNN-slug). SALIDA: pulsa el "
+                    "OK desde el apartado Presentaciones de esa unidad")})
+            handler = handler_presentacion(unidad)
+            if handler is None:
+                return self._json(404, {"error": "no hay validación guiada de " + unidad})
+            manifiesto = carpeta_presentaciones(workspace) / unidad / "manifiesto.json"
+            try:
+                huella = huella_fichero(manifiesto)
+            except OSError as exc:
+                return self._json(400, {"error": str(exc)})
+            if datos.pop("huella", None) not in (None, huella):
+                return self._json(409, {"error": MENSAJE_RELEER})
+            recibos = carpeta_presentaciones(workspace) / unidad / "recibos"
+            antes = len(list(recibos.glob("*.json"))) if recibos.is_dir() else 0
+            self._delegar_cuerpo(handler, "/decisiones",
+                                 json.dumps(datos, ensure_ascii=False).encode("utf-8"))
+            despues = len(list(recibos.glob("*.json"))) if recibos.is_dir() else 0
+            if despues > antes:
+                escribir_rastro_aprobacion(workspace, unidad, manifiesto, huella,
+                                           self._cliente(),
+                                           {"eleccion": datos.get("eleccion")})
+
+        def _delegar_cuerpo(self, clase, ruta, cuerpo):
+            """Como `_delegar_a`, pero con un cuerpo YA leído: el visor de presentaciones
+            lee su JSON de `rfile`, y aquí ese JSON ya se abrió para mirarle la huella."""
+            sub = clase.__new__(clase)
+            for nombre in PRESTADOS:
+                if hasattr(self, nombre):
+                    setattr(sub, nombre, getattr(self, nombre))
+            cabeceras = email.message.Message()
+            cabeceras["Content-Type"] = "application/json"
+            cabeceras["Content-Length"] = str(len(cuerpo))
+            sub.headers = cabeceras
+            sub.rfile = io.BytesIO(cuerpo)
+            sub.path = ruta
+            sub._headers_buffer = []
+            try:
+                sub.do_POST()
+            finally:
+                self.close_connection = getattr(sub, "close_connection",
+                                                self.close_connection)
+
+        def _huella(self, consulta):
+            """La huella de lo que la página está enseñando, para devolverla en el POST."""
+            campos = parse_qs(consulta or "")
+            tipo = (campos.get("tipo") or [""])[0]
+            ref = (campos.get("ref") or [""])[0]
+            if tipo == "planos":
+                mapa = ruta_planos(workspace, planos)
+                if not mapa.is_file():
+                    return self._json(404, {"error": "este proyecto no tiene planos"})
+                try:
+                    return self._json(200, {"tipo": tipo,
+                                            "huella": self._revision().huella_planos(str(mapa))})
+                except (ValueError, OSError) as exc:
+                    return self._json(400, {"error": str(exc)})
+            if not NOMBRE_UNIDAD.match(ref):
+                return self._json(400, {"error": (
+                    "la referencia tiene que ser una unidad (NNN-slug). SALIDA: pide la "
+                    "huella de lo que la página está enseñando, no de una ruta a mano")})
+            if tipo == "contrato":
+                destino = modulo("contratos").ruta_contrato(workspace, ref)
+            elif tipo == "validacion":
+                destino = carpeta_presentaciones(workspace) / ref / "manifiesto.json"
+                destino = destino if destino.is_file() else None
+            else:
+                return self._json(400, {"error": (
+                    "tipo desconocido. SALIDA: usa tipo=contrato, tipo=planos o "
+                    "tipo=validacion")})
+            if not destino:
+                return self._json(404, {"error": "no hay nada que aprobar en " + ref})
+            try:
+                return self._json(200, {"tipo": tipo, "ref": ref,
+                                        "huella": huella_fichero(destino)})
+            except OSError as exc:
+                return self._json(400, {"error": str(exc)})
+
         def _flujos(self):
             mapa = ruta_planos(workspace, planos)
             if not mapa.is_file():
@@ -468,7 +816,8 @@ def hacer_handler(workspace, estado=None, planos=None):
                 # apartado lo DICE, en vez de morirse y llevarse los otros tres.
                 return self._html(200, pagina("flujos", "/flujos",
                                               CUERPO_SIN_PLANOS,
-                                              "Flujos · aún no hay planos"))
+                                              "Flujos · aún no hay planos",
+                                              solo_lectura=solo_lectura))
             # R4 (unidad 033): `requisitos.py aprobar` exige el rastro de que los
             # planos se enseñaron. Se anota POR VISTA, como hacía `requisitos.py
             # abrir`: mirarlos hoy en una web abierta ayer tiene que contar.
@@ -518,7 +867,7 @@ def hacer_handler(workspace, estado=None, planos=None):
         # -------------------------------------------------------------- salidas
 
         def _pagina(self, cual, base):
-            return self._html(200, pagina(cual, base))
+            return self._html(200, pagina(cual, base, solo_lectura=solo_lectura))
 
         def _pagina_sin_presentaciones(self):
             cuerpo = CUERPO_404 % "/presentaciones"
@@ -529,7 +878,8 @@ def hacer_handler(workspace, estado=None, planos=None):
                 "Nadie ha lanzado aún <code>unidad.py validar</code> en este "
                 "workspace.")
             return self._html(200, pagina("presentaciones", "/presentaciones",
-                                          cuerpo, "Presentaciones"))
+                                          cuerpo, "Presentaciones",
+                                          solo_lectura=solo_lectura))
 
         def _no_esta(self, pedida):
             # R6: un apartado que no existe es un 404 AMABLE con enlace a la
@@ -538,7 +888,8 @@ def hacer_handler(workspace, estado=None, planos=None):
                         .replace(">", "&gt;"))
             return self._html(404, pagina("tablero", "/tablero",
                                           CUERPO_404 % escapada,
-                                          "Aquí no hay nada"))
+                                          "Aquí no hay nada",
+                                          solo_lectura=solo_lectura))
 
         def _redirigir(self, destino):
             self.send_response(301)
@@ -612,6 +963,9 @@ def main():
                    help="minutos sin actividad antes de apagarse; 0 = no caduca")
     p.add_argument("--sin-navegador", action="store_true",
                    help="No abrir el navegador")
+    p.add_argument("--solo-lectura", action="store_true",
+                   help="la web sin manos: ningún botón de aprobar y los endpoints de "
+                        "aprobación responden 405 (unidad 107, R6)")
     args = p.parse_args()
 
     if not (0 <= args.minutos <= 1440):
@@ -632,7 +986,8 @@ def main():
     estado = {"ultimo": time.time()}
     try:
         servidor = ServidorWeb(("127.0.0.1", args.puerto),
-                               hacer_handler(workspace, estado, args.planos))
+                               hacer_handler(workspace, estado, args.planos,
+                                             args.solo_lectura))
     except OSError as exc:
         sys.exit("No pude abrir el puerto %d: %s" % (args.puerto, exc))
     puerto = servidor.server_address[1]
@@ -643,6 +998,8 @@ def main():
     url = "http://127.0.0.1:%d/" % puerto
     print("La web del método está en pie: %s" % url, flush=True)
     print("Workspace: %s" % workspace, flush=True)
+    if args.solo_lectura:
+        print("Solo lectura: aquí no se aprueba nada.", flush=True)
     if args.minutos:
         print("Se apaga tras %g minutos sin actividad." % args.minutos, flush=True)
     else:
