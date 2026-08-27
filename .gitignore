@@ -29,6 +29,10 @@
 !/visor_presentaciones/
 !/visor_tablero/
 
+# Lo que generan los scripts del método al correr DESDE este repo (leases, sanidad,
+# doctor): nace sin seguimiento y, sin esta línea, abortaba el `git pull` de main/.
+/plantilla/.runtime/
+
 # Y dentro de lo versionado, la basura de siempre.
 __pycache__/
 .DS_Store
