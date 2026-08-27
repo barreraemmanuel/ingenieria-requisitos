@@ -243,11 +243,23 @@ def ruta_contrato(workspace, nombre):
 LINEA_APROBADO = re.compile(r"^aprobado:[^\n]*$", re.M)
 
 
-def aprobar_contrato(workspace, nombre, quien="usuario (web)"):
+# Por dónde llegó el gesto del usuario (unidad 122). La web sigue siendo la vía normal;
+# la terminal es la segunda puerta, para quien no puede abrir un navegador (SSH, sandbox
+# sin puertos, móvil). Cambia lo que se ESCRIBE en el comentario y en el rastro —para que
+# dentro de un año se sepa dónde estaba el usuario—, nunca lo que ese OK vale.
+VIA_WEB = "la web"
+VIA_TERMINAL = "la terminal"
+
+
+def aprobar_contrato(workspace, nombre, quien="usuario (web)", via=VIA_WEB):
     """Escribe `aprobado: <hoy>` en el frontmatter del contrato y deja rastro.
 
-    Es la aprobación del USUARIO desde la web (iteración rápida del 26-08, alcance de la
-    unidad 091): el agente nunca llama a esto. Conserva el comentario guía de la línea.
+    Es la aprobación del USUARIO (iteración rápida del 26-08, alcance de la unidad 091):
+    el agente nunca llama a esto. Conserva el comentario guía de la línea.
+
+    `via` dice por dónde la dio: `VIA_WEB` (el clic) o `VIA_TERMINAL` (`unidad.py aprobar`,
+    unidad 122). Es la MISMA escritura y el MISMO rastro en los dos casos: quien lee
+    después —`unidad.py despachar`— no tiene que distinguirlas, y por eso no las distingue.
     """
     ruta = ruta_contrato(workspace, nombre)
     if not ruta:
@@ -257,13 +269,13 @@ def aprobar_contrato(workspace, nombre, quien="usuario (web)"):
     if not LINEA_APROBADO.search(texto):
         raise ValueError("el contrato no tiene línea aprobado:")
     texto = LINEA_APROBADO.sub(
-        "aprobado: %s      # aprobado desde la web por el %s" % (hoy, quien), texto, count=1)
+        "aprobado: %s      # aprobado desde %s por el %s" % (hoy, via, quien), texto, count=1)
     Path(ruta).write_text(texto, encoding="utf-8")
     registro = Path(workspace) / ".runtime" / RASTRO
     registro.parent.mkdir(parents=True, exist_ok=True)
     with open(registro, "a", encoding="utf-8") as rastro:
-        rastro.write("%s contrato aprobado desde la web: %s\n"
-                     % (time.strftime("%Y-%m-%dT%H:%M:%S"), nombre))
+        rastro.write("%s contrato aprobado desde %s: %s\n"
+                     % (time.strftime("%Y-%m-%dT%H:%M:%S"), via, nombre))
     return hoy
 
 

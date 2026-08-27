@@ -52,6 +52,10 @@ enlaza. La cola decide qué se pidió; cada proceso conserva su contrato de cier
    Pedirle al usuario el OK sobre ese contrato exige levantar antes el visor de contratos EN
    EL MISMO TURNO: `python3 main/web/abrir.py --workspace . --apartado contratos`. Sin su
    rastro, `unidad.py despachar` bloquea aunque el frontmatter ya tenga `aprobado: FECHA`.
+   Si no puede abrir la web (SSH, sandbox sin puertos, móvil), la segunda puerta vale
+   igual: le pasas `python3 docs/00-metodo/scripts/unidad.py aprobar NNN-slug --por "<su
+   nombre>"` y lo teclea ÉL en su terminal — deja los mismos dos rastros, y tú no lo
+   ejecutas nunca.
 8. **Revalidar durante la obra.** El despacho, push y cierre comprueban `P-ID@revision`. Una
    aclaración material incrementa la revisión y para la orden. Tras reevaluar, el padre usa
    `peticion.py reencuadrar-orden P-ID --desde-revision N --tipo unidad --ref NNN-slug`:

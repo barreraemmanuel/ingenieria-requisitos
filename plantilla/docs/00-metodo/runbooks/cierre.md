@@ -262,6 +262,11 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    pruebas tú", el comando BLOQUEA y lo dice: sin eso el usuario devuelve un "me parece bien"
    que firma una entrega sin haber comprobado nada.
 
+   Si no puede abrir la web, decide igual desde SU terminal con
+   `python3 docs/00-metodo/scripts/unidad.py confirmar NNN-slug --por "<su nombre>"`
+   (o `--problema "…"`): imprime los mismos pasos y la misma evidencia y sella el MISMO
+   recibo, que el paso 6 lee sin distinguir por dónde llegó. Lo teclea él, nunca el agente.
+
    El usuario decide ahí, en la web: `confirmado` o `problema`. Su decisión queda en un recibo
    inmutable que el paso 6 LEE — una fecha tecleada por el agente ya no vale por un OK
    (bug 057). **Sin su OK no hay cierre**; un `problema` no se discute: se abre una unidad

@@ -18,6 +18,13 @@ Uso (desde cualquier directorio del workspace; la raíz se deriva de la ruta del
   python3 docs/00-metodo/scripts/unidad.py validar 004-mi-slug     abre la validación guiada
                                                                   (la web que el usuario mira
                                                                    para dar su OK)
+  python3 docs/00-metodo/scripts/unidad.py aprobar 004-mi-slug --por "Nate"
+                                                                  el OK del contrato SIN la web:
+                                                                  lo teclea el usuario en su
+                                                                  terminal (unidad 122)
+  python3 docs/00-metodo/scripts/unidad.py confirmar 004-mi-slug --por "Nate"
+                                                                  lo mismo con la ENTREGA: mismo
+                                                                  recibo que la web
   python3 docs/00-metodo/scripts/unidad.py cerrar 004-mi-slug --ok-usuario 2026-08-01
                                                                   cierra la unidad ya fusionada
   python3 docs/00-metodo/scripts/unidad.py estado                   resumen de un vistazo
@@ -869,22 +876,27 @@ def puerta_recibo_validacion(nombre, ok_usuario):
 
 # ----------------------------------------------------------- subcomando: validar (R1)
 
-def cmd_validar(args):
-    nombre = args.unidad.strip("/")
-    if not RE_UNIDAD.match(nombre):
-        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug)")
-        return 1
+def preparar_validacion_guiada(nombre):
+    """Monta el manifiesto de la validación guiada de `nombre` DESDE SU FICHA y lo deja escrito.
+
+    Devuelve un dict con lo que las dos vías del OK necesitan, o None si algo bloquea (el
+    FAIL lo imprime ella, con su salida). Lo comparten `validar` —que además abre la web—
+    y `confirmar` —que lo enseña en la terminal (unidad 122)—: el manifiesto es el mismo,
+    así que se genera en un solo sitio. Idempotente: reescribe el manifiesto y NO toca los
+    recibos, que son la decisión del usuario y son inmutables desde la 051.
+    """
     unidad = buscar_unidad(nombre)
     if unidad is None:
-        fail(f"no existe la unidad {nombre} (¿ya está cerrada y archivada?)")
-        return 1
+        fail(f"no existe la unidad {nombre} (¿ya está cerrada y archivada?). {SALIDA} mira "
+             f"qué hay vivo con  python3 {rel(__file__)} estado")
+        return None
     carpeta = carpeta_web()
     if carpeta is None:
         fail(f"no encuentro la web del método en este workspace "
              f"({' ni '.join(CARPETAS_WEB)}): sin ella no hay validación guiada "
-             f"que abrir. {SALIDA} vuelve a repartirla con el actualizador del workspace "
+             f"que montar. {SALIDA} vuelve a repartirla con el actualizador del workspace "
              f"(`python3 main/visor/actualizar.py`) o clona el repo de código en main/")
-        return 1
+        return None
 
     ruta, fm, clase = unidad["ruta"], unidad["fm"], unidad["clase"]
     texto = leer_fichero_unidad(ruta)
@@ -895,7 +907,7 @@ def cmd_validar(args):
              f"un «me parece bien» que firma una entrega sin haber comprobado nada "
              f"(runbooks/cierre.md, paso 5). {SALIDA} escríbelo en {rel(ruta)} y repite: "
              f"python3 {rel(__file__)} validar {nombre}")
-        return 1
+        return None
     texto_evidencia = (leer_fichero_unidad(fuente_evidencia)
                        if fuente_evidencia.exists() else "")
     evidencia = evidencia_de_la_ficha(texto_evidencia) or [
@@ -908,9 +920,8 @@ def cmd_validar(args):
              f"de la validación guiada. {SALIDA} vuelve a repartir la web con el "
              f"actualizador del workspace (`python3 main/visor/actualizar.py`) o clona el "
              f"repo de código en main/")
-        return 1
+        return None
     mod_manifestar = modulo_de_la_web(carpeta_manif, "manifestar")
-    mod_abrir = modulo_de_la_web(carpeta, "abrir")
     presentacion = mod_manifestar.presentacion_validacion(
         nombre,
         f"{nombre} · cómo lo pruebas tú",
@@ -925,14 +936,31 @@ def cmd_validar(args):
         fail(f"el manifiesto que sale de {rel(ruta)} no pasa su propio contrato ({exc}). "
              f"{SALIDA} arregla eso en la ficha y repite "
              f"python3 {rel(__file__)} validar {nombre}")
-        return 1
+        return None
 
     datos = RAIZ / RUTA_PRESENTACIONES / nombre
     datos.mkdir(parents=True, exist_ok=True)
-    (datos / "manifiesto.json").write_text(
+    manifiesto = datos / "manifiesto.json"
+    manifiesto.write_text(
         json.dumps(contenido, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {"unidad": unidad, "ruta": ruta, "datos": datos, "manifiesto": manifiesto,
+            "presentacion": presentacion, "contenido": contenido, "pasos": pasos,
+            "evidencia": evidencia, "manifestar": mod_manifestar, "carpeta": carpeta}
+
+
+def cmd_validar(args):
+    nombre = args.unidad.strip("/")
+    if not RE_UNIDAD.match(nombre):
+        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug)")
+        return 1
+    preparado = preparar_validacion_guiada(nombre)
+    if preparado is None:
+        return 1
+    carpeta, datos = preparado["carpeta"], preparado["datos"]
+    presentacion, pasos = preparado["presentacion"], preparado["pasos"]
+    mod_abrir = modulo_de_la_web(carpeta, "abrir")
     print(f"== Validación guiada de {nombre} ==\n")
-    ok(f"manifiesto en {rel(datos / 'manifiesto.json')}: {len(pasos)} paso(s), "
+    ok(f"manifiesto en {rel(preparado['manifiesto'])}: {len(pasos)} paso(s), "
        f"{len(presentacion.get('adjuntos', []))} adjunto(s)")
     # Idempotente (R1): el manifiesto se reescribe, los recibos NUNCA se tocan — son la
     # decisión del usuario y son inmutables desde la 051.
@@ -945,10 +973,14 @@ def cmd_validar(args):
     if args.sin_navegador:
         warn("--sin-navegador: manifiesto listo, pero no levanto nada ni abro el navegador")
         print(f"\n  Cuando quieras enseñárselo:\n      {orden_manual}")
+        print(f"  O, si no puede abrir la web, que lo confirme en SU terminal:\n"
+              f"      python3 {rel(__file__)} confirmar {nombre} --por \"<su nombre>\"")
         return 0
     if not hay_pantalla():
         warn("sesión sin pantalla: manifiesto listo, pero no hay navegador que abrir")
         print(f"\n  Desde una sesión con pantalla:\n      {orden_manual}")
+        print(f"  O, sin web ninguna, que lo confirme en SU terminal:\n"
+              f"      python3 {rel(__file__)} confirmar {nombre} --por \"<su nombre>\"")
         return 0
     argumentos = argparse.Namespace(
         puerto=args.puerto, apartado=f"presentaciones/{nombre}", minutos=0,
@@ -968,6 +1000,217 @@ def cmd_validar(args):
     print(f"\n  Cuando el usuario decida en la web, el recibo queda en {rel(datos / 'recibos')}\n"
           f"  y el cierre lo lee solo:\n"
           f"      python3 {rel(__file__)} cerrar {nombre} --ok-usuario {HOY}")
+    return 0
+
+
+# ------------------------------------------- unidad 122: el mismo OK, sin la web
+# La web es la vía normal, pero exige un navegador y un puerto. Quien trabaja por SSH, en
+# un sandbox sin puertos o desde el móvil no podía dar su OK, y el agente se quedaba
+# esperando un clic imposible. Estos dos comandos abren la segunda puerta con el MISMO
+# valor: dejan exactamente los mismos rastros y el mismo recibo, así que `despachar` y
+# `cerrar` no distinguen por dónde llegó.
+#
+# Lo que NO relajan es de QUIÉN es el gesto (ADR-029): exigen un `--por` y un literal
+# tecleado en una terminal de verdad. El agente IMPRIME el comando y espera; no lo lanza
+# él. Por eso no hay ninguna variable de entorno que finja el TTY: sería el agujero.
+
+VIA_TERMINAL = "terminal"
+LITERAL_APROBAR = "APRUEBO"
+LITERAL_CONFIRMAR = "CONFIRMO"
+LITERAL_PROBLEMA = "PROBLEMA"
+
+
+def puerta_persona_delante(comando, por):
+    """(problema) — las dos puertas de R3: hace falta un nombre y una terminal de verdad."""
+    if not (por or "").strip():
+        return (f"falta --por: un OK sin nombre no es de nadie, y el que se firma es el de "
+                f"una persona concreta. {SALIDA} pásale al usuario su comando, con su "
+                f"nombre, para que lo teclee él:  python3 {rel(__file__)} {comando} "
+                f"--por \"<su nombre>\"")
+    if not sys.stdin.isatty():
+        return (f"la entrada de este proceso no es una terminal (stdin redirigido: un "
+                f"agente en batch, un pipe, la CI), así que no hay nadie tecleando y no "
+                f"escribo nada. Esto lo ejecuta EL USUARIO en SU terminal; el agente lo "
+                f"imprime y espera. {SALIDA} pásaselo tal cual:  python3 "
+                f"{rel(__file__)} {comando} --por \"<su nombre>\"")
+    return None
+
+
+def pedir_literal(literal, rotulo):
+    """Pregunta y devuelve lo tecleado, ya recortado. Sin entrada, cadena vacía."""
+    print(f"\n  {rotulo}")
+    print(f"  Teclea exactamente  {literal}  (cualquier otra cosa no escribe nada).")
+    try:
+        return input("  > ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def cuerpo_del_contrato(texto):
+    """El contrato tal cual, sin el frontmatter: lo que el usuario tiene que leer.
+
+    Se enseña ENTERO a propósito. Un resumen elegido por el agente es exactamente lo que
+    esta unidad quita de en medio: en la web el usuario ve el documento, y aquí también.
+    """
+    if texto.startswith("---"):
+        cierre = texto.find("\n---", 3)
+        if cierre != -1:
+            return texto[texto.index("\n", cierre + 1) + 1:].lstrip("\n")
+    return texto
+
+
+def cmd_aprobar(args):
+    """R1 — el contrato se lee y se aprueba en la terminal, con el mismo valor que en la web."""
+    nombre = args.unidad.strip("/")
+    if not RE_UNIDAD.match(nombre):
+        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug). {SALIDA} mira "
+             f"el nombre exacto con  python3 {rel(__file__)} estado")
+        return 1
+    unidad = buscar_unidad(nombre)
+    if unidad is None:
+        fail(f"no existe el contrato de {nombre} (¿ya está cerrada y archivada?). {SALIDA} "
+             f"mira qué hay vivo con  python3 {rel(__file__)} estado")
+        return 1
+    problema = puerta_persona_delante(f"aprobar {nombre}", args.por)
+    if problema:
+        fail(problema)
+        return 1
+
+    ruta, fm = unidad["ruta"], unidad["fm"]
+    ya = aprobacion(fm)
+    if ya:
+        # R5: aprobar es un gesto sobre lo PENDIENTE. Repetirlo no reescribe una firma ni
+        # duplica el rastro — misma regla que el 409 de la web (unidad 107).
+        fail(f"{nombre} ya aprobado el {ya}: no reescribo esa firma ni duplico su "
+             f"rastro. {SALIDA} si el contrato sigue valiendo, sigue adelante con  python3 "
+             f"{rel(__file__)} despachar {nombre} ; y si cambió, pide cambios desde la web: "
+             f"{COMANDO_VISOR_CONTRATOS}")
+        return 1
+
+    carpeta = carpeta_web()
+    if carpeta is None:
+        fail(f"no encuentro la web del método en este workspace "
+             f"({' ni '.join(CARPETAS_WEB)}): de ahí salen la escritura del `aprobado:` y "
+             f"los rastros que `despachar` exige, y no me los invento aquí. {SALIDA} vuelve "
+             f"a repartirla con el actualizador del workspace (`python3 "
+             f"main/visor/actualizar.py`) o clona el repo de código en main/")
+        return 1
+    mod_web = modulo_de_la_web(carpeta, "servir")
+    mod_contratos = mod_web.cargar_modulo("contratos")
+
+    texto = leer_fichero_unidad(ruta)
+    print(f"== Contrato de {nombre} ==  ({rel(ruta)})\n")
+    print(cuerpo_del_contrato(texto).rstrip())
+    ficheros = (fm.get("ficheros") or "").strip()
+    print(f"\n  Ficheros que toca: {ficheros or '—'}")
+    # Leerlo en la terminal ES mostrarlo: mismo rastro «contrato mostrado» que sirve la web,
+    # y es lo que mira la puerta 3 de `despachar`.
+    mod_contratos.anotar_apertura(str(RAIZ), nombre)
+
+    literal = f"{LITERAL_APROBAR} {nombre[:3]}"
+    tecleado = pedir_literal(
+        literal, f"¿Apruebas este contrato? Lo aprueba {args.por}, y queda escrito.")
+    if tecleado != literal:
+        fail(f"has tecleado «{tecleado}» y esperaba «{literal}»: no he escrito nada y "
+             f"{nombre} sigue sin aprobar. {SALIDA} vuelve a leerlo y, si lo apruebas, "
+             f"repite  python3 {rel(__file__)} aprobar {nombre} --por \"{args.por}\"")
+        return 1
+
+    quien = f"{args.por} (terminal)"
+    huella = mod_web.huella_fichero(ruta)      # la huella de lo que ACABA de leer
+    fecha = mod_contratos.aprobar_contrato(str(RAIZ), nombre, quien,
+                                           mod_contratos.VIA_TERMINAL)
+    mod_web.anotar_aprobado_por(ruta, quien)
+    rastro = mod_web.escribir_rastro_aprobacion(
+        str(RAIZ), nombre, ruta, huella, VIA_TERMINAL,
+        {"aprobado_por": quien, "via": VIA_TERMINAL, "ejecutable": sys.executable})
+    print()
+    ok(f"{rel(ruta)}: aprobado: {fecha} · aprobado_por: {quien}")
+    ok(f"rastro del visor en {RASTRO_VISOR_CONTRATOS} (contrato mostrado)")
+    if rastro:
+        ok(f"rastro de la aprobación en {rel(rastro)} (via: {VIA_TERMINAL})")
+    else:
+        warn(f"no pude escribir el rastro en {RASTRO_APROBACIONES_WEB}/: `despachar` lo "
+             f"pedirá. Comprueba los permisos de esa carpeta y repite este mismo comando")
+    print(f"\n  Ya se puede despachar:\n"
+          f"      python3 {rel(__file__)} despachar {nombre}")
+    return 0
+
+
+def cmd_confirmar(args):
+    """R2 — la entrega se prueba y se confirma en la terminal, con el mismo recibo."""
+    nombre = args.unidad.strip("/")
+    if not RE_UNIDAD.match(nombre):
+        fail(f"'{nombre}' no tiene forma NNN-slug (tres dígitos, guion, slug). {SALIDA} mira "
+             f"el nombre exacto con  python3 {rel(__file__)} estado")
+        return 1
+    problema = puerta_persona_delante(f"confirmar {nombre}", args.por)
+    if problema:
+        fail(problema)
+        return 1
+    preparado = preparar_validacion_guiada(nombre)
+    if preparado is None:
+        return 1
+
+    presentacion, datos = preparado["presentacion"], preparado["datos"]
+    mod_manifestar = preparado["manifestar"]
+    print(f"== Validación guiada de {nombre} ==  ({rel(preparado['manifiesto'])})\n")
+    print("  Cómo lo pruebas tú:")
+    for numero, paso in enumerate(presentacion["pasos"], 1):
+        print(f"    {numero}. {paso}")
+    print("\n  Evidencia de la obra:")
+    for linea in presentacion["evidencia"]:
+        print(f"    · {linea}")
+    if presentacion.get("adjuntos"):
+        print("\n  Ficheros que puedes mirar:")
+        for adjunto in presentacion["adjuntos"]:
+            print(f"    · {adjunto}")
+    anteriores = recibos_de_validacion(nombre)
+    if anteriores:
+        resumen = ", ".join("%s el %s" % (r["eleccion"], r["dia"]) for r in anteriores)
+        print(f"\n  {len(anteriores)} recibo(s) anterior(es), intactos: {resumen}")
+
+    problema_dicho = (args.problema or "").strip()
+    eleccion = "problema" if problema_dicho else "confirmado"
+    literal = (f"{LITERAL_PROBLEMA} {nombre[:3]}" if problema_dicho
+               else f"{LITERAL_CONFIRMAR} {nombre[:3]}")
+    rotulo = (f"Vas a dejar escrito un PROBLEMA sobre {nombre}: «{problema_dicho}». "
+              f"Lo firma {args.por}." if problema_dicho else
+              f"¿Has probado los pasos de arriba y funcionan? Lo confirma {args.por}, "
+              f"y es lo que deja cerrar {nombre}.")
+    tecleado = pedir_literal(literal, rotulo)
+    if tecleado != literal:
+        fail(f"has tecleado «{tecleado}» y esperaba «{literal}»: no he sellado ningún "
+             f"recibo y {nombre} sigue esperando tu OK. {SALIDA} prueba los pasos y repite "
+             f"python3 {rel(__file__)} confirmar {nombre} --por \"{args.por}\"")
+        return 1
+
+    decision = {"presentacion": nombre,
+                "version": presentacion["version"],
+                "contenido_revisado": mod_manifestar.contenido_revisable(presentacion),
+                "eleccion": eleccion,
+                "comentario": problema_dicho,
+                "confirmado": True}
+    extra = {"via": VIA_TERMINAL, "por": args.por, "dia": HOY,
+             "huella": hashlib.sha256(preparado["manifiesto"].read_bytes()).hexdigest(),
+             "ejecutable": sys.executable}
+    try:
+        recibo = mod_manifestar.decidir(preparado["contenido"], decision, extra)
+        ruta_recibo = mod_manifestar.escribir_recibo(datos, recibo)
+    except (ValueError, OSError) as exc:
+        fail(f"no pude sellar el recibo de {nombre} ({exc}). {SALIDA} vuelve a montar la "
+             f"validación guiada y repite:  python3 {rel(__file__)} confirmar {nombre} "
+             f"--por \"{args.por}\"")
+        return 1
+    print()
+    ok(f"recibo {eleccion} en {rel(ruta_recibo)} (via: {VIA_TERMINAL}, por: {args.por})")
+    if eleccion == "problema":
+        print(f"\n  Esto NO se cierra: se abre un bug con tu ejemplo.\n"
+              f"      python3 {rel(__file__)} nueva bug <slug> --desde <P-ID>")
+    else:
+        print(f"\n  El cierre lo lee solo:\n"
+              f"      python3 {rel(__file__)} cerrar {nombre} --ok-usuario {HOY}")
     return 0
 
 
@@ -4515,7 +4758,8 @@ def main():
                     "creación de rama/worktree con precondiciones que bloquean.")
     sub = ap.add_subparsers(
         dest="comando",
-        metavar="{nnn,nueva,despachar,reencuadrar,validar,prefusion,cerrar,estado}")
+        metavar="{nnn,nueva,despachar,reencuadrar,aprobar,validar,confirmar,prefusion,"
+                "cerrar,estado}")
 
     p_nnn = sub.add_parser("nnn", help="imprime el siguiente NNN libre")
     p_nnn.add_argument("--detalle", action="store_true",
@@ -4637,6 +4881,32 @@ def main():
                        help="puerto local del visor de presentaciones; por defecto uno "
                             "derivado de la carpeta de datos, estable entre llamadas")
     p_val.set_defaults(func=cmd_validar)
+
+    p_apr = sub.add_parser(
+        "aprobar",
+        help="unidad 122: el USUARIO aprueba el contrato desde SU terminal, sin la web. "
+             "Lo imprime, pide teclear APRUEBO NNN y deja el mismo `aprobado:` y los "
+             "mismos rastros que el clic. El agente imprime este comando; no lo teclea él")
+    p_apr.add_argument("unidad", help="nombre completo NNN-slug (unidad o bug)")
+    p_apr.add_argument("--por", default="", metavar="NOMBRE",
+                       help="quién aprueba. Obligatorio: un OK sin nombre no es de nadie, "
+                            "y queda escrito en la ficha y en el rastro")
+    p_apr.set_defaults(func=cmd_aprobar)
+
+    p_con = sub.add_parser(
+        "confirmar",
+        help="unidad 122: el USUARIO da su OK sobre la entrega desde SU terminal, sin la "
+             "web. Imprime los pasos de «Cómo lo pruebas tú» y la evidencia, pide teclear "
+             "CONFIRMO NNN y sella el MISMO recibo que la web, que es el que lee "
+             "`cerrar --ok-usuario`")
+    p_con.add_argument("unidad", help="nombre completo NNN-slug (unidad o bug)")
+    p_con.add_argument("--por", default="", metavar="NOMBRE",
+                       help="quién da el OK. Obligatorio, y queda en el recibo")
+    p_con.add_argument("--problema", default="", metavar="TEXTO",
+                       help="en vez de confirmar, deja escrito qué falla. Sella un recibo "
+                            "`problema`, que BLOQUEA el cierre y manda abrir un bug — "
+                            "exactamente igual que marcarlo en la web")
+    p_con.set_defaults(func=cmd_confirmar)
 
     p_pre = sub.add_parser(
         "prefusion",

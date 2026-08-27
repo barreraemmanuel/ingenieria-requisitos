@@ -2,7 +2,11 @@
 """Contrato JSON v1 para las presentaciones locales."""
 
 import copy
+import json
 import re
+import uuid
+from datetime import datetime, timezone
+from pathlib import Path
 
 TIPOS = {"bandeja", "lector", "propuesta", "validacion"}
 COMUNES = {"id", "tipo", "titulo", "version"}
@@ -156,3 +160,74 @@ def crear_ejemplo():
         {"id": "propuesta", "tipo": "propuesta", "titulo": "Propuesta", "version": "1", "resumen": "Construir la mejora descrita.", "opciones": ["aprobar", "pedir_cambios"], "comentario_obligatorio": ["pedir_cambios"]},
         {"id": "validacion", "tipo": "validacion", "titulo": "Validación", "version": "1", "pasos": ["Abrir la vista."], "evidencia": ["Pruebas: OK"], "opciones": ["confirmado", "problema"], "comentario_obligatorio": ["problema"]},
     ]})
+
+
+# ------------------------------------------------------- decidir: el recibo, en UN solo sitio
+# Unidad 122: la decisión del usuario podía llegar por dos puertas —el clic en la web y
+# `unidad.py confirmar` desde la terminal— y cada puerta con su copia de la validación era
+# tener DOS verdades sobre el mismo fichero: el día que una aceptara algo que la otra
+# rechaza, `unidad.py cerrar` leería recibos que no significan lo mismo. Las puertas y el
+# esquema del recibo viven aquí, junto al contrato del manifiesto que validan.
+
+CAMPOS_DECISION = {"presentacion", "version", "contenido_revisado", "eleccion",
+                   "comentario", "confirmado"}
+
+
+def contenido_revisable(presentacion):
+    """Lo que el usuario ha tenido delante y sobre lo que decide: el texto que su recibo
+    devuelve para que se pueda comprobar que decidió sobre ESTO y no sobre otra versión."""
+    return (presentacion["resumen"] if presentacion["tipo"] == "propuesta"
+            else "\n".join(presentacion["pasos"]))
+
+
+def decidir(datos, decision, extra=None):
+    """Valida una decisión contra el manifiesto `datos` y devuelve su recibo inmutable.
+
+    Mismas puertas de siempre (unidad 051): campos exactos, confirmación explícita,
+    presentación decidible, versión y contenido idénticos a lo servido, elección dentro de
+    las opciones y comentario obligatorio donde el manifiesto lo exige.
+
+    `extra` añade campos al recibo SIN tocar los que se comparan entre vías (`via`, `por`,
+    `dia`, `huella`, `ejecutable` de la terminal, unidad 122): quien lee el recibo después
+    —`unidad.py cerrar`— sigue encontrando exactamente los mismos campos que ya leía.
+    """
+    if (not isinstance(decision, dict) or set(decision) != CAMPOS_DECISION
+            or decision["confirmado"] is not True):
+        raise ValueError("campos o confirmación inválidos")
+    presentacion = next(
+        (p for p in datos["presentaciones"] if p["id"] == decision["presentacion"]), None)
+    if not presentacion or presentacion["tipo"] not in {"propuesta", "validacion"}:
+        raise ValueError("presentación no autorizada")
+    esperado = contenido_revisable(presentacion)
+    if (decision["version"] != presentacion["version"]
+            or decision["contenido_revisado"] != esperado):
+        raise ValueError("versión o contenido revisado no coincide")
+    if decision["eleccion"] not in presentacion["opciones"]:
+        raise ValueError("elección inválida")
+    comentario = decision["comentario"]
+    if not isinstance(comentario, str) or len(comentario) > 2000 or SENSIBLE.search(comentario):
+        raise ValueError("comentario inválido o sensible")
+    if decision["eleccion"] in presentacion["comentario_obligatorio"] and not comentario.strip():
+        raise ValueError("el comentario es obligatorio")
+    recibo = {
+        "id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ-") + uuid.uuid4().hex,
+        "presentacion": presentacion["id"],
+        "version": presentacion["version"],
+        "contenido_revisado": esperado,
+        "eleccion": decision["eleccion"],
+        "comentario": comentario,
+        "fecha": datetime.now(timezone.utc).isoformat(),
+    }
+    recibo.update(extra or {})
+    return recibo
+
+
+def escribir_recibo(carpeta_datos, recibo):
+    """Sella el recibo en `<datos>/recibos/<id>.json`. Inmutable: nunca pisa uno existente."""
+    carpeta = Path(carpeta_datos) / "recibos"
+    carpeta.mkdir(mode=0o700, parents=True, exist_ok=True)
+    ruta = carpeta / (recibo["id"] + ".json")
+    with ruta.open("x", encoding="utf-8") as salida:
+        json.dump(recibo, salida, ensure_ascii=False, indent=2)
+        salida.write("\n")
+    return ruta
