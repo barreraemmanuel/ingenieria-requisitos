@@ -358,6 +358,9 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
             "un workspace de juguete con remoto bare, exactamente como pide el contrato "
             "de esta unidad de prueba, con pasos deterministas y verificables.",
         )
+        texto = texto.replace(
+            "BUG: <síntoma en una frase>",
+            "BUG: el push del usuario se queda bloqueado tras un cierre legítimo")
         ficha.write_text(texto, encoding="utf-8")
 
         despachada = self.ejecutar_script(self.unidad, "despachar", nombre)
