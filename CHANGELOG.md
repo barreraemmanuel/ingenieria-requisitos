@@ -4,6 +4,24 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.1 — 2026-08-27
+
+Parche sobre la 1.9.0, con dos arreglos que salieron del campo el mismo día.
+
+**La actualización ya no se revierte por una línea en blanco (bug 114).** `RUNBOOK.md` y cuatro
+módulos (`arranque`, `comun`, `fases`, `modo-d`) viajaban con una línea en blanco final; en un
+proyecto con un pre-commit de espacios (`git diff --cached --check`) el commit de la actualización
+se rechazaba y `herramienta.py` la deshacía entera —dos veces en campo, con 1.8.0 y con 1.9.0—.
+Quitadas las cinco líneas, y un test vigila desde ahora todo lo que la herramienta distribuye:
+nada acaba en línea en blanco ni lleva espacios al final de línea.
+
+**La firma del revisor lleva ancla también tras el merge (bug 113).** Al relanzar al revisor sobre
+una rama ya fusionada en la principal (la ronda 2 del cierre), el recibo salía con
+`revisado_patch_id: null` y `ronda: null`, indistinguible de una revisión lanzada a mano. Ahora
+el lanzador calcula la huella contra la base de despacho registrada (o el primer padre del merge),
+el recibo explica cualquier vacío (`motivo_patch_id`) y lleva la ronda que declara la cabecera —
+sin gastarla: las rondas siguen siendo del constructor.
+
 ## 1.9.0 — 2026-08-27
 
 Tres días de trabajo con feedback de campo (correo de soporte, cajas negras y Discord): la web
