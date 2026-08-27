@@ -425,8 +425,13 @@ def plan_de_ejecucion(args, datos):
 
       `tabla`              lo normal: sale del carril de la ficha y del rol. Sin flags.
       `excepcion`          alguien pasó `--modelo`/`--esfuerzo` a mano y declaró por qué.
-      `harness-sin-tabla`  codex (R5): la tabla son identificadores de Anthropic y este
-                           launcher no le pasa `--model`, así que no se le inventa ninguno.
+      `harness-acreditado` lo escribe el CIERRE de la ejecución, no esta función: cuando el
+                           harness deja constancia de con qué modelo corrió de verdad y
+                           coincide con lo pedido (hoy solo Codex; ver `acreditar_codex`).
+
+    Ya no existe `harness-sin-tabla`: desde la unidad 100 la tabla es POR HARNESS
+    (`repo_config.plan_de_modelo(..., harness=…)`) y Codex tiene la suya, derivada de su
+    propio catálogo. Un harness sin tabla se rechaza en `repo_config`, no se tolera aquí.
     """
     modelo = (getattr(args, "modelo", None) or "").strip() or None
     esfuerzo = (getattr(args, "esfuerzo", None) or "").strip() or None
@@ -441,12 +446,11 @@ def plan_de_ejecucion(args, datos):
                 f"`--motivo-modelo \"por qué este modelo y no el de la tabla\"`"
             )
         return modelo, esfuerzo, "excepcion", motivo
-    if args.harness != "claude":
-        return None, None, "harness-sin-tabla", ""
     documental = (datos.get("ejecucion") or "").strip().lower() == "documental"
     carril = datos.get("carril") or "normal"
     try:
-        plan = repo_config.plan_de_modelo(carril, args.rol, documental=documental)
+        plan = repo_config.plan_de_modelo(
+            carril, args.rol, documental=documental, harness=args.harness)
     except repo_config.RepoConfigError as exc:
         raise ErrorEjecucion(
             f"{exc}. {SALIDA} corrige `carril:` en la ficha de {args.unidad}, o pasa el "
@@ -638,6 +642,47 @@ def preparar_codex_home(env, tmp_privado, home_original):
     env["CODEX_HOME"] = str(aislado)
 
 
+def acreditar_codex(codex_home):
+    """(modelo, esfuerzo) con los que Codex corrió DE VERDAD, o (None, None).
+
+    `codex exec --json` no lo dice —comprobado contra 0.149.0: emite `thread.started`,
+    `turn.started`, `item.completed` y `turn.completed`, y ninguno nombra el modelo—. Lo
+    que sí queda es el rollout de la sesión, dentro del propio `CODEX_HOME`: su evento
+    `turn_context` trae `model` y `effort` efectivos. Se lee aquí, antes de que el temporal
+    se borre.
+
+    Nunca levanta: una acreditación que no se puede leer deja el recibo DECLARANDO, que es
+    lo que ya hacía. Mentir sería peor que no acreditar.
+    """
+    try:
+        sesiones = Path(codex_home) / "sessions"
+        if not sesiones.is_dir():
+            return None, None
+        rollouts = sorted(sesiones.rglob("rollout-*.jsonl"),
+                          key=lambda ruta: ruta.stat().st_mtime)
+    except OSError:
+        return None, None
+    for ruta in reversed(rollouts):
+        try:
+            lineas = ruta.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        for linea in lineas:
+            if '"turn_context"' not in linea:
+                continue
+            try:
+                evento = json.loads(linea)
+            except ValueError:
+                continue
+            if evento.get("type") != "turn_context":
+                continue
+            carga = evento.get("payload") or {}
+            modelo = carga.get("model")
+            if modelo:
+                return modelo, carga.get("effort")
+    return None, None
+
+
 def preparar_claude_home(env, home_original):
     """Claude hereda el HOME real del usuario (unidad 012: ya no se aísla), sesión y
     llavero de credenciales incluidos — es lo que resuelve la autenticación sin token
@@ -666,7 +711,7 @@ def preparar_claude_home(env, home_original):
 
 
 def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lecturas=(),
-                 modelo=None):
+                 modelo=None, esfuerzo=None):
     directorios = sorted({str(ruta.parent) for ruta in documentos})
     if harness == "claude":
         # En claude --add-dir concede acceso de HERRAMIENTAS (lectura incluida): las
@@ -697,15 +742,44 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
             argv.extend(("--add-dir", directorio))
         argv.extend(("-p", texto))
         return argv
-    if modelo:
-        raise ErrorEjecucion("--modelo solo aplica al harness claude")
+    # Unidad 100 — las cuatro decisiones de este argv salen de correr el binario, no de
+    # leer su documentación. Están probadas contra codex-cli 0.149.0 y cada una arregla un
+    # fallo SILENCIOSO (la evidencia, en los hallazgos de la 100):
+    #
+    #   sin `--ephemeral`   `--ephemeral` es justo lo que impide escribir el rollout de la
+    #                       sesión, y el rollout es el ÚNICO sitio donde Codex dice con qué
+    #                       modelo y esfuerzo corrió de verdad (`codex exec --json` NO lo
+    #                       emite: son cuatro eventos y ninguno habla de modelo). Sin él no
+    #                       hay acreditación, solo declaración. El aislamiento no se pierde:
+    #                       lo da `CODEX_HOME`, que apunta al temporal que se borra al salir.
+    #   sin `--ignore-user-config`
+    #                       esa bandera no es solo «no leas el config.toml del usuario»: se
+    #                       lleva por delante la capa de configuración ENTERA, hooks del
+    #                       `.codex/` DEL REPO incluidos. Y tampoco hace falta para aislar:
+    #                       el `CODEX_HOME` efímero solo contiene `auth.json`, así que no hay
+    #                       configuración de usuario que leer.
+    #   `--dangerously-bypass-hook-trust`
+    #                       segunda puerta, también muda: un hook del repo no corre hasta que
+    #                       alguien confía su hash, y si nadie lo ha hecho NO SE DICE NADA —
+    #                       salida idéntica a un repo sin hooks—. No hay subcomando para
+    #                       confiarlos (solo el `/hooks` interactivo), así que en sesión
+    #                       delegada esta es la única vía. El repo es el del propio método:
+    #                       el «dangerously» aquí es confiar en lo que uno mismo escribió.
+    #   `--json`            el flujo de eventos que el lanzador puede leer.
+    #
+    # Lo que NO lleva, y es deliberado: `-s read-only` para el revisor. Bajo ese sandbox
+    # Codex ignora `--add-dir` y `sandbox_workspace_write.writable_roots` y no queda ninguna
+    # ruta escribible, así que el revisor no podría escribir su veredicto ni su firma en
+    # `hallazgos.md` — que es su ÚNICA escritura y lo que el cierre le exige. El revisor
+    # Codex conserva, por tanto, la misma frontera que el de Claude: el cwd correcto más la
+    # disciplina del contrato (ADR-022, enmienda del padre a R4 el 27-08).
     argv = [
         ejecutable,
         "exec",
-        "--ephemeral",
-        "--ignore-user-config",
         "--ignore-rules",
         "--strict-config",
+        "--dangerously-bypass-hook-trust",
+        "--json",
         "-C",
         str(worktree),
         "-s",
@@ -713,6 +787,11 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
         # Sin "-a": codex-cli 0.146.0 lo retiró y muere con `unexpected argument`;
         # en modo `exec` no hay aprobaciones interactivas por definición (bug 025).
     ]
+    if modelo:
+        argv.extend(("-m", modelo))
+    if esfuerzo:
+        # Codex no tiene flag propio de esfuerzo: viaja por el override general de config.
+        argv.extend(("-c", f"model_reasoning_effort={esfuerzo}"))
     for directorio in directorios:
         argv.extend(("--add-dir", directorio))
     argv.append(texto)
@@ -829,6 +908,12 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         "esfuerzo": esfuerzo,
         "modelo_origen": origen,
         "motivo_modelo": motivo,
+        # R2 (100): lo PEDIDO y lo que de verdad corrió, separados. `model_slug` lo rellena
+        # `acreditar_codex` al terminar, leyendo el rollout de la sesión; mientras siga a
+        # None el recibo DECLARA, no acredita, y `modelo_origen` no dice `harness-acreditado`.
+        "requested_model": modelo,
+        "requested_reasoning_effort": esfuerzo,
+        "model_slug": None,
         "worktree_efimero": worktree_efimero,
         # Bug 090: `efimero` dice si el launcher lo creó; `origen` dice de dónde salió
         # el commit (worktree de la rama · `fusion:` · HEAD de main/ para la documental).
@@ -1257,6 +1342,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 # significa escribible).
                 lecturas=(RAIZ / "docs",),
                 modelo=recibo["modelo"],
+                esfuerzo=recibo["esfuerzo"],
             )
             contexto_ficha = (
                 _ficha_solo_lectura(ficha_bloqueada)
@@ -1334,6 +1420,28 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             recibo["git"]["final"] = evidencia_git(worktree)
             estado = "ok" if resultado.returncode == 0 else "fail"
             checkpoint(recibo, "harness", estado, f"exit {resultado.returncode}")
+            if args.harness == "codex":
+                # R2 (100): se lee AQUÍ, con el temporal todavía vivo. La regla 10 deja de
+                # creerse por estar escrita: el recibo dice con qué corrió de verdad.
+                acreditado, esfuerzo_real = acreditar_codex(env.get("CODEX_HOME", ""))
+                if acreditado:
+                    recibo["model_slug"] = acreditado
+                    recibo["modelo"] = acreditado
+                    if esfuerzo_real:
+                        recibo["esfuerzo"] = esfuerzo_real
+                    if recibo["modelo_origen"] == "tabla":
+                        recibo["modelo_origen"] = "harness-acreditado"
+                    checkpoint(
+                        recibo, "modelo-acreditado", "ok",
+                        f"{acreditado} · esfuerzo {esfuerzo_real or 'sin declarar'} "
+                        f"(rollout de la sesión)",
+                    )
+                else:
+                    checkpoint(
+                        recibo, "modelo-acreditado", "warn",
+                        "el rollout de la sesión no dice con qué modelo corrió; el recibo "
+                        "declara lo pedido, no lo acredita",
+                    )
             if resultado.returncode == 0:
                 # R5/R6: el recibo distingue "el proceso terminó sin error" de "hubo trabajo
                 # acreditado" — una casilla nueva marcada o hallazgos.md (o la ficha del bug)

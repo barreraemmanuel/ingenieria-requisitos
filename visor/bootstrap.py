@@ -135,6 +135,7 @@ DECISIONES = (
     "032-receta-de-despliegue-de-serie.md",
     "033-el-constructor-es-un-subagente-del-padre.md",
     "035-sin-ci-remoto-por-defecto.md",
+    "037-paridad-codex-claude.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",
@@ -436,15 +437,74 @@ def _sembrar_ganchos(destino, entradas):
     return True
 
 
+HOOKS_CODEX = PLANTILLA / ".codex/hooks.json"
+
+
+def sembrar_hooks_codex(destino):
+    """Los MISMOS guardianes, en `.codex/hooks.json`, para quien trabaje con Codex CLI.
+
+    Unidad 100: hasta aquí, un workspace del método traía canario y aviso solo para Claude,
+    y quien abría Codex se quedaba sin los dos avisos que impiden trabajar en una sesión
+    degradada. El contenido es fijo y vive en `plantilla/.codex/hooks.json` —no se compone
+    a mano en dos sitios—, con la raíz resuelta por `git rev-parse --show-toplevel` porque
+    Codex no tiene equivalente a `$CLAUDE_PROJECT_DIR`.
+
+    Idempotente y respetuosa, igual que su hermana de `.claude/`: se conserva todo lo que
+    hubiera (hooks propios del dueño incluidos) y cada gancho se añade solo si no está.
+    Devuelve True si escribió.
+    """
+    plantilla = json.loads(HOOKS_CODEX.read_text(encoding="utf-8"))["hooks"]
+    carpeta = destino / ".codex"
+    carpeta.mkdir(parents=True, exist_ok=True)
+    fichero = carpeta / "hooks.json"
+    datos = {}
+    if fichero.is_file():
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except ValueError:
+            datos = {}                  # ilegible no se pisa a ciegas: se recompone
+    if not isinstance(datos, dict):
+        datos = {}
+    hooks = datos.get("hooks")
+    if not isinstance(hooks, dict):
+        hooks = {}
+    datos["hooks"] = hooks
+
+    escrito = False
+    for gancho, entradas in plantilla.items():
+        actuales = hooks.get(gancho)
+        if not isinstance(actuales, list):
+            actuales = []
+        for entrada in entradas:
+            # El sufijo que identifica la orden es el subcomando del script del método:
+            # `canario.py hook`, `aviso.py fin-de-turno`… igual que en `.claude/`.
+            sufijos = [orden.get("command", "").split("scripts/")[-1]
+                       for orden in entrada.get("hooks", [])]
+            if any(_ya_hay_orden(actuales, sufijo) for sufijo in sufijos if sufijo):
+                continue
+            actuales.append(entrada)    # al final: lo del usuario conserva su orden
+            escrito = True
+        hooks[gancho] = actuales
+
+    if not escrito:
+        return False
+    fichero.write_text(json.dumps(datos, ensure_ascii=False, indent=2, sort_keys=True) + "\n",
+                       encoding="utf-8")
+    return True
+
+
 def sembrar_hooks_locales(destino):
-    """Todos los ganchos que el método pone en `.claude/`: canario y aviso sonoro.
+    """Todos los ganchos que el método pone en `.claude/` y `.codex/`: canario y aviso.
 
     Es el único punto que hay que llamar —el bootstrap de un workspace nuevo y el Modo D
     sobre uno viejo—: así, cuando entre el guardián siguiente, nadie tiene que acordarse
     de añadir otra llamada en dos sitios. Devuelve True si escribió algo.
     """
     escrito = sembrar_hook_canario(destino)
-    return sembrar_hook_aviso(destino) or escrito
+    escrito = sembrar_hook_aviso(destino) or escrito
+    # Unidad 100: el método funciona igual con los dos harness, y eso incluye a sus dos
+    # guardianes de sesión.
+    return sembrar_hooks_codex(destino) or escrito
 
 
 def sembrar_config_canario(destino):

@@ -56,8 +56,12 @@ La regla 10 de `AGENTS.md` fijaba el modelo por carril y no tenía quien la ejec
 lanzador traía `--modelo` opcional y ningún `--esfuerzo`, así que sin flag **todo** subagente
 salía con el modelo por defecto del harness, el más caro, y el acierto dependía de que quien
 despachara se acordara. La tabla vive ahora en `scripts/repo_config.py`
-(`plan_de_modelo(carril, rol)`); `unidad.py despachar` la imprime en el encargo del subagente
-y `ejecucion.py lanzar` la aplica sola al revisor, leyendo el carril de la ficha:
+(`plan_de_modelo(carril, rol, harness)`); `unidad.py despachar` la imprime en el encargo del
+subagente y `ejecucion.py lanzar` la aplica sola al revisor, leyendo el carril de la ficha.
+Desde la unidad 100 es una tabla **por harness**: la regla es la misma en los dos, lo único
+que cambia es de dónde salen los nombres.
+
+**Harness `claude`** — los identificadores están escritos, porque son estables:
 
 | carril | constructor | revisor | esfuerzo |
 |---|---|---|---|
@@ -66,22 +70,46 @@ y `ejecucion.py lanzar` la aplica sola al revisor, leyendo el carril de la ficha
 | completo, hotfix | `claude-opus-5` | `claude-fable-5` | alto |
 | unidad documental o lint (cualquier carril) | `claude-haiku-4-5` | `claude-haiku-4-5` | bajo |
 
+**Harness `codex`** — aquí NO hay identificadores escritos, y es a propósito: los de OpenAI
+cambian de nombre cada pocas semanas y una lista congelada envejece sin que nadie se entere.
+El método pregunta el catálogo al binario instalado con **`codex debug models`** (una vez por
+sesión, cacheado) y elige **por posición**, descartando los que el propio binario marca como
+no elegibles a mano:
+
+| carril | constructor | revisor | esfuerzo |
+|---|---|---|---|
+| directo, exprés | el 1.º del catálogo | el 2.º del catálogo | `low` |
+| normal | el 1.º del catálogo | el 2.º del catálogo | `medium` |
+| completo, hotfix | el 1.º del catálogo | el 2.º del catálogo | `high` |
+| unidad documental o lint (cualquier carril) | el último del catálogo | el último del catálogo | `low` |
+
+Para verlo con los nombres de hoy: `python3 -c "import sys; sys.path.insert(0,
+'docs/00-metodo/scripts'); import repo_config; print(repo_config.catalogo_codex()[:3])"`.
+
 - **El constructor va en Opus en todos los carriles** por decisión del usuario (25-08), aunque
   la regla 10 admitiría bajar en directo y exprés: en esos dos carriles construye el padre, así
   que la casilla casi nunca se usa.
 - **El revisor JAMÁS repite el modelo del constructor** (`claude-fable-5`; alternativa
   `claude-sonnet-5`): dos instancias del mismo comparten puntos ciegos y la revisión fresca
   existe justo para eso. `unidad.py cerrar` avisa si los recibos dicen lo contrario.
-- **El esfuerzo viaja al recibo aunque ningún CLI lo admita todavía** como flag: es lo que
-  permite comprobar la regla 10 a posteriori en vez de creérsela.
+- **El esfuerzo viaja al recibo siempre.** En `claude` va como dato (el CLI aún no tiene flag);
+  en `codex` va de verdad en el argv, con `-c model_reasoning_effort=…`. En los dos casos es lo
+  que permite comprobar la regla 10 a posteriori en vez de creérsela.
 - **Salirse de la tabla se declara:** `--modelo`/`--esfuerzo` exigen `--motivo-modelo` y quedan
   en el recibo como `modelo_origen: excepcion` con su motivo. `unidad.py cerrar` los enseña.
-- **Codex queda INEJECUTABLE bajo la regla 10.** La tabla son identificadores de Anthropic y
-  `ejecucion.py` no le pasa `--model` a `codex exec`, así que no hay forma de acreditar con qué
-  modelo ni con qué razonamiento corrió: su recibo sale con `modelo: null` y
-  `modelo_origen: harness-sin-tabla`. Mientras no tenga tabla propia, **el despacho delegado
-  —constructor y revisor— se hace con `--harness claude`**; `codex` se reserva para pruebas del
-  propio lanzador, no para entregar unidades.
+- **Con Codex el recibo ACREDITA en vez de declarar** (unidad 100). El lanzador lee el
+  `turn_context` del rollout de la sesión —dentro del `CODEX_HOME` efímero, antes de borrarlo—
+  y escribe en el recibo `model_slug` (lo que corrió de verdad) junto a `requested_model` y
+  `requested_reasoning_effort` (lo que se pidió), con `modelo_origen: harness-acreditado`. Ojo:
+  `codex exec --json` **no** sirve para esto, no emite el modelo; y por eso el argv de Codex no
+  lleva `--ephemeral`, que es justo lo que impediría escribir ese rollout. Si el rollout no
+  aparece, el recibo se queda declarando (`modelo_origen: tabla`) y lo dice: no se inventa nada.
+- **Los dos harness entregan unidades.** El despacho delegado —constructor y revisor— vale con
+  `--harness claude` y con `--harness codex`; el revisor sigue sin repetir el modelo del
+  constructor en ninguno de los dos. Con Codex, el revisor NO usa `-s read-only`: bajo ese
+  sandbox el binario ignora `--add-dir` y no deja ninguna ruta escribible, así que el revisor
+  no podría escribir su veredicto ni su firma. Su frontera es la misma que la del revisor
+  Claude: el cwd correcto más la disciplina del contrato (ADR-022, ADR-037).
 
 ## OBSERVABILIDAD (solo lectura + informe)
 

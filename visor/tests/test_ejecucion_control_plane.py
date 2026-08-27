@@ -188,6 +188,19 @@ pathlib.Path('.harness-record.json').write_text(json.dumps(record), encoding="ut
 """
         self.instalar_doble(nombre, cuerpo)
 
+    CATALOGO_CODEX = """import json as _json, sys as _sys
+if _sys.argv[1:3] == ['debug', 'models']:
+    print(_json.dumps({'models': [
+        {'slug': 'oai-punta', 'visibility': 'list', 'priority': 1,
+         'default_reasoning_level': 'low',
+         'supported_reasoning_levels': [{'effort': e} for e in ('low', 'medium', 'high')]},
+        {'slug': 'oai-segundo', 'visibility': 'list', 'priority': 2,
+         'default_reasoning_level': 'medium',
+         'supported_reasoning_levels': [{'effort': e} for e in ('low', 'medium', 'high')]},
+    ]}))
+    raise SystemExit(0)
+"""
+
     def instalar_doble(self, nombre, cuerpo):
         """Deja `cuerpo` (Python) invocable como el ejecutable `nombre` del PATH.
 
@@ -201,6 +214,11 @@ pathlib.Path('.harness-record.json').write_text(json.dumps(record), encoding="ut
         no haberse ejecutado.
         """
         cuerpo = self.PREAMBULO_DOBLE + cuerpo
+        if nombre == "codex":
+            # Unidad 100: la tabla de la regla 10 para codex se DERIVA de su catálogo, así
+            # que el lanzador ejecuta `codex debug models` antes de lanzar. Un doble que no
+            # sepa responder eso no llega ni a registrar su argv.
+            cuerpo = self.CATALOGO_CODEX + cuerpo
         if os.name == "nt":
             script = self.bin / f"{nombre}.py"
             script.write_text(cuerpo, encoding="utf-8")
@@ -384,9 +402,18 @@ pathlib.Path('.harness-record.json').write_text(
         self.assertNotEqual(harness["home"], str(self.home))
         self.assertEqual(harness["home"], harness["codex_home"])
         self.assertTrue(harness["home"].startswith(harness["tmp"]))
-        self.assertIn("--ignore-user-config", harness["argv"])
         self.assertIn("--ignore-rules", harness["argv"])
-        self.assertIn("--ephemeral", harness["argv"])
+        # Unidad 100 — dos banderas cambian, y las dos por algo comprobado contra el
+        # binario real (codex-cli 0.149.0), no por gusto:
+        #   · `--ignore-user-config` se RETIRA: no era solo «no leas el config del
+        #     usuario», apagaba la capa de configuración entera, hooks del `.codex/` DEL
+        #     REPO incluidos. Y no hacía falta para aislar — el aislamiento lo da el
+        #     CODEX_HOME efímero, que es lo que este mismo test comprueba arriba.
+        #   · `--ephemeral` se RETIRA porque es justo lo que impide escribir el rollout de
+        #     la sesión, la única fuente donde Codex dice con qué modelo corrió de verdad.
+        self.assertNotIn("--ignore-user-config", harness["argv"])
+        self.assertNotIn("--ephemeral", harness["argv"])
+        self.assertIn("--dangerously-bypass-hook-trust", harness["argv"])
         self.assertNotIn("plugin-de-proceso", " ".join(harness["argv"]))
 
     def test_prompt_con_flags_peligrosos_sigue_siendo_un_solo_argumento_literal(self):
