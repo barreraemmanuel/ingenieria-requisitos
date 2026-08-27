@@ -63,9 +63,11 @@ class ApagarLanzadoresRetiradosTest(unittest.TestCase):
         git(ws, "commit", "-m", "estado antiguo con launcher")
         return ws
 
-    def arrancar_lanzador(self, ws):
+    def arrancar_lanzador(self, ws, relativa=False):
+        """El lanzador del workspace, en marcha. `relativa=True` lo arranca como se
+        arranca de verdad desde dentro del workspace: `python3 docs/00-metodo/…`."""
         proceso = subprocess.Popen(
-            [sys.executable, str(ws / LANZADOR)],
+            [sys.executable, LANZADOR if relativa else str(ws / LANZADOR)],
             stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL, cwd=str(ws))
         self.addCleanup(self.rematar, proceso)
@@ -87,10 +89,10 @@ class ApagarLanzadoresRetiradosTest(unittest.TestCase):
             proceso.kill()
         proceso.wait(timeout=10)
 
-    def aplicar(self, ws):
+    def aplicar(self, ws, cwd=None):
         return subprocess.run([sys.executable, str(ACTUALIZAR), "aplicar", str(ws)],
-                              cwd=RAIZ, text=True, encoding="utf-8", errors="replace",
-                              capture_output=True, env=self.entorno)
+                              cwd=str(cwd or RAIZ), text=True, encoding="utf-8",
+                              errors="replace", capture_output=True, env=self.entorno)
 
     @unittest.skipIf(os.name == "nt", "ps(1) es de POSIX; en Windows se avisa a mano")
     def test_aplicar_apaga_el_proceso_del_lanzador_retirado_y_lo_nombra(self):
@@ -131,6 +133,39 @@ class ApagarLanzadoresRetiradosTest(unittest.TestCase):
         time.sleep(0.5)
         self.assertIsNone(proceso_ajeno.poll(),
                           "apagó el proceso de OTRO workspace:\n" + resultado.stdout)
+        self.assertNotIn(str(proceso_ajeno.pid), resultado.stdout)
+
+
+    @unittest.skipIf(os.name == "nt", "ps(1) es de POSIX; en Windows se avisa a mano")
+    def test_no_toca_un_proceso_ajeno_lanzado_con_ruta_relativa(self):
+        """H1 de la revisión (27-08): una ruta RELATIVA en la línea de órdenes solo
+        significa algo junto al cwd de QUIEN la lanzó.
+
+        Si se resuelve contra el cwd de `actualizar.py` —y `aplicar` se ejecuta desde
+        dentro del workspace, que es lo normal—, el lanzador de OTRO workspace arrancado
+        como `python3 docs/00-metodo/scripts/sandbox_lanzar.py` casa con el candidato del
+        nuestro y se lleva un SIGTERM. Aquí se fija que no.
+        """
+        ajeno = self.workspace_antiguo("ajeno-relativo")
+        proceso_ajeno = self.arrancar_lanzador(ajeno, relativa=True)
+        mio = self.workspace_antiguo("mio-absoluto")
+        proceso_mio = self.arrancar_lanzador(mio)
+
+        # El cwd que dispara el hueco: `cd <mi workspace> && actualizar.py aplicar .`
+        resultado = self.aplicar(mio, cwd=mio)
+
+        self.assertEqual(0, resultado.returncode, resultado.stdout + resultado.stderr)
+        for _ in range(200):
+            if proceso_mio.poll() is not None:
+                break
+            time.sleep(0.05)
+        self.assertIsNotNone(proceso_mio.poll(),
+                             "no apagó ni el suyo:\n" + resultado.stdout)
+        time.sleep(0.5)
+        self.assertIsNone(
+            proceso_ajeno.poll(),
+            "apagó un proceso de OTRO workspace lanzado con ruta relativa:\n"
+            + resultado.stdout)
         self.assertNotIn(str(proceso_ajeno.pid), resultado.stdout)
 
 

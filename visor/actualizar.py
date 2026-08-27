@@ -630,6 +630,29 @@ def informe(ruta, titulo, cambios, retirados, sobrantes, avisos, registro=""):
         print(f"    AVISO: {a}")
 
 
+def cwd_de(pid, tiempo_maximo=5):
+    """El directorio de trabajo de un proceso, o None si no se puede leer.
+
+    Lo necesita `procesos_de` para resolver una ruta RELATIVA de la línea de órdenes:
+    `docs/00-metodo/scripts/sandbox_lanzar.py` solo significa algo junto al cwd de QUIEN
+    lo lanzó. Si `lsof` no está, falla o no lo dice, se devuelve None y esa pieza no casa
+    con nada: preferimos no encontrar un proceso propio a tocar uno ajeno.
+    """
+    try:
+        salida = subprocess.run(
+            ["lsof", "-a", "-p", str(pid), "-d", "cwd", "-Fn"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            timeout=tiempo_maximo)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    if salida.returncode:
+        return None
+    for linea in salida.stdout.splitlines():
+        if linea.startswith("n") and linea[1:].strip():
+            return linea[1:].strip()
+    return None
+
+
 def procesos_de(workspace, retirados, tiempo_maximo=10):
     """[(pid, ruta relativa)] de los procesos que ejecutan un lanzador retirado de ESTE
     workspace, y el motivo por el que no se pudo mirar (uno de los dos, nunca ambos).
@@ -639,8 +662,15 @@ def procesos_de(workspace, retirados, tiempo_maximo=10):
     la ruta REAL (`os.path.realpath`) de los dos lados porque la línea de órdenes conserva
     la que se tecleó (`/var/folders/…`) y aquí el workspace ya viene resuelto
     (`/private/var/folders/…`): son el mismo fichero y tienen que casar.
-    Nada de `pkill -f` ni `killall` (los prohíbe `lint_metodo.py`, y con razón: matarían
-    por nombre los procesos de cualquiera).
+
+    Una pieza RELATIVA de la línea de órdenes no se resuelve nunca contra NUESTRO cwd
+    (hueco H1 de la revisión del 27-08): `cd A && actualizar.py aplicar .` habría hecho
+    que `python3 docs/00-metodo/scripts/sandbox_lanzar.py` lanzado en el workspace B
+    casara con el candidato de A, y le habríamos mandado un SIGTERM a un proceso ajeno.
+    Se resuelve contra el cwd del PROCESO (`cwd_de`, vía `lsof`) y, si no se puede leer,
+    NO casa: un proceso propio sin apagar se cuenta y se dice; uno ajeno apagado, no se
+    deshace. Nada de `pkill -f` ni `killall` (los prohíbe `lint_metodo.py`, y con razón:
+    matarían por nombre los procesos de cualquiera).
     """
     if not retirados:
         return [], ""
@@ -659,6 +689,7 @@ def procesos_de(workspace, retirados, tiempo_maximo=10):
     if salida.returncode:
         return [], f"ps devolvió {salida.returncode}: {salida.stderr.strip()}"
     yo = os.getpid()
+    cwds = {}                # pid -> cwd (o None): un `lsof` por proceso, no por pieza
     encontrados = []
     for linea in salida.stdout.splitlines():
         partes = linea.strip().split(None, 1)
@@ -670,7 +701,15 @@ def procesos_de(workspace, retirados, tiempo_maximo=10):
         for pieza in orden.split():
             if os.path.basename(pieza) not in nombres:
                 continue
-            relativo = candidatos.get(os.path.realpath(pieza))
+            if os.path.isabs(pieza):
+                real = os.path.realpath(pieza)
+            else:
+                if pid not in cwds:
+                    cwds[pid] = cwd_de(pid)
+                if not cwds[pid]:
+                    continue
+                real = os.path.realpath(os.path.join(cwds[pid], pieza))
+            relativo = candidatos.get(real)
             if relativo:
                 encontrados.append((pid, relativo))
                 break
