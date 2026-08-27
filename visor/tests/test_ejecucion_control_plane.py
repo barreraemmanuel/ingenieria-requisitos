@@ -1,6 +1,7 @@
 import contextlib
 import json
 import os
+import re
 import shutil
 import signal
 import stat
@@ -986,6 +987,95 @@ class RevisorEnCarrilDirectoTest(ControlPlaneE2ETest):
             "el carril directo lo construye el padre",
             resultado.stdout + resultado.stderr,
         )
+
+
+class AnclaDeLaRevisionTest(ControlPlaneE2ETest):
+    """Unidad 068 · R1 — al lanzar al revisor, el launcher congela QUÉ se está revisando.
+
+    Hasta hoy la firma era una fecha y un modelo: nada decía sobre qué contenido se dio el
+    veredicto, así que un commit posterior la dejaba intacta. El ancla es el `git patch-id
+    --stable` del diff de la rama contra la principal, y lo escribe el launcher —no el
+    agente— en el recibo y en la cabecera de hallazgos.md.
+    """
+
+    CABECERA = ("---\nunidad: 001-demo\nrevisor: no\nrevisado: no\n"
+                "revisado_patch_id: no      # lo escribe el launcher\n---\n\n"
+                "# 001 · Hallazgos\n")
+
+    def setUp(self):
+        super().setUp()
+        self.hallazgos = self.ws / "docs/05-trabajo" / self.unidad / "hallazgos.md"
+        self.hallazgos.write_text(self.CABECERA, encoding="utf-8")
+        # Una rama sin commits propios no tiene diff, y sin diff no hay huella que anclar.
+        (self.worktree / "app").mkdir(parents=True, exist_ok=True)
+        (self.worktree / "app/demo.py").write_text("print('uno')\n", encoding="utf-8")
+        self.git("add", "app/demo.py", cwd=self.worktree)
+        self.git("commit", "-m", "001-demo: el trabajo a revisar", cwd=self.worktree)
+
+    def patch_id_esperado(self):
+        base = subprocess.run(
+            ["git", "-C", str(self.worktree), "merge-base", "main", "HEAD"],
+            check=True, capture_output=True).stdout.decode().strip()
+        diff = subprocess.run(["git", "-C", str(self.worktree), "diff", base, "HEAD"],
+                              check=True, capture_output=True).stdout
+        salida = subprocess.run(["git", "-C", str(self.worktree), "patch-id", "--stable"],
+                                input=diff, check=True, capture_output=True).stdout
+        piezas = salida.decode().split()
+        self.assertTrue(piezas, "git patch-id no devolvió nada para el diff de la rama")
+        return piezas[0]
+
+    def recibo(self):
+        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        self.assertEqual(len(recibos), 1, recibos)
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    def firmado_en_hallazgos(self):
+        encontrado = re.search(r"(?m)^revisado_patch_id:\s*([^\s#]*)",
+                               self.hallazgos.read_text(encoding="utf-8"))
+        self.assertIsNotNone(encontrado, self.hallazgos.read_text(encoding="utf-8"))
+        return encontrado.group(1)
+
+    def test_el_lanzamiento_del_revisor_ancla_recibo_y_cabecera_al_mismo_patch_id(self):
+        esperado = self.patch_id_esperado()
+        resultado = self.ejecutar(rol="revisor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.recibo()["revisado_patch_id"], esperado)
+        self.assertEqual(self.firmado_en_hallazgos(), esperado)
+
+    def test_el_patch_id_no_cambia_con_un_rebase_limpio(self):
+        """El ancla habla del CONTENIDO: otro SHA con las mismas líneas es la misma firma."""
+        antes = self.patch_id_esperado()
+        (self.main / "OTRO.md").write_text("trabajo ajeno\n", encoding="utf-8")
+        self.git("add", "OTRO.md", cwd=self.main)
+        self.git("commit", "-m", "la principal avanza", cwd=self.main)
+        punta_previa = subprocess.run(
+            ["git", "-C", str(self.worktree), "rev-parse", "HEAD"],
+            check=True, capture_output=True).stdout.decode().strip()
+        self.git("rebase", "main", cwd=self.worktree)
+        punta_nueva = subprocess.run(
+            ["git", "-C", str(self.worktree), "rev-parse", "HEAD"],
+            check=True, capture_output=True).stdout.decode().strip()
+        self.assertNotEqual(punta_previa, punta_nueva, "el rebase no movió la punta")
+        self.assertEqual(self.patch_id_esperado(), antes)
+        resultado = self.ejecutar(rol="revisor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.recibo()["revisado_patch_id"], antes)
+
+    def test_el_constructor_no_ancla_nada(self):
+        """El ancla la pone quien revisa. Un constructor no firma, así que no congela nada."""
+        resultado = self.ejecutar(rol="constructor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertIsNone(self.recibo()["revisado_patch_id"])
+        self.assertEqual(self.firmado_en_hallazgos(), "no")
+
+    def test_una_cabecera_anterior_a_la_068_no_se_toca(self):
+        """R5: sin la clave, la unidad nació antes; el launcher no le inventa una cabecera."""
+        self.hallazgos.write_text("# Hallazgos\n", encoding="utf-8")
+        resultado = self.ejecutar(rol="revisor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertNotIn("revisado_patch_id",
+                         self.hallazgos.read_text(encoding="utf-8"))
+        self.assertEqual(self.recibo()["revisado_patch_id"], self.patch_id_esperado())
 
 
 class CompatibilidadWindowsTest(unittest.TestCase):

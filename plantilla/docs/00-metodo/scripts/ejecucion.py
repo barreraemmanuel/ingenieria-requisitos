@@ -575,6 +575,69 @@ def senales_para_el_revisor(worktree, rol):
         base=base.strip().splitlines()[-1], punta="HEAD", repo=worktree))
 
 
+def patch_id_de_la_rama(worktree):
+    """R1 (068) — la huella del CONTENIDO que se está a punto de revisar.
+
+    `git patch-id --stable` del diff `merge-base(principal, HEAD)..HEAD`. Se eligió frente
+    al SHA del commit porque el SHA cambia con un rebase limpio —mismo contenido, otra
+    historia— y eso obligaba a repetir revisiones válidas o a firmar a mano; y frente al
+    `diff_sha256` del recibo, que es el diff de lo NO commiteado y no habla del contenido de
+    la rama. El patch-id sobrevive al rebase y muere con cualquier línea, que es exactamente
+    lo que una firma tiene que prometer.
+
+    Devuelve `""` cuando no se puede calcular (sin repo, sin base común, rama sin diff
+    propio): igual que las señales del revisor, un ancla que no se puede calcular NUNCA
+    impide lanzar la revisión — quien la lee decide, y el cierre solo compara lo que existe.
+    """
+    try:
+        principal = repo_config.repo_code(RAIZ)[1]
+    except repo_config.RepoConfigError:
+        principal = "main"
+    codigo, base = git(worktree, "merge-base", principal, "HEAD")
+    if codigo or not base.strip():
+        return ""
+    base = base.strip().splitlines()[-1]
+    diferencia = subprocess.run(
+        ["git", "diff", base, "HEAD"], cwd=str(worktree), capture_output=True, check=False,
+    )
+    if diferencia.returncode or not diferencia.stdout:
+        return ""
+    calculo = subprocess.run(
+        ["git", "patch-id", "--stable"], cwd=str(worktree), input=diferencia.stdout,
+        capture_output=True, check=False,
+    )
+    if calculo.returncode:
+        return ""
+    piezas = calculo.stdout.decode("utf-8", "replace").split()
+    return piezas[0] if piezas else ""
+
+
+def sellar_patch_id(hallazgos, patch_id):
+    """Escribe el ancla en la cabecera de `hallazgos.md`. Devuelve si la escribió.
+
+    Solo sustituye la clave si YA está en el frontmatter: un `hallazgos.md` nacido antes de
+    la 068 no la tiene, y añadírsela aquí convertiría una plantilla vieja en una firma a
+    medias que el linter tendría que perdonar igual (R5: ausencia ≠ vacío). Tampoco levanta
+    si el fichero no se deja escribir: el ancla es una ayuda, no una puerta de lanzamiento.
+    """
+    if not patch_id:
+        return False
+    try:
+        texto = hallazgos.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    nuevo, sustituciones = re.subn(
+        r"(?m)^revisado_patch_id:[^\n]*$", f"revisado_patch_id: {patch_id}", texto, count=1
+    )
+    if not sustituciones or nuevo == texto:
+        return False
+    try:
+        hallazgos.write_text(nuevo, encoding="utf-8")
+    except OSError:
+        return False
+    return True
+
+
 def bloque_de_senales(senales):
     """Las líneas del encargo que enseñan el foco. Vacío si no hay señales: sin ellas el
     encargo del revisor es el de siempre, byte a byte (R4)."""
@@ -883,7 +946,8 @@ def evidencia_git(worktree):
 
 
 def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
-                   plan=None, worktree_efimero=False, worktree_origen="worktree"):
+                   plan=None, worktree_efimero=False, worktree_origen="worktree",
+                   patch_id=""):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
@@ -922,6 +986,11 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         "rama": args.unidad,
         "lease": {"session_id": session_id, "fencing": dict(fencing)},
         "git": {"inicial": git_inicial, "final": None},
+        # R1 (068): a QUÉ contenido queda pegada esta revisión. `head` y `diff_sha256` ya
+        # estaban, pero hablan del commit y de lo no commiteado; ninguno sobrevive a un
+        # rebase limpio ni cambia con una línea de la rama. None mientras no haya ancla
+        # (rol constructor, rama sin diff propio, repo que no se puede leer).
+        "revisado_patch_id": patch_id or None,
         "skills_tecnicas": list(args.skill_tecnica),
         # Bug 077 · R2: lo que necesita `lease.py desbloquear` para recuperar un
         # lanzamiento que murió sin señal (`kill -9`, terminal cerrada). Sin esto, el
@@ -1263,6 +1332,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             senales=senales_para_el_revisor(worktree, args.rol),
         )
         ficha_bloqueada = None
+        patch_id_revisado = ""
         if ficha.parent == RAIZ / "docs/bugs":
             # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
             # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
@@ -1274,6 +1344,12 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 ficha_bloqueada = ficha
             else:
                 documentos = perfil_revisor(hallazgos)
+                # R1 (068): el ancla se calcula y se sella ANTES de que el revisor escriba
+                # nada, y la pone el launcher, no el agente — otra huella tecleada a mano
+                # sería el mismo agujero de ADR-029 con otro nombre. Va aquí, antes de
+                # `huella_previa`, para que el sello del launcher no se confunda con el
+                # trabajo del revisor cuando el recibo decida si hubo trabajo (R5/R6).
+                patch_id_revisado = patch_id_de_la_rama(worktree)
         seguros = []
         for documento in documentos:
             try:
@@ -1283,6 +1359,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             except workspace_paths.WorkspacePathError as exc:
                 raise ErrorEjecucion(str(exc)) from exc
         documentos = seguros
+        if patch_id_revisado and documentos:
+            sellar_patch_id(documentos[0], patch_id_revisado)
         huella_previa = _huella_documentos(documentos)
         ejecutable = shutil.which(args.harness)
         if not ejecutable:
@@ -1308,6 +1386,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             plan=plan,
             worktree_efimero=efimero,
             worktree_origen=origen_worktree,
+            patch_id=patch_id_revisado,
         )
         checkpoint(
             recibo,

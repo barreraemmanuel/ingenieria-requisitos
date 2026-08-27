@@ -113,12 +113,17 @@ class ValidadorTest(unittest.TestCase):
             ruta.write_text(f"salida real de {nombre}\n", encoding="utf-8")
             self.hashes[nombre] = hashlib.sha256(ruta.read_bytes()).hexdigest()
 
-    def escribir_parte(self, texto, aprendizajes=APRENDIZAJES_OK):
-        """`aprendizajes=None` escribe un hallazgos.md de la plantilla ANTERIOR a la 071."""
+    def escribir_parte(self, texto, aprendizajes=APRENDIZAJES_OK, frontmatter=None):
+        """`aprendizajes=None` escribe un hallazgos.md de la plantilla ANTERIOR a la 071.
+
+        `frontmatter` (068) son las líneas EXTRA de la cabecera YAML: la firma del revisor y
+        su ancla viven ahí, no en el cuerpo, y hay casos que necesitan escribirlas.
+        """
         cuerpo = texto + ("\n" + aprendizajes if aprendizajes else "")
+        cabeza = "---\nunidad: 001-demo\n" + "".join(
+            f"{linea}\n" for linea in (frontmatter or ())) + "---\n"
         (self.carpeta / "hallazgos.md").write_text(
-            "---\nunidad: 001-demo\n---\n\n# 001 · Hallazgos\n\n" + cuerpo,
-            encoding="utf-8")
+            cabeza + "\n# 001 · Hallazgos\n\n" + cuerpo, encoding="utf-8")
 
     def parte_honesto(self, **cambios):
         datos = {"tests_sha256": self.hashes["tests.txt"],
@@ -255,6 +260,44 @@ class ValidadorTest(unittest.TestCase):
         salida = self.validar()
         self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
 
+    # --- 068/R4-R5: la firma del revisor lleva pegado el contenido que revisó ------------
+    HUELLA = "b1c0ffee" + "0" * 32
+
+    def test_firma_con_fecha_y_sin_huella_se_deniega(self):
+        """R4: alguien borró la huella y dejó la fecha. Eso ya no es una firma."""
+        self.escribir_parte(self.parte_honesto(), frontmatter=[
+            "revisor: agente-fresco", "revisado: 2026-08-25", "revisado_patch_id:"])
+        texto = self.denegado(self.validar())
+        self.assertIn("revisado_patch_id", texto)
+        self.assertIn("ejecucion.py lanzar", texto)
+
+    def test_firma_con_la_huella_en_el_marcador_de_la_plantilla_se_deniega(self):
+        self.escribir_parte(self.parte_honesto(), frontmatter=[
+            "revisor: agente-fresco", "revisado: 2026-08-25", "revisado_patch_id: no"])
+        texto = self.denegado(self.validar())
+        self.assertIn("revisado_patch_id", texto)
+
+    def test_firma_con_huella_pasa_en_verde(self):
+        self.escribir_parte(self.parte_honesto(), frontmatter=[
+            "revisor: agente-fresco", "revisado: 2026-08-25",
+            f"revisado_patch_id: {self.HUELLA}"])
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
+    def test_sin_firma_todavia_no_se_exige_la_huella(self):
+        """El campo llega vacío de fábrica: mientras nadie haya firmado, no hay nada que anclar."""
+        self.escribir_parte(self.parte_honesto(), frontmatter=[
+            "revisor: no", "revisado: no", "revisado_patch_id: no"])
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
+    def test_plantilla_anterior_a_la_068_no_se_reexige(self):
+        """R5: ausencia ≠ vacío. Sin la clave en la cabecera, la unidad nació antes."""
+        self.escribir_parte(self.parte_honesto(), frontmatter=[
+            "revisor: agente-fresco", "revisado: 2026-08-25"])
+        salida = self.validar()
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+
     def test_sin_argumento_recorre_las_unidades_activas(self):
         self.escribir_parte(self.parte_honesto())
         salida = subprocess.run(
@@ -309,6 +352,12 @@ class CierreBloqueaTest(unittest.TestCase):
                            count=1, flags=re.M)
         plantilla = re.sub(r"^revisado:.*$", "revisado: 2026-08-25", plantilla,
                            count=1, flags=re.M)
+        # 068: una firma con fecha lleva el ancla del contenido revisado. Aquí no hay repo
+        # de código que anclar (lo que se prueba es el parte de cierre), así que basta una
+        # huella con forma de patch-id: el ancla contra el git de verdad la miden los tests
+        # de `AnclaEnElCierreTest`.
+        plantilla = re.sub(r"^revisado_patch_id:.*$", "revisado_patch_id: " + "a" * 40,
+                           plantilla, count=1, flags=re.M)
         # La plantilla ya trae su propio bloque; se sustituye por el del caso.
         plantilla = re.sub(r"```parte-de-cierre.*?```\n", "", plantilla, flags=re.S)
         (self.carpeta / "hallazgos.md").write_text(plantilla + "\n" + parte, encoding="utf-8")
@@ -359,6 +408,158 @@ class CierreBloqueaTest(unittest.TestCase):
                          texto)
 
 
+class AnclaEnElCierreTest(unittest.TestCase):
+    """068/R2-R3 (integración) — el CRITERIO PORTANTE: si el cierre no compara el ancla de
+    la firma con el contenido de hoy, todo lo demás de esta unidad es decoración.
+
+    Se monta un repo de verdad porque un `git patch-id --stable` no se simula sin mentir:
+    lo que se mide es que sobreviva a un rebase limpio y que muera con una línea nueva.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="ancla-cierre-")
+        self.addCleanup(self.tmp.cleanup)
+        self.ws = Path(self.tmp.name)
+        scripts = self.ws / "docs/00-metodo/scripts"
+        scripts.mkdir(parents=True)
+        for nombre in ("control_plane.py", "lease.py", "lint_cierre.py", "peticion.py",
+                       "repo_config.py", "unidad.py", "workspace_paths.py"):
+            shutil.copy2(SCRIPTS / nombre, scripts / nombre)
+        self.unidad = scripts / "unidad.py"
+        shutil.copy2(METODO / "senales-de-riesgo.json",
+                     self.ws / "docs/00-metodo/senales-de-riesgo.json")
+        plantillas = self.ws / "docs/00-metodo/plantillas"
+        plantillas.mkdir(parents=True)
+        for nombre in ("especificacion.md", "directo.md", "bug.md", "hallazgos.md"):
+            shutil.copy2(PLANTILLAS / nombre, plantillas / nombre)
+        self.carpeta = self.ws / "docs/05-trabajo/001-demo"
+        self.carpeta.mkdir(parents=True)
+        (self.carpeta / "especificacion.md").write_text(SPEC, encoding="utf-8")
+        peticiones = self.ws / "docs/05-trabajo/peticiones"
+        peticiones.mkdir(parents=True)
+        (peticiones / "LEGACY.json").write_text(json.dumps({
+            "formato": 1, "modo": "observacion",
+            "unidades": ["001-demo"], "bugs": [], "ramas": []}), encoding="utf-8")
+        self.runtime = self.ws / ".runtime/001-demo"
+        self.runtime.mkdir(parents=True)
+        self.hashes = {}
+        for nombre in ("tests.txt", "lint.txt"):
+            ruta = self.runtime / nombre
+            ruta.write_text(f"salida real de {nombre}\n", encoding="utf-8")
+            self.hashes[nombre] = hashlib.sha256(ruta.read_bytes()).hexdigest()
+
+        self.repo = self.ws / "main"
+        (self.repo / "app").mkdir(parents=True)
+        self.git("init", "-b", "main")
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.com")
+        (self.repo / "README.md").write_text("# demo\n", encoding="utf-8")
+        self.git("add", "README.md")
+        self.git("commit", "-m", "base")
+        self.git("checkout", "-b", "001-demo")
+        self.escribir_codigo("print('uno')\n")
+        self.git("add", "app/demo.py")
+        self.git("commit", "-m", "001-demo: el trabajo que se revisó")
+        self.escribir_hallazgos(self.patch_id())
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), *args], check=True,
+                              text=True, encoding="utf-8", errors="replace",
+                              capture_output=True)
+
+    def escribir_codigo(self, texto):
+        (self.repo / "app/demo.py").write_text(texto, encoding="utf-8")
+
+    def patch_id(self):
+        """La huella que el launcher habría escrito al lanzar al revisor."""
+        base = subprocess.run(["git", "-C", str(self.repo), "merge-base", "main", "001-demo"],
+                              check=True, capture_output=True).stdout.decode().strip()
+        diff = subprocess.run(["git", "-C", str(self.repo), "diff", base, "001-demo"],
+                              check=True, capture_output=True).stdout
+        salida = subprocess.run(["git", "-C", str(self.repo), "patch-id", "--stable"],
+                                input=diff, check=True, capture_output=True).stdout
+        piezas = salida.decode().split()
+        self.assertTrue(piezas, "git patch-id no devolvió nada")
+        return piezas[0]
+
+    def escribir_hallazgos(self, huella):
+        plantilla = (PLANTILLAS / "hallazgos.md").read_text(encoding="utf-8")
+        plantilla = re.sub(r"(?ms)^## Aprendizajes.*?(?=^## |\Z)", APRENDIZAJES_OK + "\n",
+                           plantilla, count=1)
+        plantilla = re.sub(r"^revisor:.*$", "revisor: agente-fresco", plantilla,
+                           count=1, flags=re.M)
+        plantilla = re.sub(r"^revisado:.*$", "revisado: 2026-08-25", plantilla,
+                           count=1, flags=re.M)
+        plantilla = re.sub(r"^revisado_patch_id:.*$", f"revisado_patch_id: {huella}",
+                           plantilla, count=1, flags=re.M)
+        plantilla = re.sub(r"```parte-de-cierre.*?```\n", "", plantilla, flags=re.S)
+        parte = cabecera(tests_sha256=self.hashes["tests.txt"],
+                         build_sha256=self.hashes["lint.txt"])
+        (self.carpeta / "hallazgos.md").write_text(plantilla + "\n" + parte, encoding="utf-8")
+
+    def cerrar(self):
+        salida = subprocess.run(
+            [sys.executable, str(self.unidad), "cerrar", "001-demo"],
+            cwd=self.ws, text=True, encoding="utf-8", errors="replace", capture_output=True)
+        return salida.stdout + salida.stderr
+
+    def bloqueo_del_ancla(self, texto):
+        """Las viñetas de CIERRE BLOQUEADO que hablan del ancla de la revisión."""
+        return [l.strip() for l in texto.splitlines()
+                if l.strip().startswith("·") and "revis" in l and "contenido" in l]
+
+    # --- R2: la rama cambió después de firmar -------------------------------------------
+    def test_una_linea_nueva_tras_la_firma_bloquea_el_cierre(self):
+        self.escribir_codigo("print('uno')\nprint('dos')\n")
+        self.git("add", "app/demo.py")
+        self.git("commit", "-m", "001-demo: una línea que el revisor no vio")
+        texto = self.cerrar()
+        bloqueos = self.bloqueo_del_ancla(texto)
+        self.assertTrue(bloqueos, texto)
+        self.assertIn("SALIDA:", bloqueos[0])
+        self.assertIn("ejecucion.py lanzar 001-demo", bloqueos[0])
+
+    def test_deshacer_el_cambio_devuelve_la_firma_a_valida(self):
+        """Fila 3 de la tabla del usuario: el patch-id habla del CONTENIDO, no de la historia."""
+        self.escribir_codigo("print('uno')\nprint('dos')\n")
+        self.git("add", "app/demo.py")
+        self.git("commit", "-m", "001-demo: una línea de más")
+        self.assertTrue(self.bloqueo_del_ancla(self.cerrar()))
+        self.escribir_codigo("print('uno')\n")
+        self.git("add", "app/demo.py")
+        self.git("commit", "-m", "001-demo: y la quito")
+        texto = self.cerrar()
+        self.assertFalse(self.bloqueo_del_ancla(texto), texto)
+
+    # --- R3: un rebase limpio no gasta otra revisión -------------------------------------
+    def test_rebase_limpio_conserva_la_firma(self):
+        self.git("checkout", "main")
+        (self.repo / "OTRO.md").write_text("trabajo ajeno\n", encoding="utf-8")
+        self.git("add", "OTRO.md")
+        self.git("commit", "-m", "otra unidad avanza la principal")
+        self.git("checkout", "001-demo")
+        self.git("rebase", "main")
+        self.assertEqual(self.patch_id(),
+                         re.search(r"^revisado_patch_id:\s*(\S+)",
+                                   (self.carpeta / "hallazgos.md").read_text(encoding="utf-8"),
+                                   re.M).group(1),
+                         "el rebase limpio cambió la huella: entonces no es un ancla")
+        texto = self.cerrar()
+        self.assertFalse(self.bloqueo_del_ancla(texto), texto)
+
+    # --- R5 en el cierre: las unidades de antes no se re-exigen --------------------------
+    def test_unidad_sin_el_campo_no_se_reexige_al_cerrar(self):
+        texto_hallazgos = (self.carpeta / "hallazgos.md").read_text(encoding="utf-8")
+        (self.carpeta / "hallazgos.md").write_text(
+            re.sub(r"^revisado_patch_id:.*$\n", "", texto_hallazgos, count=1, flags=re.M),
+            encoding="utf-8")
+        self.escribir_codigo("print('uno')\nprint('dos')\n")
+        self.git("add", "app/demo.py")
+        self.git("commit", "-m", "001-demo: cambio posterior")
+        texto = self.cerrar()
+        self.assertFalse(self.bloqueo_del_ancla(texto), texto)
+
+
 class PlantillaYRunbookTest(unittest.TestCase):
     """071/R1: el hueco existe donde lo va a leer quien construye y quien revisa."""
 
@@ -380,6 +581,14 @@ class PlantillaYRunbookTest(unittest.TestCase):
         sys.path.insert(0, str(SCRIPTS))
         import lint_cierre  # noqa: E402 - se importa tras fijar la ruta de los scripts
         self.assertTrue(lint_cierre.revisar_aprendizajes("001-demo", self.plantilla))
+
+    def test_la_plantilla_trae_el_ancla_de_la_revision(self):
+        """068/R1: sin la clave en la plantilla, `ausencia ≠ vacío` deja el ancla opcional."""
+        self.assertRegex(self.plantilla, r"(?m)^revisado_patch_id:")
+
+    def test_el_cierre_explica_el_ancla_en_los_pasos_de_revision_y_merge(self):
+        cierre = (METODO / "runbooks/cierre.md").read_text(encoding="utf-8")
+        self.assertIn("revisado_patch_id", cierre)
 
     def test_el_cierre_promueve_solo_desde_aprendizajes(self):
         cierre = (METODO / "runbooks/cierre.md").read_text(encoding="utf-8")

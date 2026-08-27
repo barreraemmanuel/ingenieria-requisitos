@@ -2610,6 +2610,62 @@ def puerta_recibo_revisor(nombre):
     return [], avisos
 
 
+def patch_id_del_diff(repo, base, punta):
+    """La huella del CONTENIDO de una rama: `git patch-id --stable` de `base..punta`.
+
+    Es el mismo cálculo que `ejecucion.py` sella al lanzar al revisor (068), y tiene que
+    seguir siéndolo: si las dos puntas de la comparación no miden lo mismo, la puerta de
+    abajo denunciaría cambios que nadie hizo. Cadena vacía cuando no se puede calcular o
+    cuando el diff está vacío — quien llama decide, y aquí no se inventa nada.
+    """
+    if not base or not punta:
+        return ""
+    diferencia = subprocess.run(["git", "-C", str(repo), "diff", base, punta],
+                                capture_output=True, check=False)
+    if diferencia.returncode or not diferencia.stdout:
+        return ""
+    calculo = subprocess.run(["git", "-C", str(repo), "patch-id", "--stable"],
+                             input=diferencia.stdout, capture_output=True, check=False)
+    if calculo.returncode:
+        return ""
+    piezas = calculo.stdout.decode("utf-8", "replace").split()
+    return piezas[0] if piezas else ""
+
+
+def puerta_ancla_de_revision(repo, nombre, firmado, base, punta):
+    """R2/R3 (068) — (problema, nota, aviso) sobre si la firma vale para lo que hay HOY.
+
+    La firma decía quién revisó y cuándo; nunca QUÉ. Una corrección posterior, o un rebase
+    con conflictos resueltos a mano, dejaban la firma intacta sobre un contenido que el
+    revisor no llegó a ver: es el agujero de ADR-029 y lo que dejó cerrar a las 041-044.
+
+    Y el problema simétrico también se cierra: un rebase LIMPIO cambia el SHA sin cambiar
+    una línea, y con el patch-id la firma sobrevive — no se gasta otra revisión (R3).
+
+    Sin ancla firmada (`no`, vacío, clave ausente) no se re-exige nada: la unidad nació
+    antes de que el launcher lo sellara y reabrirla sería castigar a la historia (R5).
+    """
+    firmado = (firmado or "").strip().lower()
+    if not firmado or firmado == "no":
+        return None, "", ""
+    actual = patch_id_del_diff(repo, base, punta)
+    if not actual:
+        return None, "", (
+            f"la firma de revisión de {nombre} ancla el contenido {firmado[:12]}… pero hoy "
+            f"no puedo recalcular esa huella (sin base común, sin diff propio o sin repo "
+            f"legible): el cierre sigue, y esta reserva queda escrita")
+    if actual == firmado:
+        return None, (f"la firma de revisión ancla el contenido que hay ahora "
+                      f"({actual[:12]}…): un rebase no la invalida, una línea sí"), ""
+    return (
+        f"el contenido cambió desde la revisión de {nombre}: se firmó sobre "
+        f"{firmado[:12]}… y la rama de hoy es {actual[:12]}…, así que el veredicto habla de "
+        f"un árbol que ya no existe. No lo arregles editando la cabecera: eso sería "
+        f"inventarse la firma. {SALIDA} vuelve a revisar con un agente fresco, que sella el "
+        f"ancla nueva al lanzarse — `{comando_revision(nombre)}`"
+    ), "", ""
+
+
 def despacho_de(referencias, tipo_proceso, nombre):
     """(registro de despacho, aviso) — lo que el despacho dejó escrito sobre esta entrega."""
     try:
@@ -3832,6 +3888,7 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
     # `origin/<principal>` del despacho con commits ajenos por debajo. Si todavía se puede
     # saber cuál es la base de verdad, se re-anota aquí y la original se conserva; si no, la
     # medida de la Puerta 6 lo dice contra qué midió y el cierre no se inventa nada.
+    base_registrada = None
     if hay_repo and referencias_peticion and not sin_fusion:
         punta_para_base = punta_a_medir(repo, nombre, principal, sha_fusion)
         try:
@@ -3851,6 +3908,23 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             except gestion_peticiones.ErrorPeticion as exc:
                 warn(f"no pude re-anotar la base de despacho de {nombre} ({exc}); la medida "
                      f"de abajo dice contra qué midió")
+
+    # --- Puerta 5 bis (068/R2): la firma vale para el contenido que se revisó, y solo -----
+    # Va DESPUÉS de re-anotar la base: tras el ff del paso 3 la rama entera está dentro de
+    # la principal y su `merge-base` es la propia punta, así que sin la base re-anotada el
+    # diff saldría vacío y la puerta se apagaría justo en el cierre para el que existe.
+    if (politica.require_fresh_review and clase == "unidad" and modo_real != "documental"
+            and hay_repo and not sin_fusion):
+        punta_ancla = punta_a_medir(repo, nombre, principal, sha_fusion)
+        base_ancla, _ = base_de_medida(repo, punta_ancla, principal, base_registrada)
+        problema_ancla, nota_ancla, aviso_ancla = puerta_ancla_de_revision(
+            repo, nombre, fm_hallazgos.get("revisado_patch_id"), base_ancla, punta_ancla)
+        if problema_ancla:
+            problemas.append(problema_ancla)
+        elif nota_ancla:
+            ok(nota_ancla)
+        elif aviso_ancla:
+            warn(aviso_ancla)
 
     # --- Puerta 6 (033/R5): un directo que se pasó de tamaño no era un directo -------------
     # R4 (034): la puerta ya no vive dentro de `if clase == "unidad"`. Un bug entrega código

@@ -7,6 +7,12 @@ revisor: no              # LO ESCRIBE EL REVISOR, en la MISMA escritura que su v
                          # es el padre— y que la firma se rellene DESPUÉS de memoria. Si llega
                          # vacía, la revisión se perdió y se repite (`cierre.md`, paso 2).
 revisado: no             # `no` | fecha YYYY-MM-DD de esa revisión. `unidad.py cerrar` la exige.
+revisado_patch_id: no    # LO ESCRIBE EL LANZADOR, no tú: `ejecucion.py lanzar … --rol revisor`
+                         # sella aquí la huella del contenido exacto que el revisor va a mirar
+                         # (`git patch-id --stable` del diff contra la principal). Si la rama
+                         # cambia después, `unidad.py cerrar` lo ve y manda repetir la revisión;
+                         # un rebase limpio no la mueve y la firma sigue valiendo. Borrarla
+                         # dejando la fecha lo caza `lint_cierre.py`: sin ancla no es una firma.
 ---
 
 # NNN · Hallazgos de la obra
