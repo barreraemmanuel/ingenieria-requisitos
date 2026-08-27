@@ -275,24 +275,9 @@ def hacer_handler(datos, estado, workspace=None):
                 return self._json(400, {"error": str(exc) or "decisión inválida"})
 
         def _validar_decision(self, d):
-            campos = {"presentacion", "version", "contenido_revisado", "eleccion", "comentario", "confirmado"}
-            if not isinstance(d, dict) or set(d) != campos or d["confirmado"] is not True:
-                raise ValueError("campos o confirmación inválidos")
-            manifiesto = _leer_manifiesto(datos)
-            p = next((x for x in manifiesto["presentaciones"] if x["id"] == d["presentacion"]), None)
-            if not p or p["tipo"] not in {"propuesta", "validacion"}:
-                raise ValueError("presentación no autorizada")
-            esperado = p["resumen"] if p["tipo"] == "propuesta" else "\n".join(p["pasos"])
-            if d["version"] != p["version"] or d["contenido_revisado"] != esperado:
-                raise ValueError("versión o contenido revisado no coincide")
-            if d["eleccion"] not in p["opciones"]:
-                raise ValueError("elección inválida")
-            comentario = d["comentario"]
-            if not isinstance(comentario, str) or len(comentario) > 2000 or manifestar.SENSIBLE.search(comentario):
-                raise ValueError("comentario inválido o sensible")
-            if d["eleccion"] in p["comentario_obligatorio"] and not comentario.strip():
-                raise ValueError("el comentario es obligatorio")
-            return {"id": datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%S.%fZ-") + uuid.uuid4().hex, "presentacion": p["id"], "version": p["version"], "contenido_revisado": esperado, "eleccion": d["eleccion"], "comentario": comentario, "fecha": datetime.now(timezone.utc).isoformat()}
+            # Unidad 122: una sola validación del recibo, compartida con `unidad.py confirmar`
+            # (terminal): lo que la web acepta o rechaza es exactamente lo mismo que la terminal.
+            return manifestar.decidir(_leer_manifiesto(datos), d)
 
         def _fichero(self, ruta, tipo, cuerpo=None):
             # Un fichero que falta es un 404, jamás una excepción que suba hasta
