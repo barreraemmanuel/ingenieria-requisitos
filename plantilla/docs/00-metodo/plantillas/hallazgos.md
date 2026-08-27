@@ -13,6 +13,16 @@ revisado_patch_id: no    # LO ESCRIBE EL LANZADOR, no tú: `ejecucion.py lanzar 
                          # cambia después, `unidad.py cerrar` lo ve y manda repetir la revisión;
                          # un rebase limpio no la mueve y la firma sigue valiendo. Borrarla
                          # dejando la fecha lo caza `lint_cierre.py`: sin ancla no es una firma.
+ronda: 1                 # LO ESCRIBE EL LANZADOR, no tú: `ejecucion.py lanzar … --rol
+                         # constructor` la sube en 1 cada vez que la última revisión dijo
+                         # HUECOS DE CORRECCIÓN. El tope es 2: lanzar la tercera se RECHAZA y
+                         # la decisión pasa al usuario (subir de carril, reabrir el contrato o
+                         # cancelar). Una ejecución que acaba con el mismo commit y el mismo
+                         # diff con los que empezó no gasta ronda. Un número tecleado que los
+                         # recibos no acrediten lo caza `unidad.py cerrar`.
+correccion: no           # LO ESCRIBE EL LANZADOR desde la ronda 2: `+N/-M` de esta corrección
+                         # frente al diff original de la rama. Informa, no bloquea — la queja
+                         # que abrió la 069 era el gasto, no el tamaño.
 ---
 
 # NNN · Hallazgos de la obra
@@ -132,7 +142,9 @@ lectura) sobre el diff contra la especificación, en TODOS los carriles (ADR-017
 de una sentada y antes de soltar la tarea: su veredicto aquí y su
 nombre y la fecha en el frontmatter (`revisor:`, `revisado:`), que es lo que `unidad.py cerrar`
 exige. El constructor no escribe en esta sección jamás. Una revisión sin firma no se firma
-después — se repite.>
+después — se repite.
+El veredicto es un vocabulario de DOS palabras: `LIMPIO` o `HUECOS DE CORRECCIÓN`. Son las
+únicas que `unidad.py cerrar` sabe leer, y con huecos el cierre se para (069).>
 
 - **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN
 - **Huecos** (si los hay; cada uno vuelve al constructor antes del merge):
@@ -144,7 +156,8 @@ después — se repite.>
 incumplimientos del contrato de ESTA unidad, los fallos de seguridad y la pérdida de datos.
 Un riesgo de un flujo futuro, una mejora o un "esto convendría prepararlo para cuando…" NO
 reabre la unidad: se anota arriba como trabajo descubierto y sigue su camino. Solo un fallo
-crítico permite una segunda ronda.>
+crítico permite una segunda ronda — y es la ÚLTIMA: el `ronda:` de la cabecera lo cuenta el
+lanzador y la tercera se rechaza, porque a partir de ahí la decisión es del usuario.>
 
 ## Aprendizajes (los escribe QUIEN LOS APRENDIÓ, al terminar su parte)
 

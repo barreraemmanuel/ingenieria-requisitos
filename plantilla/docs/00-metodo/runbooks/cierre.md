@@ -177,6 +177,18 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    siguen su camino. Una segunda ronda de revisión solo la abre un fallo crítico. Preparar
    hoy problemas que aún no existen retrasa lo único que enseña de verdad: que el usuario use
    la app.
+
+   **Y las vueltas se CUENTAN, no se recuerdan (069).** El `ronda: N` de la cabecera de
+   `hallazgos.md` lo escribe `ejecucion.py` al lanzar al constructor —nunca a mano—: sube en 1
+   cada vez que la última revisión dijo `HUECOS DE CORRECCIÓN`, y una ejecución que termina con
+   el mismo commit y el mismo diff con los que empezó no gasta ronda (queda marcada como vacía).
+   **El tope es dos.** Lanzar la tercera se rechaza, y la decisión pasa a ti: subir de carril,
+   reabrir el contrato o cancelar la unidad. Ni se reinicia el contador ni se amplía. Desde la
+   ronda 2, la cabecera anota también el tamaño de la corrección frente al diff original de la
+   rama (`+N/-M`): informa, no bloquea.
+
+   El veredicto es un vocabulario de dos palabras —`LIMPIO` o `HUECOS DE CORRECCIÓN`— y
+   `unidad.py cerrar` lo lee como tal: con huecos en la última revisión, el cierre se para.
 3. **Fusionar** por el camino A o el B (tabla de arriba), **pero antes, la puerta de
    prefusión** (bug 066):
 
