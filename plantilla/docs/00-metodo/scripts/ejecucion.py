@@ -585,7 +585,7 @@ def senales_para_el_revisor(worktree, rol):
         base=base.strip().splitlines()[-1], punta="HEAD", repo=worktree))
 
 
-def patch_id_de_la_rama(worktree):
+def patch_id_de_la_rama(worktree, base_registrada=None):
     """R1 (068) — la huella del CONTENIDO que se está a punto de revisar.
 
     `git patch-id --stable` del diff `merge-base(principal, HEAD)..HEAD`. Se eligió frente
@@ -598,28 +598,103 @@ def patch_id_de_la_rama(worktree):
     Devuelve `""` cuando no se puede calcular (sin repo, sin base común, rama sin diff
     propio): igual que las señales del revisor, un ancla que no se puede calcular NUNCA
     impide lanzar la revisión — quien la lee decide, y el cierre solo compara lo que existe.
+    El porqué de ese vacío lo cuenta `patch_id_y_motivo` (bug 113).
+    """
+    return patch_id_y_motivo(worktree, base_registrada)[0]
+
+
+def _sha(worktree, referencia):
+    codigo, salida = git(worktree, "rev-parse", "--verify", "--quiet",
+                         f"{referencia}^{{commit}}")
+    return salida.strip().splitlines()[-1] if codigo == 0 and salida.strip() else ""
+
+
+def base_para_el_ancla(worktree, base_registrada=None):
+    """(sha base, de dónde salió) contra la que se calcula el ancla del revisor (bug 113).
+
+    Lo normal es `merge-base(principal, HEAD)`. Pero en la ronda 2 tras el ff del cierre la
+    rama entera YA está dentro de la principal: el merge-base es la propia punta, el diff
+    sale vacío y el recibo del revisor nacía con `revisado_patch_id: null` (107 y 108 el
+    27-08), o sea una firma sin ancla justo en el caso que la 069 quería proteger. Ahí se
+    mira, por este orden: la base de despacho REGISTRADA en la petición (`metadata.base_sha`,
+    la que `unidad.py prefusion` re-anota al rebasar: el commit de la principal de antes de
+    la fusión) si es antecesora estricta de HEAD; y si no la hay, el primer padre de HEAD
+    cuando HEAD es un merge (lo que había en la principal antes de fusionar). Sin ninguna de
+    las dos no hay contra qué medir y se devuelve ("", motivo): mejor un vacío que se explica
+    que una base inventada.
     """
     try:
         principal = repo_config.repo_code(RAIZ)[1]
     except repo_config.RepoConfigError:
         principal = "main"
+    punta = _sha(worktree, "HEAD")
+    if not punta:
+        return "", "sin repo o sin HEAD que revisar"
     codigo, base = git(worktree, "merge-base", principal, "HEAD")
-    if codigo or not base.strip():
-        return ""
-    base = base.strip().splitlines()[-1]
+    merge_base = base.strip().splitlines()[-1] if codigo == 0 and base.strip() else ""
+    if not merge_base:
+        return "", f"sin base común con {principal}"
+    if merge_base != punta:
+        return merge_base, f"merge-base con {principal} ({merge_base[:8]})"
+    registrada = _sha(worktree, base_registrada) if base_registrada else ""
+    if registrada and registrada != punta and git(
+            worktree, "merge-base", "--is-ancestor", registrada, punta)[0] == 0:
+        return registrada, (f"rama ya fusionada en {principal}: base de despacho "
+                            f"registrada ({registrada[:8]})")
+    codigo, padres = git(worktree, "rev-list", "--parents", "-n", "1", "HEAD")
+    lista = padres.strip().split() if codigo == 0 else []
+    if len(lista) > 2:
+        return lista[1], (f"rama ya fusionada en {principal}: primer padre del merge "
+                          f"({lista[1][:8]})")
+    return "", (f"rama ya fusionada en {principal} (merge-base == HEAD) sin base de "
+                f"despacho registrada ni merge del que tomar el primer padre: no hay diff "
+                f"propio que anclar")
+
+
+def patch_id_y_motivo(worktree, base_registrada=None):
+    """(patch_id, motivo): el ancla y, en una frase, contra qué se calculó o por qué no."""
+    base, motivo = base_para_el_ancla(worktree, base_registrada)
+    if not base:
+        return "", motivo
     diferencia = subprocess.run(
         ["git", "diff", base, "HEAD"], cwd=str(worktree), capture_output=True, check=False,
     )
-    if diferencia.returncode or not diferencia.stdout:
-        return ""
+    if diferencia.returncode:
+        return "", f"git diff {base[:8]}..HEAD falló ({motivo})"
+    if not diferencia.stdout:
+        return "", f"diff vacío contra {base[:8]} ({motivo})"
     calculo = subprocess.run(
         ["git", "patch-id", "--stable"], cwd=str(worktree), input=diferencia.stdout,
         capture_output=True, check=False,
     )
     if calculo.returncode:
-        return ""
+        return "", f"git patch-id falló ({motivo})"
     piezas = calculo.stdout.decode("utf-8", "replace").split()
-    return piezas[0] if piezas else ""
+    if not piezas:
+        return "", f"git patch-id no devolvió huella ({motivo})"
+    return piezas[0], motivo
+
+
+def base_registrada_de_la_unidad(datos, unidad, ficha):
+    """El `base_sha` que `despachar`/`prefusion` dejó en la petición de origen, o None.
+
+    Bug 113: es la única memoria de dónde nació la rama cuando ya está fusionada. Se lee
+    con las mismas funciones que el cierre (`peticion.base_despacho`); cualquier tropiezo
+    —módulo ausente, referencia mal escrita, petición borrada— devuelve None: el ancla es
+    una medida, no una puerta de lanzamiento.
+    """
+    referencias = [r.strip() for r in (datos.get("peticiones") or "").split(",") if r.strip()]
+    if not referencias:
+        return None
+    tipo = "bug" if ficha.parent == RAIZ / "docs/bugs" else "unidad"
+    try:
+        import peticion as gestion_peticiones
+    except ImportError:
+        return None
+    try:
+        return gestion_peticiones.base_despacho(referencias, tipo, unidad)
+    except Exception:  # noqa: BLE001 — una medida nunca bloquea la revisión
+        return None
 
 
 def sellar_clave(hallazgos, clave, valor):
@@ -1226,7 +1301,7 @@ def evidencia_git(worktree):
 
 def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
                    plan=None, worktree_efimero=False, worktree_origen="worktree",
-                   patch_id="", ronda=None):
+                   patch_id="", ronda=None, motivo_patch_id=""):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
@@ -1270,6 +1345,9 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         # rebase limpio ni cambia con una línea de la rama. None mientras no haya ancla
         # (rol constructor, rama sin diff propio, repo que no se puede leer).
         "revisado_patch_id": patch_id or None,
+        # Bug 113: si el ancla va vacía, AQUÍ se dice por qué (rama fusionada sin base,
+        # diff vacío…): un null mudo era indistinguible de «se me olvidó». Con ancla, None.
+        "motivo_patch_id": (motivo_patch_id or None) if not patch_id else None,
         # R1/R5 (069): qué vuelta al constructor es ESTA, y si acabó sin tocar un byte.
         # `None` en las dos mientras no haya contador (rol revisor, cabecera anterior a la
         # 069): el recibo no inventa una ronda que nadie está contando.
@@ -1617,8 +1695,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             senales=senales_para_el_revisor(worktree, args.rol),
         )
         ficha_bloqueada = None
-        patch_id_revisado = ""
-        ronda_previa = ronda_actual = None
+        patch_id_revisado = motivo_patch_id = ""
+        ronda_previa = ronda_actual = ronda_revisada = None
         if ficha.parent == RAIZ / "docs/bugs":
             # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
             # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
@@ -1639,7 +1717,17 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 # sería el mismo agujero de ADR-029 con otro nombre. Va aquí, antes de
                 # `huella_previa`, para que el sello del launcher no se confunda con el
                 # trabajo del revisor cuando el recibo decida si hubo trabajo (R5/R6).
-                patch_id_revisado = patch_id_de_la_rama(worktree)
+                patch_id_revisado, motivo_patch_id = patch_id_y_motivo(
+                    worktree, base_registrada_de_la_unidad(datos, args.unidad, ficha))
+                # R3 (113): el recibo del revisor lleva la ronda que declara la cabecera
+                # —la que el constructor gastó y este revisor va a juzgar—; `None` solo si
+                # la cabecera no lleva contador. Va en `ronda_revisada`, NO en
+                # `ronda_actual`: el revisor no gasta rondas ni las sella (069), y
+                # `cerrar_la_ronda` solo cuenta las del constructor.
+                try:
+                    ronda_revisada = ronda_declarada(hallazgos.read_text(encoding="utf-8"))
+                except OSError:
+                    ronda_revisada = None
         seguros = []
         for documento in documentos:
             try:
@@ -1682,7 +1770,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             worktree_efimero=efimero,
             worktree_origen=origen_worktree,
             patch_id=patch_id_revisado,
-            ronda=ronda_actual,
+            ronda=ronda_actual if args.rol == "constructor" else ronda_revisada,
+            motivo_patch_id=motivo_patch_id,
         )
         checkpoint(
             recibo,

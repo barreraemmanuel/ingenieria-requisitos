@@ -1,0 +1,176 @@
+"""Bug 113: el recibo del revisor sale sin `revisado_patch_id` ni `ronda` con la rama fusionada.
+
+`ejecucion.py lanzar --rol revisor` sella la huella del contenido que el revisor tiene
+delante (068) calculando `git patch-id` del diff `merge-base(principal, HEAD)..HEAD`. Con la
+rama YA dentro de la principal (ronda 2 tras el ff del cierre) `merge-base == HEAD`, el diff
+sale vacío y el recibo queda con `revisado_patch_id: null` y `ronda: null`, indistinguible de
+«se me olvidó» (docs/bugs/113-recibo-del-revisor-sin-patch-id.md).
+
+Lo que fija este fichero:
+- R1: fusionada por ff y con base de despacho registrada → patch-id del diff base..HEAD.
+- R1: fusionada por merge (sin base registrada) → patch-id contra el primer padre del merge.
+- R2: sin nada que revisar → `""` y un motivo legible, que el recibo lleva en `motivo_patch_id`.
+- R3: el recibo del revisor lleva la `ronda` que declara la cabecera de `hallazgos.md`.
+- NO cambia: rama no fusionada → el mismo patch-id de siempre (merge-base..HEAD).
+"""
+
+import os
+import subprocess
+import sys
+import tempfile
+import unittest
+from pathlib import Path
+from unittest import mock
+
+RAIZ = Path(__file__).resolve().parents[2]
+SCRIPTS = RAIZ / "plantilla/docs/00-metodo/scripts"
+if str(SCRIPTS) not in sys.path:
+    sys.path.insert(0, str(SCRIPTS))
+import ejecucion  # noqa: E402  (el REAL, sin mutar)
+
+
+def git(cwd, *args, entrada=None):
+    resultado = subprocess.run(
+        ["git", *args], cwd=str(cwd), text=True, encoding="utf-8", capture_output=True,
+        input=entrada, check=False,
+        env={**os.environ, "GIT_AUTHOR_NAME": "t", "GIT_AUTHOR_EMAIL": "t@x",
+             "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@x"},
+    )
+    if resultado.returncode:
+        raise AssertionError(f"git {' '.join(args)} → {resultado.returncode}: "
+                             f"{resultado.stdout}{resultado.stderr}")
+    return resultado.stdout.strip()
+
+
+def patch_id_esperado(repo, base, punta):
+    diff = subprocess.run(["git", "diff", base, punta], cwd=str(repo), capture_output=True,
+                          check=True).stdout
+    salida = subprocess.run(["git", "patch-id", "--stable"], cwd=str(repo), input=diff,
+                            capture_output=True, check=True).stdout
+    return salida.decode("utf-8").split()[0]
+
+
+class RamaFusionadaTest(unittest.TestCase):
+    """Repo temporal con `main` y la rama `001-demo`; el worktree apunta a la rama."""
+
+    def setUp(self):
+        self.temporal = tempfile.TemporaryDirectory(prefix="bug-113-")
+        self.addCleanup(self.temporal.cleanup)
+        self.repo = Path(self.temporal.name) / "repo"
+        self.repo.mkdir()
+        git(self.repo, "init", "-q", "-b", "main")
+        (self.repo / "app.py").write_text("print('v1')\n", encoding="utf-8")
+        git(self.repo, "add", "app.py")
+        git(self.repo, "commit", "-q", "-m", "base")
+        self.base = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "checkout", "-q", "-b", "001-demo")
+        (self.repo / "app.py").write_text("print('v2')\n", encoding="utf-8")
+        git(self.repo, "commit", "-q", "-am", "001-demo: cambio")
+        self.punta = git(self.repo, "rev-parse", "HEAD")
+        # El lanzador pregunta a repo_config cuál es la principal; aquí es `main` a secas.
+        parche = mock.patch.object(ejecucion.repo_config, "repo_code",
+                                   return_value=(self.repo, "main"))
+        parche.start()
+        self.addCleanup(parche.stop)
+
+    def fusionar_por_ff(self):
+        git(self.repo, "checkout", "-q", "main")
+        git(self.repo, "merge", "-q", "--ff-only", "001-demo")
+        git(self.repo, "checkout", "-q", "001-demo")
+        self.assertEqual(git(self.repo, "merge-base", "main", "HEAD"), self.punta,
+                         "precondición del bug: merge-base == HEAD")
+
+    # --- NO cambia: rama sin fusionar --------------------------------------------------
+    def test_rama_no_fusionada_conserva_el_patch_id_de_siempre(self):
+        esperado = patch_id_esperado(self.repo, self.base, "HEAD")
+        self.assertEqual(ejecucion.patch_id_de_la_rama(self.repo), esperado)
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo)
+        self.assertEqual(patch_id, esperado)
+        self.assertIn("merge-base", motivo)
+
+    # --- El SÍNTOMA, con la API de siempre: rama dentro de la principal → ancla vacía ----
+    def test_sintoma_113_rama_fusionada_devuelve_ancla_vacia(self):
+        git(self.repo, "checkout", "-q", "main")
+        (self.repo / "otro.txt").write_text("ajeno\n", encoding="utf-8")
+        git(self.repo, "add", "otro.txt")
+        git(self.repo, "commit", "-q", "-m", "main avanza")
+        primer_padre = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "merge 001-demo", "001-demo")
+        git(self.repo, "branch", "-f", "001-demo", "HEAD")
+        git(self.repo, "checkout", "-q", "001-demo")
+        self.assertEqual(git(self.repo, "merge-base", "main", "HEAD"),
+                         git(self.repo, "rev-parse", "HEAD"),
+                         "precondición del bug: merge-base == HEAD")
+        self.assertEqual(
+            ejecucion.patch_id_de_la_rama(self.repo),
+            patch_id_esperado(self.repo, primer_padre, "HEAD"),
+            "bug 113: con la rama ya en la principal, el lanzador devolvía \"\" y el recibo "
+            "del revisor salía con revisado_patch_id: null",
+        )
+
+    # --- R1: fusionada por ff, base de despacho registrada -----------------------------
+    def test_rama_fusionada_por_ff_usa_la_base_de_despacho_registrada(self):
+        self.fusionar_por_ff()
+        esperado = patch_id_esperado(self.repo, self.base, "HEAD")
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo, base_registrada=self.base)
+        self.assertEqual(patch_id, esperado,
+                         "bug 113: con la rama ya en la principal el ancla salía vacía")
+        self.assertIn(self.base[:8], motivo)
+        self.assertIn("base de despacho registrada", motivo)
+        # La firma de siempre (sin motivo) también deja de salir vacía.
+        self.assertEqual(ejecucion.patch_id_de_la_rama(self.repo, base_registrada=self.base),
+                         esperado)
+
+    # --- R1: fusionada por merge (no ff), sin base registrada → primer padre ------------
+    def test_rama_fusionada_por_merge_usa_el_primer_padre_del_merge(self):
+        git(self.repo, "checkout", "-q", "main")
+        (self.repo / "otro.txt").write_text("ajeno\n", encoding="utf-8")
+        git(self.repo, "add", "otro.txt")
+        git(self.repo, "commit", "-q", "-m", "main avanza")
+        primer_padre = git(self.repo, "rev-parse", "HEAD")
+        git(self.repo, "merge", "-q", "--no-ff", "-m", "merge 001-demo", "001-demo")
+        git(self.repo, "branch", "-f", "001-demo", "HEAD")
+        git(self.repo, "checkout", "-q", "001-demo")
+        self.assertEqual(git(self.repo, "merge-base", "main", "HEAD"),
+                         git(self.repo, "rev-parse", "HEAD"))
+        esperado = patch_id_esperado(self.repo, primer_padre, "HEAD")
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo)
+        self.assertEqual(patch_id, esperado)
+        self.assertIn("primer padre", motivo)
+
+    # --- R2: de verdad no hay nada que revisar → vacío CON motivo -----------------------
+    def test_sin_diff_que_revisar_deja_motivo_legible(self):
+        self.fusionar_por_ff()
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo)  # sin base, sin merge
+        self.assertEqual(patch_id, "")
+        self.assertTrue(motivo.strip(), "R2: un null mudo no vale")
+        self.assertIn("fusionada", motivo)
+        # Una base registrada que no es antecesora tampoco vale, y se dice.
+        patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo, base_registrada="0" * 40)
+        self.assertEqual(patch_id, "")
+        self.assertTrue(motivo.strip())
+
+    # --- R2/R3: el recibo lleva motivo y ronda --------------------------------------------
+    def test_el_recibo_lleva_motivo_del_patch_id_y_la_ronda_de_la_cabecera(self):
+        args = mock.Mock(unidad="001-demo", harness="claude", rol="revisor",
+                         skill_tecnica=[], modelo=None)
+        recibo = ejecucion.recibo_inicial(
+            args, "abc", self.repo, "sesion", {}, {}, patch_id="", ronda=None,
+            motivo_patch_id="rama fusionada: sin base",
+        )
+        self.assertIsNone(recibo["revisado_patch_id"])
+        self.assertEqual(recibo["motivo_patch_id"], "rama fusionada: sin base")
+        recibo = ejecucion.recibo_inicial(
+            args, "abc", self.repo, "sesion", {}, {}, patch_id="deadbeef", ronda=2,
+        )
+        self.assertEqual(recibo["revisado_patch_id"], "deadbeef")
+        self.assertIsNone(recibo["motivo_patch_id"])
+        self.assertEqual(recibo["ronda"], 2)
+        # R3: la ronda del revisor sale de la cabecera de hallazgos.md.
+        self.assertEqual(ejecucion.ronda_declarada("---\nronda: 2\n---\n"), 2)
+        self.assertIsNone(ejecucion.ronda_declarada("---\nrevisor: no\n---\n"))
+        self.assertIsNone(ejecucion.ronda_declarada("---\nronda: —\n---\n"))
+
+
+if __name__ == "__main__":
+    unittest.main()

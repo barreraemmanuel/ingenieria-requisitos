@@ -1311,14 +1311,18 @@ pathlib.Path('.harness-record.json').write_text(
         self.assertIsNone(self.recibo()["ronda"])
 
     def test_el_revisor_no_toca_la_ronda(self):
-        """Las rondas las gasta quien corrige. Lanzar al revisor no cuenta ninguna."""
+        """Las rondas las gasta quien corrige. Lanzar al revisor no cuenta ninguna.
+
+        Bug 113 (R3): su recibo sí DECLARA la ronda que tiene delante —la de la cabecera—
+        para que la firma quede pegada a una vuelta concreta; la cabecera no se mueve."""
         self.poner_veredicto("HUECOS DE CORRECCIÓN")
 
         resultado = self.ejecutar(rol="revisor")
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         self.assertEqual(self.clave("ronda"), "1")
-        self.assertIsNone(self.recibo()["ronda"])
+        self.assertEqual(self.recibo()["ronda"], 1)
+        self.assertFalse(self.recibo()["ronda_vacia"])
 
     def test_el_veredicto_que_lee_el_lanzador_es_el_mismo_que_lee_el_cierre(self):
         """La junta: `ejecucion.py` decide si hubo huecos y `unidad.py cerrar` decide si se
