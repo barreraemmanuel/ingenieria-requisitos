@@ -191,6 +191,15 @@ class ValidadorTest(unittest.TestCase):
         self.assertIn("3", texto)
         self.assertIn("requisito", texto.lower())
 
+    def test_las_casillas_se_cuentan_en_el_plan_de_hallazgos_si_existe(self):
+        """Bug 078: el progreso vive en el `## Plan` de hallazgos.md; la ficha queda intocable."""
+        self.escribir_parte(self.parte_honesto(plan="3/3"))
+        ruta = self.ws / "docs/05-trabajo/001-demo/hallazgos.md"
+        texto = ruta.read_text(encoding="utf-8")
+        ruta.write_text(texto + "\n## Plan\n\n- [x] 1. uno\n- [x] 2. dos\n- [x] 3. tres\n", encoding="utf-8")
+        texto = self.denegado(self.validar())
+        self.assertNotIn("las marcadas de verdad son", texto)
+
     def test_casillas_del_plan_inventadas_se_deniegan_con_el_conteo_real(self):
         self.escribir_parte(self.parte_honesto(plan="9/9"))
         texto = self.denegado(self.validar())

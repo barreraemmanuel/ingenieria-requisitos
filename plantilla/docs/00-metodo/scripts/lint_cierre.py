@@ -111,12 +111,28 @@ def fraccion(valor):
     return (int(m.group(1)), int(m.group(2))) if m else None
 
 
-def contar_reales(spec):
-    """Requisitos del contrato y casillas del plan, contados sobre la especificación."""
+def _seccion_plan_de_hallazgos(texto):
+    """El cuerpo de `## Plan` de hallazgos.md (bug 078: ahí se marca el progreso), o None."""
+    m = re.search(r"^## Plan[ \t]*\r?\n(.*?)(?=^## |\Z)", texto, re.MULTILINE | re.DOTALL)
+    return None if m is None else m.group(1)
+
+
+def contar_reales(spec, hallazgos=None):
+    """Requisitos del contrato (en la especificación) y casillas del plan.
+
+    Desde el bug 078 el progreso se marca en el `## Plan` de hallazgos.md, porque la ficha
+    queda en solo lectura para el constructor; si ese bloque existe, las casillas se cuentan
+    ahí. Sin él (unidades anteriores), se cuentan sobre la especificación como siempre.
+    """
     texto = spec.read_text(encoding="utf-8", errors="replace")
     requisitos = len(re.findall(r"^\s*-\s+\*\*R\d+\*\*", texto, re.MULTILINE))
-    marcadas = len(re.findall(r"^\s*-\s+\[x\]", texto, re.MULTILINE | re.IGNORECASE))
-    totales = marcadas + len(re.findall(r"^\s*-\s+\[ \]", texto, re.MULTILINE))
+    fuente = texto
+    if hallazgos is not None and Path(hallazgos).is_file():
+        plan = _seccion_plan_de_hallazgos(Path(hallazgos).read_text(encoding="utf-8", errors="replace"))
+        if plan is not None and re.search(r"^\s*-\s+\[( |x)\]", plan, re.MULTILINE | re.IGNORECASE):
+            fuente = plan
+    marcadas = len(re.findall(r"^\s*-\s+\[x\]", fuente, re.MULTILINE | re.IGNORECASE))
+    totales = marcadas + len(re.findall(r"^\s*-\s+\[ \]", fuente, re.MULTILINE))
     return requisitos, marcadas, totales
 
 
@@ -290,7 +306,7 @@ def validar_parte(nombre, spec, hallazgos, raiz):
             "rojo que lo sostenga es tan poco comprobable como un verde sin evidencia"))
 
     # (3) R4 — los números declarados contra el conteo real sobre la especificación.
-    reales_req, marcadas, totales = contar_reales(spec)
+    reales_req, marcadas, totales = contar_reales(spec, hallazgos)
     ruta_spec = ruta_legible(spec, raiz)
     dec_req = fraccion(datos["requisitos"])
     if dec_req is None:
