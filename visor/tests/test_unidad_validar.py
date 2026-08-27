@@ -218,6 +218,14 @@ class WorkspaceBase(unittest.TestCase):
         registro.parent.mkdir(parents=True, exist_ok=True)
         with open(registro, "a", encoding="utf-8") as rastro:
             rastro.write(f"{fecha}T00:00:00 contrato mostrado: {nombre}\n")
+        # Unidad 107 (R5): la aprobación de verdad deja también el rastro del clic en la web.
+        carpeta = self.ws / ".runtime" / "aprobaciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / f"{nombre}-{fecha}.json").write_text(json.dumps({
+            "unidad": nombre, "fecha": fecha,
+            "ruta": f"docs/05-trabajo/{nombre}/especificacion.md",
+            "huella": "0" * 64, "hora": f"{fecha}T09:00:00", "cliente": "127.0.0.1",
+        }), encoding="utf-8")
 
     def recibo_ejecucion(self, unidad, rol, session_id):
         carpeta = self.ws / ".runtime/ejecuciones"

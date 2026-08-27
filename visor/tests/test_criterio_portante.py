@@ -16,6 +16,7 @@ Cubre los criterios del contrato:
 - R8 — el ADR está escrito, viaja en el bootstrap y el runbook lo cita.
 """
 import datetime
+import json
 import re
 import shutil
 import subprocess
@@ -116,6 +117,14 @@ class WorkspaceBase(unittest.TestCase):
         registro.parent.mkdir(parents=True, exist_ok=True)
         with open(registro, "a", encoding="utf-8") as rastro:
             rastro.write(f"{HOY}T09:00:00 contrato mostrado: {nombre}\n")
+        # Unidad 107 (R5): la aprobación de verdad deja también el rastro del clic en la web.
+        carpeta = self.ws / ".runtime" / "aprobaciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / f"{nombre}-{HOY}.json").write_text(json.dumps({
+            "unidad": nombre, "fecha": HOY,
+            "ruta": f"docs/05-trabajo/{nombre}/especificacion.md",
+            "huella": "0" * 64, "hora": f"{HOY}T09:00:00", "cliente": "127.0.0.1",
+        }), encoding="utf-8")
 
     # -- fichas -------------------------------------------------------------------------
 
