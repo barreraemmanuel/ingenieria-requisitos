@@ -21,6 +21,7 @@ contra el binario real es la de sistema de R4, y su evidencia vive en `hallazgos
 """
 import json
 import os
+import shutil
 import stat
 import subprocess
 import sys
@@ -317,16 +318,18 @@ class ArgvDeCodexTest(BaseLanzadorCodex):
         argv = self.argv()
         self.assertEqual(argv[argv.index("-m") + 1], "modelo-segundo")
 
-    def test_el_revisor_codex_conserva_la_frontera_del_revisor_claude(self):
-        # Enmienda del padre a R4 (27-08): `-s read-only` ignora `--add-dir` y
-        # `writable_roots`, así que el revisor no podría escribir su firma. Probado
-        # contra el binario real; la evidencia está en hallazgos.md.
+    def test_el_revisor_codex_no_usa_el_sandbox_read_only(self):
+        # Sigue siendo cierto lo que probó la 100: `-s read-only` es absoluto (ignora
+        # `--add-dir` y `writable_roots`) y dejaría al revisor sin poder firmar. Lo que
+        # cambia en la 108 es la SALIDA: ya no se cae a `workspace-write`, sino a un perfil
+        # de permisos que extiende `:read-only` y abre solo lo imprescindible. La exigencia
+        # se endurece, no se relaja — lo comprueba `PerfilDelRevisorCodexTest`.
         resultado = self.ejecutar(rol="revisor")
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         argv = self.argv()
-        self.assertNotIn("read-only", argv)
-        self.assertIn("workspace-write", argv)
+        self.assertNotIn("-s", argv)
+        self.assertNotIn("workspace-write", argv)
 
     def test_codex_corre_con_json_y_sin_ephemeral_para_poder_acreditar(self):
         # `--ephemeral` es justo lo que impide que se escriba el rollout de la sesión,
@@ -529,6 +532,150 @@ class DoctrinaAlDiaTest(unittest.TestCase):
         texto = ROLES.read_text(encoding="utf-8")
         self.assertIn("codex debug models", texto)
         self.assertIn("harness", texto.lower())
+
+
+# ============================== Unidad 108 · R3 · el revisor Codex es solo-lectura de verdad
+#
+# La 100 probó que `-s read-only` es ABSOLUTO (ignora `--add-dir` y `writable_roots`: no
+# queda ninguna ruta escribible y el revisor no podría firmar su veredicto) y dejó abierta
+# la vía de los perfiles de permisos. El spike del paso 0 de esta unidad la abrió contra el
+# binario real: un perfil `[permissions.<nombre>]` que EXTIENDE `:read-only` y añade rutas
+# escribibles por su mapa `filesystem` sí da las dos mitades a la vez — worktree en solo
+# lectura y carpeta de la unidad escribible. La evidencia cruda está en `hallazgos.md`.
+PERFIL = "revisor-solo-lectura"
+
+
+class PerfilDelRevisorCodexTest(BaseLanzadorCodex):
+    """Sobre el argv que construye el lanzador, con el doble de `codex`."""
+
+    def config(self, argv):
+        return [argv[i + 1] for i, pieza in enumerate(argv[:-1]) if pieza == "-c"]
+
+    def test_el_revisor_corre_bajo_un_perfil_que_extiende_solo_lectura(self):
+        resultado = self.ejecutar(rol="revisor")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        argv = self.argv()
+        config = self.config(argv)
+        self.assertIn(f'default_permissions="{PERFIL}"', config)
+        self.assertIn(f'permissions.{PERFIL}.extends=":read-only"', config)
+        # `sandbox_mode` y `permission_profile` no pueden convivir: el binario lo rechaza.
+        self.assertNotIn("-s", argv)
+        self.assertNotIn("workspace-write", argv)
+
+    def test_el_perfil_deja_escribible_la_carpeta_de_la_unidad_y_el_temporal(self):
+        resultado = self.ejecutar(rol="revisor")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        filesystem = [c for c in self.config(self.argv())
+                      if c.startswith(f"permissions.{PERFIL}.filesystem=")]
+        self.assertEqual(len(filesystem), 1, self.argv())
+        mapa = filesystem[0]
+        # La única escritura obligatoria del revisor: su veredicto y su firma.
+        self.assertIn(str(self.ficha.parent), mapa)
+        # Y el temporal del lanzador (TMPDIR/CODEX_HOME): sin él, ni la sesión ni las
+        # herramientas del agente pueden escribir nada y el revisor se queda mudo.
+        registro = json.loads(self.registro.read_text(encoding="utf-8"))
+        self.assertIn(str(Path(registro["codex_home"]).parent), mapa)
+        self.assertIn('="write"', mapa.replace(" ", ""))
+
+    def test_el_worktree_no_viaja_como_escribible(self):
+        resultado = self.ejecutar(rol="revisor")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        argv = self.argv()
+        # `--add-dir` en codex significa "directorio escribible adicional": bajo el perfil
+        # las rutas escribibles las declara el propio perfil, no esta bandera.
+        self.assertNotIn("--add-dir", argv)
+        filesystem = next(c for c in self.config(argv)
+                          if c.startswith(f"permissions.{PERFIL}.filesystem="))
+        self.assertNotIn(str(self.worktree.resolve()), filesystem)
+        # El cwd sigue siendo el worktree (ADR-022): lo que cambia es qué puede escribir.
+        self.assertEqual(Path(argv[argv.index("-C") + 1]).resolve(),
+                         self.worktree.resolve())
+
+    def test_el_constructor_codex_no_cambia(self):
+        # Límite: el perfil es SOLO del revisor. El constructor escribe en su worktree.
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        argv = self.argv()
+        self.assertIn("workspace-write", argv)
+        self.assertNotIn(f'default_permissions="{PERFIL}"', self.config(argv))
+
+
+@unittest.skipUnless(shutil.which("codex"), "sin binario `codex` en esta máquina")
+class PerfilDelRevisorContraElBinarioTest(unittest.TestCase):
+    """La frontera se DEMUESTRA con el `codex` real: `codex sandbox -P <perfil>` corre un
+    comando bajo exactamente el mismo perfil que recibirá `codex exec`."""
+
+    def setUp(self):
+        self.temporal = tempfile.TemporaryDirectory(prefix="perfil-revisor-")
+        self.addCleanup(self.temporal.cleanup)
+        self.base = Path(self.temporal.name).resolve()
+        self.repo = self.base / "repo"
+        self.docs = self.base / "docs"
+        self.repo.mkdir()
+        self.docs.mkdir()
+        (self.repo / "codigo.txt").write_text("hola\n", encoding="utf-8")
+        (self.docs / "hallazgos.md").write_text("# Hallazgos\n", encoding="utf-8")
+        (self.base / "codex-home").mkdir()
+        for args in (("init", "-b", "main"), ("add", "codigo.txt"),
+                     ("-c", "user.name=T", "-c", "user.email=t@e.x", "commit", "-m", "base")):
+            subprocess.run(["git", *args], cwd=str(self.repo), check=True,
+                           capture_output=True)
+
+    def test_bajo_el_perfil_el_worktree_no_se_puede_escribir_y_la_unidad_si(self):
+        argv = ejecucion.opciones_de_perfil_revisor_codex(PERFIL, [self.docs])
+        orden = (
+            f"(echo x >> '{self.docs}/hallazgos.md' && echo DOC=escribible || echo DOC=fallo);"
+            f"(echo y >> '{self.repo}/codigo.txt' && echo REPO=escribible "
+            f"|| echo REPO=solo-lectura);"
+            f"(cat '{self.repo}/codigo.txt' > /dev/null && echo LECTURA=ok || echo LECTURA=fallo)"
+        )
+        # `codex sandbox` selecciona el perfil con `-P` (lo exige); `codex exec` lo hace con
+        # el último `-c` (`default_permissions=…`), que es el que se descarta aquí. El perfil
+        # que se monta es el MISMO: los dos primeros `-c` son literalmente los del lanzador.
+        resultado = subprocess.run(
+            [shutil.which("codex"), "sandbox", *argv[:-2], "-P", PERFIL,
+             "-C", str(self.repo), "--", "/bin/sh", "-c", orden],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env=dict(os.environ, CODEX_HOME=str(self.base / "codex-home")),
+        )
+
+        traza = resultado.stdout + resultado.stderr
+        self.assertIn("DOC=escribible", traza, traza)
+        self.assertIn("REPO=solo-lectura", traza, traza)
+        self.assertIn("LECTURA=ok", traza, traza)
+
+
+# ========================= Unidad 108 · R4 · confiar los hooks de Codex, escrito una vez
+AGENTS_PLANTILLA = RAIZ / "plantilla/AGENTS.md"
+
+
+class ConfiarLosHooksEstaEscritoTest(unittest.TestCase):
+    """Las dos puertas mudas de la 100 sirven de poco si el arranque no las nombra."""
+
+    def papeles(self):
+        return {AGENTS_PLANTILLA: AGENTS_PLANTILLA.read_text(encoding="utf-8"),
+                ROLES: ROLES.read_text(encoding="utf-8")}
+
+    def test_los_dos_papeles_dicen_como_confiar_los_hooks(self):
+        for ruta, texto in self.papeles().items():
+            with self.subTest(papel=ruta.name):
+                self.assertIn("/hooks", texto)
+
+    def test_dicen_que_sin_confiarlos_no_corren_ni_avisan(self):
+        for ruta, texto in self.papeles().items():
+            with self.subTest(papel=ruta.name):
+                bajo = texto.lower()
+                self.assertIn("no los ejecuta", bajo)
+                self.assertIn("no te avisa", bajo)
+
+    def test_dicen_que_ejecucion_py_no_necesita_ese_paso(self):
+        for ruta, texto in self.papeles().items():
+            with self.subTest(papel=ruta.name):
+                self.assertIn("--dangerously-bypass-hook-trust", texto)
 
 
 if __name__ == "__main__":

@@ -108,12 +108,28 @@ Para verlo con los nombres de hoy: `python3 -c "import sys; sys.path.insert(0,
   `codex exec --json` **no** sirve para esto, no emite el modelo; y por eso el argv de Codex no
   lleva `--ephemeral`, que es justo lo que impediría escribir ese rollout. Si el rollout no
   aparece, el recibo se queda declarando (`modelo_origen: tabla`) y lo dice: no se inventa nada.
+- **Con Claude el recibo también ACREDITA** (unidad 108). El lanzador fija el id de la sesión
+  (`--session-id`) y, al cerrar el recibo, lee el transcript de esa sesión
+  (`~/.claude/projects/<slug del cwd>/<id>.jsonl`): sus registros del asistente traen el modelo
+  efectivo y el esfuerzo del turno. Manda el ÚLTIMO. Por eso el argv de Claude ya no lleva
+  `--no-session-persistence`, que era justo lo que impedía escribir ese transcript (el mismo
+  caso que `--ephemeral` en Codex). Si el transcript no aparece o no dice el modelo, el recibo
+  se queda declarando (`modelo_origen: tabla`) y lo dice en su checkpoint `modelo-acreditado`.
 - **Los dos harness entregan unidades.** El despacho delegado —constructor y revisor— vale con
   `--harness claude` y con `--harness codex`; el revisor sigue sin repetir el modelo del
-  constructor en ninguno de los dos. Con Codex, el revisor NO usa `-s read-only`: bajo ese
-  sandbox el binario ignora `--add-dir` y no deja ninguna ruta escribible, así que el revisor
-  no podría escribir su veredicto ni su firma. Su frontera es la misma que la del revisor
-  Claude: el cwd correcto más la disciplina del contrato (ADR-022, ADR-037).
+  constructor en ninguno de los dos.
+- **El revisor Codex es solo-lectura DE VERDAD** (unidad 108). No por `-s read-only` —bajo ese
+  sandbox el binario ignora `--add-dir` y no deja ninguna ruta escribible, así que el revisor no
+  podría escribir su veredicto ni su firma—, sino por un **perfil de permisos propio** que
+  extiende el built-in `:read-only` y abre a escritura solo lo imprescindible: la carpeta de la
+  unidad (donde va la firma) y el temporal del lanzador. El cwd sigue siendo el worktree
+  (ADR-022): lo que cambia es que ahí ya no puede escribir ni queriendo. El revisor Claude
+  conserva su frontera de siempre (cwd correcto más disciplina del contrato).
+- **Con Codex CLI, los hooks del método hay que confiarlos UNA vez.** Un hook de
+  `.codex/hooks.json` no corre hasta que alguien revisa y confía su huella: `/hooks` en la sesión
+  interactiva. Sin eso Codex **no los ejecuta y no te avisa**, y la sesión se queda sin canario y
+  sin aviso de fin de turno con la misma pinta de siempre. `ejecucion.py` no necesita ese paso:
+  ya pasa `--dangerously-bypass-hook-trust`, porque los hooks son los del propio método.
 
 ## OBSERVABILIDAD (solo lectura + informe)
 

@@ -916,6 +916,70 @@ def acreditar_codex(codex_home):
     return None, None
 
 
+def acreditar_claude(home, worktree, session_id):
+    """(modelo, esfuerzo) con los que Claude corrió DE VERDAD, o (None, None).
+
+    Simétrica a `acreditar_codex`, con la fuente que le toca a este harness: Claude Code
+    guarda el transcript de cada sesión en
+    `<HOME>/.claude/projects/<slug del cwd>/<session_id>.jsonl`, y cada registro
+    `assistant` trae el modelo efectivo en `message.model` y el esfuerzo del turno en
+    `effort`. El slug es el cwd con los separadores en guiones. Manda el ÚLTIMO mensaje
+    del asistente: si la sesión cambió de modelo a mitad, lo que vale es con qué acabó.
+
+    Si el slug no casa —macOS resuelve `/var` en `/private/var` y el enlace se pierde por
+    el camino— se busca el transcript por el `session_id`, que es único.
+
+    Nunca levanta: una acreditación que no se puede leer deja el recibo DECLARANDO, que es
+    lo que ya hacía. Mentir sería peor que no acreditar.
+    """
+    if not session_id:
+        return None, None
+    proyectos = Path(home) / ".claude" / "projects"
+    slug = str(worktree).replace("/", "-").replace("\\", "-")
+    candidatos = [proyectos / slug / f"{session_id}.jsonl"]
+    try:
+        candidatos.extend(sorted(proyectos.glob(f"*/{session_id}.jsonl")))
+    except OSError:
+        pass
+    for ruta in candidatos:
+        try:
+            if not ruta.is_file():
+                continue
+            lineas = ruta.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        modelo = esfuerzo = None
+        for linea in lineas:
+            if '"assistant"' not in linea:
+                continue
+            try:
+                registro = json.loads(linea)
+            except ValueError:
+                continue
+            if registro.get("type") != "assistant":
+                continue
+            mensaje = registro.get("message") or {}
+            if mensaje.get("model"):
+                modelo = mensaje["model"]
+                esfuerzo = registro.get("effort") or None
+        if modelo:
+            return modelo, esfuerzo
+    return None, None
+
+
+def acreditar(harness, env, worktree, session_id):
+    """(modelo, esfuerzo, fuente) de lo que de VERDAD corrió, por harness.
+
+    La regla 10 deja de creerse por estar escrita en los DOS harness (unidad 108): el
+    `fuente` es lo que el checkpoint del recibo enseña al usuario.
+    """
+    if harness == "codex":
+        modelo, esfuerzo = acreditar_codex(env.get("CODEX_HOME", ""))
+        return modelo, esfuerzo, "rollout de la sesión"
+    modelo, esfuerzo = acreditar_claude(env.get("HOME", ""), worktree, session_id)
+    return modelo, esfuerzo, "transcript de la sesión"
+
+
 def preparar_claude_home(env, home_original):
     """Claude hereda el HOME real del usuario (unidad 012: ya no se aísla), sesión y
     llavero de credenciales incluidos — es lo que resuelve la autenticación sin token
@@ -943,8 +1007,37 @@ def preparar_claude_home(env, home_original):
             )
 
 
+PERFIL_REVISOR_CODEX = "revisor-solo-lectura"
+
+
+def opciones_de_perfil_revisor_codex(perfil, escribibles):
+    """Los `-c` que ponen al revisor Codex en solo lectura DE VERDAD (unidad 108).
+
+    La 100 probó que `-s read-only` es absoluto: ignora `--add-dir` y
+    `sandbox_workspace_write.writable_roots`, no deja ninguna ruta escribible y por
+    tanto el revisor no podría escribir su veredicto ni su firma —su ÚNICA escritura
+    obligatoria—. El spike del paso 0 de la 108 encontró la vía que sí da las dos
+    mitades, probada contra `codex-cli 0.149.0`: un perfil de permisos propio que
+    EXTIENDE el built-in `:read-only` y añade rutas escribibles por su mapa
+    `filesystem`. Bajo él, el worktree de código se lee pero no se escribe (`Operation
+    not permitted`) y la carpeta de la unidad sí.
+
+    Dos detalles que solo se ven corriendo el binario (evidencia en `hallazgos.md`):
+    `sandbox_mode` y el perfil no pueden convivir —quien usa el perfil no lleva `-s`—, y el
+    perfil se ELIGE con `default_permissions`: `permission_profile` existe como campo
+    interno pero `codex exec --strict-config` lo rechaza como override (`unknown
+    configuration field`).
+    """
+    mapa = ", ".join(f'{json.dumps(str(ruta))} = "write"' for ruta in escribibles)
+    return [
+        "-c", f'permissions.{perfil}.extends=":read-only"',
+        "-c", f"permissions.{perfil}.filesystem={{{mapa}}}",
+        "-c", f'default_permissions="{perfil}"',
+    ]
+
+
 def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lecturas=(),
-                 modelo=None, esfuerzo=None):
+                 modelo=None, esfuerzo=None, session_id=None, temporal=None):
     directorios = sorted({str(ruta.parent) for ruta in documentos})
     if harness == "claude":
         # En claude --add-dir concede acceso de HERRAMIENTAS (lectura incluida): las
@@ -961,7 +1054,6 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
             # se rechaza con "Invalid MCP configuration" (bug 001).
             "--mcp-config",
             '{"mcpServers": {}}',
-            "--no-session-persistence",
             # dontAsk deniega Write/Edit y Bash por defecto en headless: no es un modo
             # permisivo (bug 001). Sin sandbox de SO (unidad 012) la única frontera de
             # escritura es el cwd correcto más la disciplina del contrato de la unidad —
@@ -971,6 +1063,14 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
         ]
         if modelo:
             argv.extend(("--model", modelo))
+        if session_id:
+            # Unidad 108 · R1. El transcript de la sesión es el ÚNICO sitio donde
+            # Claude dice con qué modelo corrió de verdad, y `--no-session-persistence`
+            # era justo lo que impedía escribirlo (mismo caso que `--ephemeral` en
+            # Codex, unidad 100): por eso ya no está. Con el id fijado desde aquí no
+            # hace falta capturar el stdout del harness —que el padre necesita ver en
+            # directo— para saber qué transcript leer al cerrar el recibo.
+            argv.extend(("--session-id", session_id))
         for directorio in directorios:
             argv.extend(("--add-dir", directorio))
         argv.extend(("-p", texto))
@@ -1015,8 +1115,6 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
         "--json",
         "-C",
         str(worktree),
-        "-s",
-        "workspace-write",
         # Sin "-a": codex-cli 0.146.0 lo retiró y muere con `unexpected argument`;
         # en modo `exec` no hay aprobaciones interactivas por definición (bug 025).
     ]
@@ -1025,8 +1123,19 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
     if esfuerzo:
         # Codex no tiene flag propio de esfuerzo: viaja por el override general de config.
         argv.extend(("-c", f"model_reasoning_effort={esfuerzo}"))
-    for directorio in directorios:
-        argv.extend(("--add-dir", directorio))
+    if rol == "revisor":
+        # Unidad 108 · R3: la promesa que la 100 tuvo que retirar, cumplida por otra vía.
+        # El cwd sigue siendo el worktree (ADR-022); lo que cambia es qué puede ESCRIBIR.
+        escribibles = list(directorios)
+        if temporal is not None:
+            # TMPDIR (y el CODEX_HOME efímero, que vive dentro): sin él la sesión no puede
+            # ni escribir su propio rollout, y sin rollout no hay acreditación.
+            escribibles.append(str(temporal))
+        argv.extend(opciones_de_perfil_revisor_codex(PERFIL_REVISOR_CODEX, escribibles))
+    else:
+        argv.extend(("-s", "workspace-write"))
+        for directorio in directorios:
+            argv.extend(("--add-dir", directorio))
     argv.append(texto)
     return argv
 
@@ -1599,6 +1708,9 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 preparar_codex_home(env, tmp, home_original)
             else:
                 preparar_claude_home(env, home_original)
+            # Unidad 108 · R1: el id de la sesión de Claude se FIJA aquí, antes de
+            # lanzar, y es lo que permite encontrar su transcript al cerrar el recibo.
+            sesion_harness = str(uuid.uuid4()) if args.harness == "claude" else None
             argv = argv_harness(
                 args.harness, ejecutable, args.rol, worktree, texto, documentos=documentos,
                 # El contrato de la unidad manda leer bias, flujos y la síntesis de su
@@ -1609,6 +1721,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 lecturas=(RAIZ / "docs",),
                 modelo=recibo["modelo"],
                 esfuerzo=recibo["esfuerzo"],
+                session_id=sesion_harness,
+                temporal=tmp,
             )
             contexto_ficha = (
                 _ficha_solo_lectura(ficha_bloqueada)
@@ -1686,28 +1800,28 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             recibo["git"]["final"] = evidencia_git(worktree)
             estado = "ok" if resultado.returncode == 0 else "fail"
             checkpoint(recibo, "harness", estado, f"exit {resultado.returncode}")
-            if args.harness == "codex":
-                # R2 (100): se lee AQUÍ, con el temporal todavía vivo. La regla 10 deja de
-                # creerse por estar escrita: el recibo dice con qué corrió de verdad.
-                acreditado, esfuerzo_real = acreditar_codex(env.get("CODEX_HOME", ""))
-                if acreditado:
-                    recibo["model_slug"] = acreditado
-                    recibo["modelo"] = acreditado
-                    if esfuerzo_real:
-                        recibo["esfuerzo"] = esfuerzo_real
-                    if recibo["modelo_origen"] == "tabla":
-                        recibo["modelo_origen"] = "harness-acreditado"
-                    checkpoint(
-                        recibo, "modelo-acreditado", "ok",
-                        f"{acreditado} · esfuerzo {esfuerzo_real or 'sin declarar'} "
-                        f"(rollout de la sesión)",
-                    )
-                else:
-                    checkpoint(
-                        recibo, "modelo-acreditado", "warn",
-                        "el rollout de la sesión no dice con qué modelo corrió; el recibo "
-                        "declara lo pedido, no lo acredita",
-                    )
+            # R2 (100) y R1 (108): se lee AQUÍ, con el temporal todavía vivo. La regla 10
+            # deja de creerse por estar escrita en los DOS harness: el recibo dice con qué
+            # corrió de verdad, o dice que no ha podido saberlo. Nunca se inventa.
+            acreditado, esfuerzo_real, fuente = acreditar(
+                args.harness, env, worktree, sesion_harness)
+            if acreditado:
+                recibo["model_slug"] = acreditado
+                recibo["modelo"] = acreditado
+                if esfuerzo_real:
+                    recibo["esfuerzo"] = esfuerzo_real
+                if recibo["modelo_origen"] == "tabla":
+                    recibo["modelo_origen"] = "harness-acreditado"
+                checkpoint(
+                    recibo, "modelo-acreditado", "ok",
+                    f"{acreditado} · esfuerzo {esfuerzo_real or 'sin declarar'} ({fuente})",
+                )
+            else:
+                checkpoint(
+                    recibo, "modelo-acreditado", "warn",
+                    f"el {fuente} no dice con qué modelo corrió; el recibo declara lo "
+                    "pedido, no lo acredita",
+                )
             if resultado.returncode == 0:
                 # R5/R6: el recibo distingue "el proceso terminó sin error" de "hubo trabajo
                 # acreditado" — una casilla nueva marcada o hallazgos.md (o la ficha del bug)

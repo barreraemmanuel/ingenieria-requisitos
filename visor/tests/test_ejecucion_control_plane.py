@@ -10,6 +10,7 @@ import sys
 import tempfile
 import time
 import unittest
+import uuid
 from pathlib import Path
 from unittest import mock
 
@@ -562,13 +563,22 @@ pathlib.Path('.harness-record.json').write_text(
         # Bug 065, R2: entre "identidad" y "harness" entra "modelo" — qué modelo y qué
         # esfuerzo salieron de la tabla de la regla 10, y si fueron tabla o excepción.
         # Antes esa decisión no dejaba rastro ninguno en el recibo.
+        # Unidad 108, R1/R2: y detrás de "harness" entra "modelo-acreditado", que dice si
+        # el recibo ACREDITA (leyó con qué modelo corrió de verdad) o solo declara.
         self.assertEqual(
             [item["nombre"] for item in recibo["checkpoints"]],
-            ["lease", "identidad", "modelo", "harness"],
+            ["lease", "identidad", "modelo", "harness", "modelo-acreditado"],
         )
         modelo = next(i for i in recibo["checkpoints"] if i["nombre"] == "modelo")
         self.assertIn(recibo["modelo_origen"], modelo["detalle"])
-        self.assertTrue(all(item["estado"] == "ok" for item in recibo["checkpoints"]))
+        # Este doble no deja transcript, así que la acreditación sale `warn` — que es justo
+        # lo que R2 pide: sin fuente, el recibo no se declara acreditado.
+        acreditacion = next(
+            i for i in recibo["checkpoints"] if i["nombre"] == "modelo-acreditado")
+        self.assertEqual(acreditacion["estado"], "warn")
+        self.assertIsNone(recibo["model_slug"])
+        self.assertTrue(all(item["estado"] == "ok" for item in recibo["checkpoints"]
+                            if item["nombre"] != "modelo-acreditado"))
         self.assertIn("RESULTADO", resultado.stdout)
 
     # --- Unidad 028: control plane endurecido -----------------------------------------
@@ -1795,6 +1805,189 @@ time.sleep(120)
         self.assertIn("vivo", traza.lower())
         self.assertNotEqual(self.leases_activos(), [], "le robó el lease a un dueño vivo")
         self.assertTrue(self.vivo(hijo["pid"]), "mató al hijo de un lanzador vivo")
+
+
+# ============================================ Unidad 108 · R1/R2 · el recibo de Claude ACREDITA
+#
+# Hasta la 108 el recibo del harness Claude solo podía DECLARAR el modelo de la tabla: la
+# regla 10 quedaba en promesa escrita justo en el harness que más se usa. La 100 resolvió lo
+# mismo para Codex leyendo el rollout de la sesión; aquí la fuente equivalente es el
+# transcript de Claude Code (`~/.claude/projects/<slug del cwd>/<session_id>.jsonl`), cuyos
+# registros `assistant` traen `message.model` y el `effort` con el que corrió el turno.
+#
+# Los tests usan un HOME de fixture y un transcript SINTÉTICO escrito por el doble: jamás se
+# leen transcripts reales del usuario.
+CUERPO_TRANSCRIPT = """import json, pathlib
+sid = argv[argv.index('--session-id') + 1] if '--session-id' in argv else None
+pathlib.Path('.harness-record.json').write_text(
+    json.dumps({'argv': argv, 'session_id': sid, 'cwd': os.getcwd()}), encoding='utf-8')
+if sid and os.environ.get('HOME') and %s:
+    slug = os.getcwd().replace(os.sep, '-')
+    carpeta = pathlib.Path(os.environ['HOME']) / '.claude' / 'projects' / slug
+    carpeta.mkdir(parents=True, exist_ok=True)
+    (carpeta / (sid + '.jsonl')).write_text(
+        json.dumps({'type': 'user', 'sessionId': sid,
+                    'message': {'role': 'user', 'content': 'encargo'}}) + chr(10)
+        + json.dumps({'type': 'assistant', 'sessionId': sid, 'effort': %s,
+                      'message': {'role': 'assistant', 'model': %s}}) + chr(10),
+        encoding='utf-8')
+"""
+
+
+class AcreditacionDeClaudeTest(ControlPlaneE2ETest):
+    """El doble de `claude` deja un transcript sintético como el del CLI real.
+
+    El doble se instala DENTRO de cada test (patrón de `RondasDeCorreccionTest`): así el
+    `setUp` de la base sigue valiendo y los tests heredados no corren con un doble que no
+    es el suyo.
+    """
+
+    MODELO_REAL = "claude-el-que-de-verdad-corrio"
+    ESFUERZO_REAL = "xhigh"
+
+    def doble_con_transcript(self, escribe=True):
+        self.instalar_doble("claude", CUERPO_TRANSCRIPT % (
+            "True" if escribe else "False",
+            repr(self.ESFUERZO_REAL), repr(self.MODELO_REAL)))
+
+    def recibo(self):
+        recibos = sorted((self.ws / ".runtime/ejecuciones").glob(f"{self.unidad}-*.json"))
+        self.assertEqual(len(recibos), 1, f"se esperaba un único recibo: {recibos}")
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    def registro(self):
+        return json.loads(
+            (self.worktree / ".harness-record.json").read_text(encoding="utf-8"))
+
+    def test_claude_corre_con_id_de_sesion_propio_y_persistiendo_el_transcript(self):
+        # Simétrico a `--ephemeral` en Codex (unidad 100): `--no-session-persistence` es
+        # justo lo que impide que se escriba el transcript, y el transcript es el ÚNICO
+        # sitio donde Claude dice con qué modelo corrió de verdad.
+        self.doble_con_transcript()
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        argv = self.registro()["argv"]
+        self.assertNotIn("--no-session-persistence", argv)
+        self.assertIn("--session-id", argv)
+        uuid.UUID(argv[argv.index("--session-id") + 1])  # el CLI exige un UUID válido
+
+    def test_el_recibo_acredita_el_modelo_que_de_verdad_corrio(self):
+        self.doble_con_transcript()
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        recibo = self.recibo()
+        self.assertEqual(recibo["model_slug"], self.MODELO_REAL)
+        self.assertEqual(recibo["modelo"], self.MODELO_REAL)
+        self.assertEqual(recibo["esfuerzo"], self.ESFUERZO_REAL)
+        self.assertEqual(recibo["modelo_origen"], "harness-acreditado")
+        # Lo PEDIDO se conserva: sale de la tabla, no del transcript.
+        self.assertIsNotNone(recibo["requested_model"])
+        self.assertNotEqual(recibo["requested_model"], self.MODELO_REAL)
+        checkpoints = {c["nombre"]: c for c in recibo["checkpoints"]}
+        self.assertIn("modelo-acreditado", checkpoints)
+        self.assertEqual(checkpoints["modelo-acreditado"]["estado"], "ok")
+        self.assertIn("transcript", checkpoints["modelo-acreditado"]["detalle"])
+        self.assertIn(self.MODELO_REAL, checkpoints["modelo-acreditado"]["detalle"])
+
+    def test_sin_transcript_el_recibo_declara_y_lo_dice(self):
+        # R2 · el límite: nunca se inventa. Sin transcript, el recibo sigue DECLARANDO.
+        self.doble_con_transcript(escribe=False)
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        recibo = self.recibo()
+        self.assertIsNone(recibo["model_slug"])
+        self.assertEqual(recibo["modelo_origen"], "tabla")
+        self.assertEqual(recibo["modelo"], recibo["requested_model"])
+        checkpoints = {c["nombre"]: c for c in recibo["checkpoints"]}
+        self.assertIn("modelo-acreditado", checkpoints)
+        self.assertEqual(checkpoints["modelo-acreditado"]["estado"], "warn")
+
+
+class AcreditarClaudeDirectoTest(unittest.TestCase):
+    """La lectura del transcript, sin lanzador de por medio: la regla del slug y los
+    límites (transcript ausente, sin modelo, ilegible) no deben levantar jamás."""
+
+    def setUp(self):
+        self.temporal = tempfile.TemporaryDirectory(prefix="acreditar-claude-")
+        self.addCleanup(self.temporal.cleanup)
+        self.home = Path(self.temporal.name) / "home"
+        self.worktree = Path(self.temporal.name) / "ws" / "worktrees" / "001-demo"
+        self.worktree.mkdir(parents=True)
+        self.sesion = "11111111-2222-3333-4444-555555555555"
+
+    def transcript(self, carpeta, lineas):
+        destino = self.home / ".claude" / "projects" / carpeta
+        destino.mkdir(parents=True, exist_ok=True)
+        (destino / f"{self.sesion}.jsonl").write_text(
+            "".join(json.dumps(l) + "\n" for l in lineas), encoding="utf-8")
+
+    def test_el_slug_del_proyecto_es_el_cwd_con_las_barras_en_guiones(self):
+        self.transcript(
+            str(self.worktree).replace(os.sep, "-"),
+            [{"type": "assistant", "effort": "high",
+              "message": {"role": "assistant", "model": "claude-de-verdad"}}])
+
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            ("claude-de-verdad", "high"))
+
+    def test_manda_el_ultimo_mensaje_del_asistente(self):
+        self.transcript(
+            str(self.worktree).replace(os.sep, "-"),
+            [{"type": "assistant", "effort": "low",
+              "message": {"role": "assistant", "model": "primero"}},
+             {"type": "user", "message": {"role": "user", "content": "sigue"}},
+             {"type": "assistant", "effort": "max",
+              "message": {"role": "assistant", "model": "ultimo"}}])
+
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            ("ultimo", "max"))
+
+    def test_sin_transcript_no_acredita_y_no_levanta(self):
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            (None, None))
+
+    def test_un_transcript_sin_modelo_no_acredita(self):
+        self.transcript(
+            str(self.worktree).replace(os.sep, "-"),
+            [{"type": "user", "message": {"role": "user", "content": "hola"}},
+             {"type": "system", "subtype": "init"}])
+
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            (None, None))
+
+    def test_una_linea_rota_no_tumba_la_lectura(self):
+        carpeta = self.home / ".claude" / "projects" / str(self.worktree).replace(os.sep, "-")
+        carpeta.mkdir(parents=True)
+        (carpeta / f"{self.sesion}.jsonl").write_text(
+            "{esto no es json\n"
+            + json.dumps({"type": "assistant", "effort": "medium",
+                          "message": {"role": "assistant", "model": "sobrevive"}}) + "\n",
+            encoding="utf-8")
+
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            ("sobrevive", "medium"))
+
+    def test_si_el_slug_no_casa_se_busca_la_sesion_por_su_id(self):
+        # macOS resuelve /var → /private/var y el slug deja de casar; el id de sesión es
+        # único, así que el transcript se encuentra igual en vez de perder la acreditación.
+        self.transcript("-otro-camino-al-mismo-sitio",
+                        [{"type": "assistant", "effort": "high",
+                          "message": {"role": "assistant", "model": "encontrado"}}])
+
+        self.assertEqual(
+            ejecucion.acreditar_claude(self.home, self.worktree, self.sesion),
+            ("encontrado", "high"))
 
 
 if __name__ == "__main__":
