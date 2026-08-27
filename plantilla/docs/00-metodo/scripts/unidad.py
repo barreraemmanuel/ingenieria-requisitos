@@ -2440,6 +2440,10 @@ SALIDA = "SALIDA:"
 
 EJECUCIONES = RAIZ / ".runtime/ejecuciones"
 
+# El mismo tope que aplica `ejecucion.py` (`TOPE_DE_RONDAS`). Aquí solo se NOMBRA en los
+# mensajes: quien rechaza la tercera ronda es el lanzador, antes de gastar el turno.
+TOPE_DE_RONDAS_DEL_METODO = 2
+
 
 def recibos_ejecucion(nombre):
     """Recibos que el control plane ya escribe por cada agente delegado de una unidad.
@@ -2608,6 +2612,85 @@ def puerta_recibo_revisor(nombre):
             f"un modelo DISTINTO porque dos instancias del mismo comparten puntos ciegos"
         )
     return [], avisos
+
+
+# ---------------------------------------------- unidad 069: el veredicto es vocabulario CERRADO
+
+VEREDICTO_LIMPIO = "LIMPIO"
+VEREDICTO_HUECOS = "HUECOS DE CORRECCIÓN"
+
+
+def juicio_del_veredicto(veredicto):
+    """`limpio` | `huecos` | `fuera-de-vocabulario` — qué dijo de verdad la última revisión.
+
+    Hasta la 069 esta puerta aceptaba CUALQUIER texto: bastaba que la línea no conservara el
+    menú de la plantilla, así que una unidad cuya última revisión decía HUECOS DE CORRECCIÓN
+    cerraba igual (hallazgo `P-20260813-f1c820b6`, aparcado desde el 13-08). El veredicto es
+    un vocabulario de dos palabras y aquí se lee como tal.
+
+    Un texto que no es ninguno de los dos NO bloquea: bloquear lo desconocido convertiría en
+    rojo a toda unidad anterior que escribiera «LIMPIO, con dos observaciones». Se avisa, que
+    es lo que corresponde a un dato que nadie normalizó todavía.
+    """
+    valor = (veredicto or "").upper()
+    if "HUECO" in valor:
+        return "huecos"
+    if VEREDICTO_LIMPIO in valor:
+        return "limpio"
+    return "fuera-de-vocabulario"
+
+
+def mensaje_veredicto_con_huecos(nombre, hallazgos, veredicto):
+    return (
+        f"{rel(hallazgos)}: la última revisión de {nombre} dice «{veredicto[:60]}», y una "
+        f"entrega con huecos de corrección no se cierra. El veredicto no es una nota al pie: "
+        f"es la puerta. Corrige lo que la sección «Huecos» enumera y consigue un veredicto "
+        f"LIMPIO de un agente FRESCO — no edites esta línea, que sería inventarse la "
+        f"revisión. {SALIDA} vuelve a revisar con `{comando_revision(nombre)}`"
+    )
+
+
+def puerta_ronda_declarada(nombre, fm_hallazgos):
+    """R1 (069) — (problema, nota): el `ronda: N` de la cabecera lo escribe `ejecucion.py`.
+
+    La cuenta vive en los recibos del control plane; la cabecera es su copia legible. Si
+    alguien teclea una ronda mayor que la que los recibos acreditan, lo que está haciendo es
+    justificar vueltas que no constan — el mismo agujero que la firma del revisor tenía antes
+    de la 033. Y una ronda MENOR se denuncia igual —H1 de la revisión—: borra vueltas que sí
+    ocurrieron. Una ronda vacía (R5) no crea ese desajuste, porque `ejecucion.py` devuelve el
+    contador Y el `ronda` del recibo a la vez.
+    """
+    declarada = str((fm_hallazgos or {}).get("ronda") or "").strip()
+    if not declarada:
+        return None, ""                # cabecera anterior a la 069: no hay contador
+    try:
+        declarada = int(declarada)
+    except ValueError:
+        return None, ""
+    rondas = [r.get("ronda") for r in recibos_ejecucion(nombre)
+              if str(r.get("rol") or "").strip() == "constructor"]
+    acreditada = max([r for r in rondas if isinstance(r, int)], default=None)
+    if acreditada is None:
+        return None, ""                # sin recibos con ronda no hay contra qué cotejar
+    if declarada != acreditada:
+        # H1 de la revisión de la 069: el cotejo es simétrico. Una ronda de MÁS justifica
+        # vueltas que nadie dio; una de MENOS es peor, porque devuelve rondas gastadas y
+        # abre la tercera — que es justo la parada que esta unidad existe para poner.
+        de_mas = declarada > acreditada
+        return (
+            f"{nombre} declara `ronda: {declarada}` en hallazgos.md, pero los recibos de "
+            f"{rel(EJECUCIONES)} acreditan {acreditada}: ese número lo escribe "
+            f"`ejecucion.py` al lanzar al constructor, no se teclea. "
+            + ("Una ronda de más justifica vueltas que nadie dio."
+               if de_mas else
+               "Una ronda de MENOS borra vueltas que sí ocurrieron y regala una tercera, "
+               "que es exactamente la parada que el método no negocia.")
+            + f" {SALIDA} pon `ronda: {acreditada}`, que es lo que dicen los recibos, y "
+              f"compruébalo con "
+              f"`python3 docs/00-metodo/scripts/unidad.py estado {nombre}`"
+        ), ""
+    return None, (f"ronda {declarada} de corrección, y los recibos del control plane "
+                  f"acreditan la misma (tope {TOPE_DE_RONDAS_DEL_METODO})")
 
 
 def patch_id_del_diff(repo, base, punta):
@@ -3780,7 +3863,24 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
                 f"de la plantilla). El paso 2 del cierre es un agente FRESCO leyendo el diff "
                 f"contra el contrato; sin eso no hay nada que cerrar")
         else:
-            ok(f"revisión con veredicto: {veredicto[:60]}")
+            # R3 (069): el veredicto se COMPARA con el vocabulario cerrado. Antes bastaba
+            # con que la línea no conservara el menú de la plantilla.
+            juicio = juicio_del_veredicto(veredicto)
+            if juicio == "huecos":
+                problemas.append(
+                    mensaje_veredicto_con_huecos(nombre, hallazgos, veredicto))
+            elif juicio == "limpio":
+                ok(f"revisión con veredicto: {veredicto[:60]}")
+            else:
+                warn(f"{rel(hallazgos)}: el veredicto «{veredicto[:60]}» no es ninguna de "
+                     f"las dos palabras del vocabulario ({VEREDICTO_LIMPIO} | "
+                     f"{VEREDICTO_HUECOS}), así que no se puede leer como una decisión. El "
+                     f"cierre sigue y esta reserva queda escrita")
+            problema_ronda, nota_ronda = puerta_ronda_declarada(nombre, fm_hallazgos)
+            if problema_ronda:
+                problemas.append(problema_ronda)
+            elif nota_ronda:
+                ok(nota_ronda)
         # Un bug no tiene `hallazgos.md` aparte: su ficha es contrato y bitácora a la vez
         # (ADR-006), y su veredicto vive en la sección 6. La FIRMA de cabecera solo se le
         # pide a las unidades; el RECIBO, en cambio, se le pide igual (R4).

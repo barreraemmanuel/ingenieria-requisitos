@@ -1078,6 +1078,250 @@ class AnclaDeLaRevisionTest(ControlPlaneE2ETest):
         self.assertEqual(self.recibo()["revisado_patch_id"], self.patch_id_esperado())
 
 
+class RondasDeCorreccionTest(ControlPlaneE2ETest):
+    """Unidad 069 · R1-R6 — las vueltas al constructor se CUENTAN, y a la tercera se para.
+
+    `cierre.md` decía en prosa que «una segunda ronda solo la abre un fallo crítico» y nada
+    la contaba: la 054 fue a segunda ronda sin que ningún script lo supiera. El contador lo
+    escribe el lanzador —no el agente—, por el mismo motivo que el ancla de la 068: un
+    número tecleado por quien tiene que respetarlo no es una medida (ADR-029).
+    """
+
+    CABECERA = ("---\nunidad: 001-demo\nrevisor: no\nrevisado: no\n"
+                "revisado_patch_id: no\nronda: 1        # lo escribe el lanzador\n"
+                "correccion: no  # lo escribe el lanzador desde la ronda 2\n---\n\n"
+                "# 001 · Hallazgos\n\n## Revisión\n\n"
+                "- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN\n")
+
+    def setUp(self):
+        super().setUp()
+        self.hallazgos = self.ws / "docs/05-trabajo" / self.unidad / "hallazgos.md"
+        self.hallazgos.write_text(self.CABECERA, encoding="utf-8")
+        # Una rama con trabajo propio: sin diff original no hay nada contra lo que medir la
+        # corrección (R4), y el patch-id de la 068 tampoco tendría qué anclar.
+        (self.worktree / "app").mkdir(parents=True, exist_ok=True)
+        (self.worktree / "app/demo.py").write_text(
+            "print('uno')\nprint('dos')\nprint('tres')\n", encoding="utf-8")
+        self.git("add", "app/demo.py", cwd=self.worktree)
+        self.git("commit", "-m", "001-demo: el trabajo original", cwd=self.worktree)
+
+    def crear_doble_harness_que_corrige(self, nombre):
+        """Un doble que SÍ deja trabajo commiteado: una ronda real, no una vacía (R5)."""
+        cuerpo = """import json, pathlib, subprocess
+destino = pathlib.Path('app/demo.py')
+destino.write_text("print('uno')\\nprint('corregido')\\n", encoding='utf-8')
+subprocess.run(['git', 'add', 'app/demo.py'])
+subprocess.run(['git', 'commit', '-m', 'correccion de la ronda'], capture_output=True)
+pathlib.Path('.harness-record.json').write_text(
+    json.dumps({'corrigio': True}), encoding='utf-8')
+"""
+        self.instalar_doble(nombre, cuerpo)
+
+    def clave(self, nombre):
+        encontrado = re.search(rf"(?m)^{nombre}:\s*([^\s#]*)",
+                               self.hallazgos.read_text(encoding="utf-8"))
+        return encontrado.group(1) if encontrado else None
+
+    def poner_veredicto(self, valor):
+        self.hallazgos.write_text(
+            self.hallazgos.read_text(encoding="utf-8").replace(
+                "- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN",
+                f"- **Veredicto:** {valor}"),
+            encoding="utf-8")
+
+    def recibo(self):
+        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        self.assertEqual(len(recibos), 1, recibos)
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    # ------------------------------------------------------------------ R1: contar
+    def test_el_primer_constructor_deja_la_ronda_en_1(self):
+        """Sin veredicto previo no hay vuelta: la primera obra es la ronda 1, no la 2."""
+        self.crear_doble_harness_que_corrige("claude")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "1")
+        self.assertEqual(self.recibo()["ronda"], 1)
+
+    def test_un_veredicto_con_huecos_sube_la_ronda_a_2(self):
+        """R1 — la vuelta que hoy nadie cuenta. La sube el lanzador, no el constructor."""
+        self.crear_doble_harness_que_corrige("claude")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "2")
+        self.assertEqual(self.recibo()["ronda"], 2)
+
+    def test_un_veredicto_limpio_no_sube_la_ronda(self):
+        """Relanzar al constructor tras un LIMPIO no es una corrección: no gasta ronda."""
+        self.crear_doble_harness_que_corrige("claude")
+        self.poner_veredicto("LIMPIO")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "1")
+
+    # ------------------------------------------------------------------ R4: medir
+    def test_la_ronda_2_anota_el_tamano_de_la_correccion(self):
+        """R4 — informa, no bloquea: `+N/-M` de la corrección frente al diff original."""
+        self.crear_doble_harness_que_corrige("claude")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        medida = re.search(r"(?m)^correccion:\s*(.+)$",
+                           self.hallazgos.read_text(encoding="utf-8")).group(1)
+        self.assertRegex(medida, r"\+\d+/-\d+")
+        self.assertRegex(medida, r"rama.*\+\d+/-\d+")
+        self.assertRegex(self.recibo()["correccion"], r"\+\d+/-\d+")
+
+    def test_la_ronda_1_no_anota_correccion(self):
+        """Nada que medir en la primera obra: la clave se queda como estaba."""
+        self.crear_doble_harness_que_corrige("claude")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("correccion"), "no")
+
+    # ------------------------------------------------------------- R2: la parada
+    def test_la_tercera_ronda_se_rechaza_y_la_decide_el_usuario(self):
+        """**El criterio portante**: sin esta parada, contar rondas no cambia nada."""
+        self.crear_doble_harness_que_corrige("claude")
+        self.hallazgos.write_text(
+            self.hallazgos.read_text(encoding="utf-8").replace("ronda: 1", "ronda: 2"),
+            encoding="utf-8")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("tercera ronda", salida.lower())
+        for opcion in ("subir de carril", "reabrir el contrato", "cancelar"):
+            self.assertIn(opcion, salida.lower(), salida)
+        self.assertFalse(
+            (self.worktree / ".harness-record.json").exists(),
+            "R2: el rechazo es ANTES del harness; si el agente llegó a correr, no hubo parada")
+        self.assertEqual(self.clave("ronda"), "2", "un rechazo no gasta la ronda")
+
+    def test_bajar_la_ronda_a_mano_no_regala_una_tercera_vuelta(self):
+        """H1 de la revisión — la parada NO puede depender de una línea que el constructor
+        posee. `hallazgos.md` está en su set escribible: si el contador solo viviera en su
+        cabecera, `sed -i 's/ronda: 2/ronda: 1/'` compraba una ronda más. Los recibos de
+        `.runtime/ejecuciones` los escribe el lanzador y nadie los tiene escribibles, así
+        que mandan ellos (ADR-029)."""
+        self.crear_doble_harness_que_corrige("claude")
+        recibos = self.ws / ".runtime/ejecuciones"
+        recibos.mkdir(parents=True, exist_ok=True)
+        (recibos / f"{self.unidad}-anterior.json").write_text(json.dumps({
+            "schema": "ejecucion/v1", "id": "anterior", "unidad": self.unidad,
+            "rol": "constructor", "ronda": 2, "exit_code": 0, "resultado": "ok",
+        }), encoding="utf-8")
+        # La cabecera dice 1 —es el número que el constructor SÍ posee y puede rebajar—
+        # mientras el recibo de arriba acredita que la ronda 2 ya se gastó.
+        self.assertEqual(self.clave("ronda"), "1")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("tercera ronda", salida.lower())
+        self.assertFalse(
+            (self.worktree / ".harness-record.json").exists(),
+            "la cabecera decía 1, pero los recibos acreditan 2: el harness no debió arrancar")
+
+    def test_sin_recibos_con_ronda_manda_la_cabecera(self):
+        """La simétrica: los recibos ACREDITAN, no inventan. Una unidad anterior a la 069
+        —recibos sin `ronda`— sigue contando por su cabecera y no se para de más."""
+        self.crear_doble_harness_que_corrige("claude")
+        recibos = self.ws / ".runtime/ejecuciones"
+        recibos.mkdir(parents=True, exist_ok=True)
+        (recibos / f"{self.unidad}-viejo.json").write_text(json.dumps({
+            "schema": "ejecucion/v1", "id": "viejo", "unidad": self.unidad,
+            "rol": "constructor", "exit_code": 0, "resultado": "ok",
+        }), encoding="utf-8")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "2")
+
+    def test_el_rechazo_de_la_tercera_ronda_lleva_su_marca_de_salida_por_diseno(self):
+        """R6 — no hay comando que lo arregle, y eso se declara con el vocabulario cerrado
+        de `lint_salidas.py`: la decisión es del usuario, no del método."""
+        fuente = LAUNCHER.read_text(encoding="utf-8")
+        bloque = fuente[fuente.index("def rondas_del_constructor"):]
+        bloque = bloque[:bloque.index("\ndef ", 1)]
+        self.assertIn("salida:por-diseño autoridad-humana", bloque)
+
+    # -------------------------------------------------------- R5: la ronda vacía
+    def test_una_ejecucion_que_no_toca_nada_no_gasta_ronda(self):
+        """R5 (404f41af: el 18 % terminó sin dejar un byte) — mismo head y mismo
+        diff_sha256 que al empezar no es una corrección: no cuenta y queda marcada."""
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()   # el doble de fábrica no toca el árbol
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "1", "R5: la ronda vacía se devuelve")
+        recibo = self.recibo()
+        self.assertTrue(recibo["ronda_vacia"])
+        self.assertEqual(recibo["ronda"], 1)
+        self.assertIn("vacía", (resultado.stdout + resultado.stderr).lower())
+
+    def test_una_ejecucion_con_trabajo_no_se_marca_vacia(self):
+        """El falso positivo inverso: si hubo corrección real, la ronda se gasta."""
+        self.crear_doble_harness_que_corrige("claude")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertFalse(self.recibo()["ronda_vacia"])
+
+    # ------------------------------------------------- fronteras que no se mueven
+    def test_una_cabecera_anterior_a_la_069_no_se_inventa(self):
+        """Igual que el ancla de la 068: sin la clave, la unidad nació antes. No se le
+        añade una cabecera a medias que el linter tendría que perdonar igual."""
+        self.hallazgos.write_text("# Hallazgos\n", encoding="utf-8")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertNotIn("ronda:", self.hallazgos.read_text(encoding="utf-8"))
+        self.assertIsNone(self.recibo()["ronda"])
+
+    def test_el_revisor_no_toca_la_ronda(self):
+        """Las rondas las gasta quien corrige. Lanzar al revisor no cuenta ninguna."""
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar(rol="revisor")
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "1")
+        self.assertIsNone(self.recibo()["ronda"])
+
+    def test_el_veredicto_que_lee_el_lanzador_es_el_mismo_que_lee_el_cierre(self):
+        """La junta: `ejecucion.py` decide si hubo huecos y `unidad.py cerrar` decide si se
+        puede cerrar. Si las dos lecturas divergen, una unidad se para donde la otra pasa —
+        así que el patrón es literalmente el mismo texto en los dos scripts."""
+        lanzador = LAUNCHER.read_text(encoding="utf-8")
+        cierre = (LAUNCHER.parent / "unidad.py").read_text(encoding="utf-8")
+        patron = re.search(r'(?m)^RE_VEREDICTO = re\.compile\(\n?(.+?)\n', cierre, re.S)
+        self.assertIsNotNone(patron, "unidad.py ya no declara RE_VEREDICTO como se esperaba")
+        self.assertIn(patron.group(1).strip(), lanzador,
+                      "el lanzador y el cierre leen el veredicto con patrones distintos")
+
+
 class CompatibilidadWindowsTest(unittest.TestCase):
     """Bug 017: reproducción portátil (mock/symlink, no requiere Windows) de las tres
     familias de fallo del CI en windows-latest. La verificación REAL de que el job

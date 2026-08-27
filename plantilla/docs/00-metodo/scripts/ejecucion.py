@@ -57,6 +57,16 @@ ESTADOS_ENTREGADOS = {"en_validacion", "mergeada"}
 # Toda puerta escribe su vía de salida (ADR-029), y esa vía tiene que ARRANCAR: es lo que
 # comprueba el test de R1 contra el argparse real de cada script.
 SALIDA = "SALIDA:"
+
+# --------------------------------------------------------------- unidad 069: rondas contadas
+# El vocabulario del veredicto es CERRADO, y el patrón es LITERALMENTE el de `unidad.py`
+# (`RE_VEREDICTO`): el lanzador decide si hay que gastar una ronda y el cierre decide si se
+# puede cerrar; si los dos leyeran la misma línea de forma distinta, una unidad se pararía
+# donde la otra pasa. Hay un test que compara los dos patrones carácter a carácter.
+RE_VEREDICTO = re.compile(r"^\s*[-*]?\s*\**\s*(?:Veredicto|Revisi[oó]n)[^:\n]*:\s*(.+)$",
+                          re.M | re.I)
+# Máximo de rondas que el método gasta solo. La tercera no la decide un script (R2).
+TOPE_DE_RONDAS = 2
 RE_NOMBRE = re.compile(r"^\d{3}-[a-z0-9][a-z0-9-]*$")
 RE_SKILL = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]*$")
 
@@ -612,22 +622,23 @@ def patch_id_de_la_rama(worktree):
     return piezas[0] if piezas else ""
 
 
-def sellar_patch_id(hallazgos, patch_id):
-    """Escribe el ancla en la cabecera de `hallazgos.md`. Devuelve si la escribió.
+def sellar_clave(hallazgos, clave, valor):
+    """Escribe `clave: valor` en la cabecera de `hallazgos.md`. Devuelve si la escribió.
 
     Solo sustituye la clave si YA está en el frontmatter: un `hallazgos.md` nacido antes de
-    la 068 no la tiene, y añadírsela aquí convertiría una plantilla vieja en una firma a
-    medias que el linter tendría que perdonar igual (R5: ausencia ≠ vacío). Tampoco levanta
-    si el fichero no se deja escribir: el ancla es una ayuda, no una puerta de lanzamiento.
+    la 068 (ancla) o de la 069 (ronda) no la tiene, y añadírsela aquí convertiría una
+    plantilla vieja en una cabecera a medias que el linter tendría que perdonar igual
+    (ausencia ≠ vacío). Tampoco levanta si el fichero no se deja escribir: estas claves son
+    una MEDIDA, no una puerta de lanzamiento, y ninguna vale una obra bloqueada.
     """
-    if not patch_id:
+    if valor in (None, ""):
         return False
     try:
         texto = hallazgos.read_text(encoding="utf-8")
     except OSError:
         return False
     nuevo, sustituciones = re.subn(
-        r"(?m)^revisado_patch_id:[^\n]*$", f"revisado_patch_id: {patch_id}", texto, count=1
+        rf"(?m)^{re.escape(clave)}:[^\n]*$", f"{clave}: {valor}", texto, count=1
     )
     if not sustituciones or nuevo == texto:
         return False
@@ -636,6 +647,165 @@ def sellar_patch_id(hallazgos, patch_id):
     except OSError:
         return False
     return True
+
+
+def sellar_patch_id(hallazgos, patch_id):
+    """R1 (068) — el ancla del contenido revisado, por la misma puerta que la ronda."""
+    return sellar_clave(hallazgos, "revisado_patch_id", patch_id)
+
+
+def veredicto_ultimo(texto):
+    """El veredicto de la revisión MÁS RECIENTE, o None si sigue siendo el menú.
+
+    Copia deliberada de `unidad.veredicto_elegido`: importar `unidad` desde aquí arrastraría
+    `peticion` y `lint_cierre` a cada lanzamiento y ataría el control plane al gestor de
+    unidades. Lo que NO se duplica es el criterio: el patrón vive arriba y un test lo compara
+    con el de `unidad.py`.
+    """
+    elegido = None
+    for m in RE_VEREDICTO.finditer(texto):
+        valor = m.group(1).strip().strip("*").strip()
+        if "|" in valor or not valor or valor in {"—", "-"}:
+            continue                                   # menú sin elegir o hueco vacío
+        elegido = valor
+    return elegido
+
+
+def hay_huecos(veredicto):
+    """¿La última revisión mandó al constructor de vuelta? Vocabulario cerrado."""
+    return "HUECOS" in (veredicto or "").upper()
+
+
+def ronda_declarada(texto):
+    """El `ronda: N` de la cabecera, o None si la clave no está o no es un entero.
+
+    None significa «esta unidad no lleva contador», no «va por la 0»: es lo que deja pasar
+    intactas a las unidades anteriores a la 069.
+    """
+    encontrado = re.search(r"(?m)^ronda:\s*([^\s#]+)", texto or "")
+    if not encontrado:
+        return None
+    try:
+        valor = int(encontrado.group(1))
+    except ValueError:
+        return None
+    return valor if valor >= 1 else None
+
+
+def ronda_acreditada(unidad):
+    """La ronda más alta que los RECIBOS de constructor de esta unidad acreditan, o None.
+
+    H1 de la revisión de la 069: la cabecera de `hallazgos.md` es un fichero de texto que el
+    constructor posee, así que bajar `ronda: 2` a `ronda: 1` era una tercera ronda gratis. Un
+    contador que se puede editar no es un contador (ADR-029). Los recibos viven en
+    `.runtime/ejecuciones`, los escribe el lanzador y nadie los tiene en su set escribible:
+    la parada se apoya en ellos, y la cabecera pasa a ser su copia legible.
+
+    Devuelve None cuando no hay recibos con ronda —unidad anterior a la 069, o primera
+    obra—: ahí no hay nada que acreditar y manda la cabecera.
+    """
+    carpeta = RAIZ / ".runtime/ejecuciones"
+    if not carpeta.is_dir():
+        return None
+    rondas = []
+    for ruta in sorted(carpeta.glob(f"{unidad}-*.json")):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue                  # un recibo ilegible no acredita nada; se ignora
+        if not isinstance(datos, dict) or datos.get("unidad") != unidad:
+            continue
+        if str(datos.get("rol") or "").strip() != "constructor":
+            continue
+        if isinstance(datos.get("ronda"), int):
+            rondas.append(datos["ronda"])
+    return max(rondas, default=None)
+
+
+def rondas_del_constructor(hallazgos, unidad):
+    """(ronda_previa, ronda_a_gastar) para este lanzamiento. Levanta en la tercera (R2).
+
+    La cuenta la lleva el LANZADOR y no el agente por lo mismo que el ancla de la 068: un
+    número que teclea quien tiene que respetarlo no mide nada (ADR-029). Y se rechaza ANTES
+    de que el harness arranque, no después: parar a un agente ya lanzado cuesta el turno
+    entero y deja trabajo a medias en el worktree.
+    """
+    try:
+        texto = hallazgos.read_text(encoding="utf-8")
+    except OSError:
+        return None, None
+    previa = ronda_declarada(texto)
+    if previa is None:
+        return None, None
+    # H1 de la revisión: manda la MAYOR de las dos. Bajar el número a mano en la cabecera no
+    # devuelve rondas gastadas, porque los recibos siguen contándolas.
+    acreditada = ronda_acreditada(unidad)
+    if acreditada is not None and acreditada > previa:
+        previa = acreditada
+    if not hay_huecos(veredicto_ultimo(texto)):
+        return previa, previa           # relanzar tras un LIMPIO no es una corrección
+    siguiente = previa + 1
+    if siguiente > TOPE_DE_RONDAS:
+        # salida:por-diseño autoridad-humana: subir de carril, reabrir el contrato o
+        # cancelar la unidad son decisiones del usuario sobre el alcance de SU trabajo;
+        # ningún comando del método puede tomarlas por él, y uno que lo intentara sería
+        # justo el «loop-until-clean» que esta unidad viene a cerrar.
+        raise ErrorEjecucion(
+            f"tercera ronda de corrección en {unidad}: se rechaza el lanzamiento. Van "
+            f"{previa} vueltas al constructor con veredicto HUECOS DE CORRECCIÓN y el "
+            f"método no abre una tercera por su cuenta — a partir de aquí decides TÚ, y "
+            f"las opciones son tres: subir de carril (el trabajo era mayor de lo "
+            f"contratado), reabrir el contrato (lo contratado no era lo que hacía falta) "
+            f"o cancelar la unidad. Ni se reinicia el contador ni se amplía: un "
+            f"presupuesto agotado que se estira no era un presupuesto"
+        )
+    return previa, siguiente
+
+
+def numstat(worktree, desde, hasta):
+    """(+N, -M) de `git diff --numstat desde..hasta`, o None si no se puede medir."""
+    if not desde or not hasta:
+        return None
+    codigo, salida = git(worktree, "diff", "--numstat", desde, hasta)
+    if codigo:
+        return None
+    mas = menos = 0
+    for linea in salida.splitlines():
+        piezas = linea.split("\t")
+        if len(piezas) < 2:
+            continue
+        for indice, acumulado in ((0, "mas"), (1, "menos")):
+            if not piezas[indice].isdigit():
+                continue          # binario: git escribe `-` y no hay líneas que contar
+            if acumulado == "mas":
+                mas += int(piezas[indice])
+            else:
+                menos += int(piezas[indice])
+    return mas, menos
+
+
+def medida_de_la_correccion(worktree, cabeza_inicial, ronda):
+    """R4 — el tamaño de esta corrección FRENTE al diff original de la rama.
+
+    Informa, no bloquea: la queja de la que nace esta unidad es el gasto, no el tamaño, y
+    una puerta de líneas se abriría después y con datos, no antes y a ojo. El dato que hace
+    falta para decidirlo es justo este: cuánto se está corrigiendo comparado con lo que se
+    construyó.
+    """
+    try:
+        principal = repo_config.repo_code(RAIZ)[1]
+    except repo_config.RepoConfigError:
+        principal = "main"
+    codigo, base = git(worktree, "merge-base", principal, "HEAD")
+    if codigo or not base.strip():
+        return ""
+    base = base.strip().splitlines()[-1]
+    correccion = numstat(worktree, cabeza_inicial, "HEAD")
+    original = numstat(worktree, base, cabeza_inicial)
+    if correccion is None or original is None:
+        return ""
+    return (f"+{correccion[0]}/-{correccion[1]} en la ronda {ronda}, "
+            f"sobre una rama original de +{original[0]}/-{original[1]}")
 
 
 def bloque_de_senales(senales):
@@ -947,7 +1117,7 @@ def evidencia_git(worktree):
 
 def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
                    plan=None, worktree_efimero=False, worktree_origen="worktree",
-                   patch_id=""):
+                   patch_id="", ronda=None):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
@@ -991,6 +1161,12 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         # rebase limpio ni cambia con una línea de la rama. None mientras no haya ancla
         # (rol constructor, rama sin diff propio, repo que no se puede leer).
         "revisado_patch_id": patch_id or None,
+        # R1/R5 (069): qué vuelta al constructor es ESTA, y si acabó sin tocar un byte.
+        # `None` en las dos mientras no haya contador (rol revisor, cabecera anterior a la
+        # 069): el recibo no inventa una ronda que nadie está contando.
+        "ronda": ronda,
+        "ronda_vacia": None,
+        "correccion": None,
         "skills_tecnicas": list(args.skill_tecnica),
         # Bug 077 · R2: lo que necesita `lease.py desbloquear` para recuperar un
         # lanzamiento que murió sin señal (`kill -9`, terminal cerrada). Sin esto, el
@@ -1333,6 +1509,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
         )
         ficha_bloqueada = None
         patch_id_revisado = ""
+        ronda_previa = ronda_actual = None
         if ficha.parent == RAIZ / "docs/bugs":
             # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
             # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
@@ -1342,6 +1519,10 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             if args.rol == "constructor":
                 documentos = perfil_constructor(hallazgos)
                 ficha_bloqueada = ficha
+                # R1/R2 (069): la cuenta se hace y se rechaza AQUÍ, antes de reservar nada
+                # más y mucho antes del harness. Un rechazo posterior costaría el turno del
+                # agente y dejaría trabajo a medias en el worktree.
+                ronda_previa, ronda_actual = rondas_del_constructor(hallazgos, args.unidad)
             else:
                 documentos = perfil_revisor(hallazgos)
                 # R1 (068): el ancla se calcula y se sella ANTES de que el revisor escriba
@@ -1361,6 +1542,11 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
         documentos = seguros
         if patch_id_revisado and documentos:
             sellar_patch_id(documentos[0], patch_id_revisado)
+        if ronda_actual and ronda_actual != ronda_previa and documentos:
+            # Antes de `huella_previa` a propósito: el sello lo pone el lanzador, y si
+            # entrara en la huella el recibo contaría como «trabajo del agente» una línea
+            # que el agente no escribió (R5/R6 de la 028).
+            sellar_clave(documentos[0], "ronda", str(ronda_actual))
         huella_previa = _huella_documentos(documentos)
         ejecutable = shutil.which(args.harness)
         if not ejecutable:
@@ -1387,6 +1573,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             worktree_efimero=efimero,
             worktree_origen=origen_worktree,
             patch_id=patch_id_revisado,
+            ronda=ronda_actual,
         )
         checkpoint(
             recibo,
@@ -1540,8 +1727,13 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 recibo["resultado"] = "ok" if trabajo_acreditado else "ok_sin_trabajo"
             else:
                 recibo["resultado"] = "fail"
+            aviso_ronda = cerrar_la_ronda(
+                recibo, documentos, worktree, ronda_previa, ronda_actual
+            )
             guardar_recibo(ruta_recibo, recibo)
             print(f"RESULTADO {ruta_recibo}", flush=True)
+            if aviso_ronda:
+                print(aviso_ronda, flush=True)
             if recibo["resultado"] == "ok_sin_trabajo":
                 print(
                     "AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"], flush=True
@@ -1549,6 +1741,46 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             return resultado.returncode
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
+
+
+def cerrar_la_ronda(recibo, documentos, worktree, previa, actual):
+    """R4/R5 — qué queda escrito de esta vuelta. Devuelve el aviso a imprimir, o "".
+
+    Va DESPUÉS de `huella_posterior`: lo que escriba el lanzador aquí no puede contar como
+    trabajo del agente, ni en un sentido ni en el otro.
+
+    R5 nace de `P-20260822-404f41af`: el 18 % de las ejecuciones de constructor terminó sin
+    dejar un byte. Una vuelta así no es una corrección fallida, es una vuelta que no ocurrió,
+    y gastarle una ronda al usuario por ella sería cobrarle un trabajo que nadie hizo. El
+    criterio es el mismo `head` y el mismo `diff_sha256` con los que empezó — dos datos que
+    el recibo ya guardaba y que nadie comparaba.
+    """
+    if not actual:
+        return ""
+    inicial = recibo["git"]["inicial"] or {}
+    final = recibo["git"]["final"] or {}
+    vacia = bool(final) and (
+        inicial.get("head") == final.get("head")
+        and inicial.get("diff_sha256") == final.get("diff_sha256")
+    )
+    recibo["ronda_vacia"] = vacia
+    if vacia:
+        if actual != previa and documentos:
+            sellar_clave(documentos[0], "ronda", str(previa))
+        recibo["ronda"] = previa
+        return (
+            f"AVISO ronda vacía: la ejecución terminó con el mismo commit y el mismo diff "
+            f"con los que empezó, así que NO cuenta como ronda de corrección (sigue en la "
+            f"{previa}). Si de verdad había que corregir algo, el agente no lo hizo"
+        )
+    if actual >= 2:
+        medida = medida_de_la_correccion(worktree, inicial.get("head"), actual)
+        if medida:
+            recibo["correccion"] = medida
+            if documentos:
+                sellar_clave(documentos[0], "correccion", medida)
+            return f"MEDIDA de la corrección: {medida} (informa, no bloquea)"
+    return ""
 
 
 def avisar_de_lanzamiento_interrumpido(manager, unidad):
