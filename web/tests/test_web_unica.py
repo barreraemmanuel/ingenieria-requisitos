@@ -16,6 +16,7 @@ Un test por criterio del contrato (`docs/05-trabajo/081-una-sola-web/especificac
 - R7 — sin `docs/02-flujos/planos/planos.json` la web arranca igual.
 """
 
+import argparse
 import http.client
 import importlib.util
 import json
@@ -26,6 +27,7 @@ import subprocess
 import sys
 import tempfile
 import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -548,6 +550,98 @@ class InicioSeExplicaSolaTest(ConWorkspace):
         pagina = entregas.decode("utf-8")
         self.assertIn("Entregas: te toca probar", pagina)
         self.assertIn("explica", pagina)
+
+
+# --------------------------------------------------------------------------- 124
+
+class UnaWebPorWorkspaceTest(unittest.TestCase):
+    """124 — una web por workspace: la segunda llamada reutiliza la viva aunque
+    le pidan OTRO puerto (bug: `:8790` y `:9041` sirviendo el mismo meta-repo)."""
+
+    def setUp(self):
+        self.raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, self.raiz, True)
+        self.procesos = []
+        self.addCleanup(self._parar_todo)
+
+    def _parar_todo(self):
+        for proceso in self.procesos:
+            abrir_mod.detener(proceso)
+
+    def _abrir(self, **kwargs):
+        argumentos = abrir_mod.argumentos_prueba(**kwargs)
+        resultado = abrir_mod.abrir(self.raiz, argumentos)
+        self.procesos.append(resultado.proceso)
+        return resultado
+
+    def _escuchando(self):
+        """Los puertos de este workspace que responden `meta.json` con su identidad."""
+        vivos = []
+        for registro in sorted((self.raiz / ".runtime").glob("web-*.log")):
+            puerto = int(registro.stem.split("-")[1])
+            if abrir_mod._identidad(abrir_mod._meta(puerto), self.raiz):
+                vivos.append(puerto)
+        return vivos
+
+    def test_un_segundo_abrir_con_otro_puerto_reutiliza_la_web_viva(self):
+        primera = self._abrir(apartado="contratos", puerto=0)
+        self.assertIsNotNone(primera.proceso, "la primera llamada levanta el servidor")
+        segunda = self._abrir(apartado="flujos", puerto=0)
+        self.assertIsNone(segunda.proceso,
+                          "la segunda llamada levantó una SEGUNDA web del mismo workspace")
+        self.assertEqual(primera.url.rsplit("/", 1)[0], segunda.url.rsplit("/", 1)[0])
+        self.assertEqual(1, len(self._escuchando()),
+                         "hay más de una web escuchando para el mismo workspace")
+
+    def test_tampoco_levanta_otra_cuando_la_viva_no_esta_en_el_puerto_derivado(self):
+        """El caso exacto del reporte: la viva está en un puerto cualquiera y la
+        siguiente llamada usa el puerto derivado del workspace."""
+        primera = self._abrir(apartado="tablero", puerto=0)
+        self.assertIsNotNone(primera.proceso)
+        segunda = self._abrir(apartado="contratos")     # puerto derivado
+        self.assertIsNone(segunda.proceso,
+                          "el puerto derivado levantó una segunda web del mismo workspace")
+        self.assertEqual(primera.url.rsplit("/", 1)[0], segunda.url.rsplit("/", 1)[0])
+        self.assertEqual(1, len(self._escuchando()))
+
+
+class LaWebCaducaSolaTest(unittest.TestCase):
+    """124 R2 — nada se queda vivo para siempre por descuido."""
+
+    def test_sin_pedir_minutos_la_web_caduca_a_las_cuatro_horas(self):
+        """`unidad.py validar/nueva/estado` pasan `minutos=0` sin pedirlo: eso ya
+        no significa «eterna», significa el defecto."""
+        self.assertEqual(abrir_mod.MINUTOS_POR_DEFECTO,
+                         abrir_mod.minutos_efectivos(argparse.Namespace()))
+        self.assertEqual(abrir_mod.MINUTOS_POR_DEFECTO,
+                         abrir_mod.minutos_efectivos(argparse.Namespace(minutos=0)))
+        self.assertEqual(abrir_mod.MINUTOS_POR_DEFECTO,
+                         abrir_mod.minutos_efectivos(argparse.Namespace(minutos=None)))
+
+    def test_pedir_cero_explicitamente_sigue_siendo_no_caduca(self):
+        self.assertEqual(0, abrir_mod.minutos_efectivos(
+            argparse.Namespace(minutos=0, minutos_explicito=True)))
+        self.assertEqual(5, abrir_mod.minutos_efectivos(
+            argparse.Namespace(minutos=5, minutos_explicito=True)))
+
+    def test_al_caducar_la_web_borra_su_propio_registro(self):
+        """Al apagarse sola, deja de aparecer en Inicio: su `web-<puerto>.log` se va."""
+        raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz, True)
+        salida = subprocess.run(
+            [sys.executable, str(WEB / "abrir.py"), "--workspace", str(raiz),
+             "--apartado", "tablero", "--sin-navegador", "--minutos", "0.05"],
+            capture_output=True, text=True, timeout=60,
+            env=dict(os.environ, PYTHONUTF8="1", IR_SIN_NAVEGADOR="1"))
+        self.assertEqual(0, salida.returncode, salida.stderr)
+        registros = sorted((raiz / ".runtime").glob("web-*.log"))
+        self.assertEqual(1, len(registros), salida.stdout)
+        for _ in range(300):
+            if not registros[0].exists():
+                break
+            time.sleep(0.2)
+        self.assertFalse(registros[0].exists(),
+                         "la web caducó y dejó su registro: Inicio la seguirá contando")
 
 
 if __name__ == "__main__":
