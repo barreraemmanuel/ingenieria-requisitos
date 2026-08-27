@@ -232,6 +232,18 @@ class ServidoresYDockerTest(unittest.TestCase):
         self.assertTrue(uno["desde"], "el recibo de .runtime dice desde cuándo")
         self.assertEqual(self.desde.date().isoformat(), uno["desde"][:10])
 
+    def test_un_servidor_de_otro_workspace_no_ensena_la_ruta_de_la_maquina(self):
+        """R8 de la 058, que la 121 vuelve a tocar: mirar TODOS los puertos hace
+        aparecer servidores de otros proyectos, y su ruta lleva dentro el nombre
+        de la persona. Se dice que están fuera, no dónde."""
+        def fuera():
+            return [{"pid": 7, "puerto": 8875, "cwd": "/Users/quien/otro",
+                     "comando": "python3 /Users/quien/otro/visor_tablero/servir.py"}]
+        foto = estado_mod.taller(self.raiz, procesos=fuera)
+        uno = foto["servidores"]["lista"][0]
+        self.assertNotIn("/Users", json.dumps(foto, ensure_ascii=False))
+        self.assertEqual("otro workspace de esta máquina", uno["arbol"])
+
     def test_si_no_se_pueden_mirar_los_puertos_se_dice_en_vez_de_decir_ninguno(self):
         def revienta():
             raise OSError("lsof no está")

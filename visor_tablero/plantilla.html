@@ -31,8 +31,13 @@
      el aire que la separa de la cabecera. Ni un color a mano. */
   .taller { margin-top: var(--e-bloque); }
   .taller h2 { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); margin: 0 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
-  .taller .tira { margin-top: var(--hueco-chico); }
-  .taller .detalle a { color: var(--accent); }
+  /* Sin `flex-start` las cinco tarjetas se estiran a la altura de la más
+     larga (los servidores) y la tarjeta se come la primera pantalla. */
+  .taller .tira { margin-top: var(--hueco-chico); align-items: flex-start; }
+  /* `base.css` no estila los enlaces DENTRO de un `.dato`: sin esto el nombre
+     del repo salía con el azul/morado por defecto del navegador, que no es
+     ningún token de la paleta. */
+  .taller .valor a, .taller .detalle a { color: var(--accent); }
   .explica-corta { color: var(--faint); font-size: var(--t-nota); line-height: var(--lh-lectura); margin: 4px 0 var(--hueco-chico); }
 
   /* R2 del bug 067: el enlace no se apaga ni desaparece — al lado se DICE que
@@ -282,20 +287,12 @@
              " <small>" + k.porcentaje.toFixed(0) + " % de " + esc(String(k.modelo)) +
              "</small>"))
       : dato("Canario", esc(k.detalle || "no se pudo comprobar"), true);
-    var s = c.servidores;
-    if (s.estado !== "ok") {
-      html += dato("Servidores", esc(s.detalle || "no se pudo comprobar"), true);
-    } else if (!s.lista.length) {
-      html += dato("Servidores", "<small>ninguno levantado</small>");
-    } else {
-      // Cifra grande (cuántos) y el detalle en pequeño, una línea por servidor:
-      // misma anatomía que las otras cuatro cifras de la tira.
-      html += dato("Servidores", String(s.lista.length) + '<div class="detalle">' +
-        s.lista.map(function (x) {
-          return esc(x.servicio.replace(/^visor de /, "")) + " :" + x.puerto +
-            (x.arbol ? " · " + esc(x.arbol) : "");
-        }).join("<br>") + "</div>");
-    }
+    /* Unidad 121: los servidores ya NO se cuentan aquí. La cabecera sólo miraba
+       los cuatro puertos históricos (8765-8767, 9043) y desde la 081 el puerto
+       sale de la huella del workspace: decía «ninguno levantado» con cuatro
+       webs en pie. Ahora lo dice la tarjeta «Taller», que mira TODOS los
+       puertos. El dato sigue viajando en `cabecera.servidores` porque es de
+       donde sale el puerto del visor de contratos. */
     cabecera.innerHTML = html;
   }
 
@@ -343,12 +340,17 @@
       return dato("Servidores", "0" + '<div class="detalle">' +
                   "nada del método escuchando ahora mismo</div>");
     }
+    var TOPE = 3;
+    var lineas = s.lista.slice(0, TOPE).map(function (x) {
+      return ":" + x.puerto + " · " + esc(x.servicio) +
+        (x.arbol ? " · " + esc(x.arbol) : "") +
+        (x.desde ? " · desde " + esc(fecha(x.desde)) : "");
+    });
+    if (s.lista.length > TOPE) {
+      lineas.push("y " + (s.lista.length - TOPE) + " más");
+    }
     return dato("Servidores", String(s.lista.length) + '<div class="detalle">' +
-      s.lista.map(function (x) {
-        return ":" + x.puerto + " · " + esc(x.servicio) +
-          (x.arbol ? " · " + esc(x.arbol) : "") +
-          (x.desde ? " · desde " + esc(fecha(x.desde)) : "");
-      }).join("<br>") + "</div>");
+      lineas.join("<br>") + "</div>");
   }
 
   function pintarDocker(d) {

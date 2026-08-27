@@ -1064,6 +1064,14 @@ def servidores_locales(workspace, procesos=None):
             if not recibo or "servir.py" not in comando:
                 continue
             servicio, arbol = recibo[0], None
+        # `_arbol_de` devuelve la ruta TAL CUAL cuando el servidor no cuelga de
+        # este workspace, y ahí dentro va el nombre de la persona
+        # (`/Users/<quien>/Project/otro`). Al ampliar la mirada a todos los
+        # puertos (y no a los cuatro de siempre) eso empezó a salir de verdad en
+        # pantalla: fuera del workspace se dice que está fuera, y nada más (R8).
+        if arbol and (arbol.startswith("/") or arbol.startswith("\\")
+                      or ":" in arbol):
+            arbol = "otro workspace de esta máquina"
         lista.append({"servicio": servicio, "puerto": puerto,
                       "pid": proceso.get("pid"), "arbol": arbol,
                       "desde": recibo[1] if recibo else None})
