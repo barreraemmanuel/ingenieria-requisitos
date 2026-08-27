@@ -24,6 +24,12 @@ import time
 import uuid
 from pathlib import Path
 
+# Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake (guardián de
+# codificación, unidad 049): se reconfigura antes de imprimir nada.
+for _salida in (sys.stdout, sys.stderr):
+    if hasattr(_salida, "reconfigure"):
+        _salida.reconfigure(encoding="utf-8", errors="replace")
+
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lease as gestion_leases  # el cerrojo lo escribe lease.py: integridad y fencing válidos
 
@@ -41,7 +47,8 @@ def pid_abuelo():
     """El agente que lanzó este shell: python ← shell ← agente."""
     try:
         padre = int(subprocess.run(["ps", "-o", "ppid=", "-p", str(os.getppid())],
-                                   capture_output=True, text=True).stdout.strip() or 0)
+                                   capture_output=True, text=True, encoding="utf-8",
+                                   errors="replace").stdout.strip() or 0)
     except (ValueError, OSError):
         padre = 0
     return padre or os.getppid()
