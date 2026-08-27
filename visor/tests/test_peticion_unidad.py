@@ -1225,6 +1225,108 @@ class PeticionUnidadTest(unittest.TestCase):
         ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
         self.recibos_de_revision(nombre)
 
+    # ------------------------------ 069 · el veredicto es un vocabulario CERRADO (R1, R3)
+    def preparar_unidad_cerrable(self, slug):
+        """Una unidad mergeada y con todo lo que el cierre pide, lista para la puerta 2."""
+        nombre = self.preparar_con_plan(slug)
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        worktree = self.ws / "worktrees" / nombre
+        (worktree / "app/terminal.py").write_text("print('cambiado')\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-am", "cambio"], cwd=worktree,
+                       check=True, capture_output=True)
+        subprocess.run(["git", "merge", "--ff-only", nombre], cwd=self.repo,
+                       check=True, capture_output=True)
+        self.preparar_cierre(nombre)
+        return nombre, self.ws / "docs/05-trabajo" / nombre / "hallazgos.md"
+
+    def cerrar(self, nombre):
+        return self.ejecutar(self.unidad, "cerrar", nombre,
+                             "--ok-usuario", datetime.date.today().isoformat())
+
+    def test_cerrar_rechaza_una_entrega_cuya_ultima_revision_deja_huecos(self):
+        """R3 — el agujero de `P-20260813-f1c820b6`: la puerta aceptaba CUALQUIER texto de
+        veredicto, así que una unidad con HUECOS DE CORRECCIÓN cerraba igual que una limpia.
+        """
+        nombre, hallazgos = self.preparar_unidad_cerrable("con-huecos")
+        hallazgos.write_text(
+            hallazgos.read_text(encoding="utf-8").replace(
+                "- **Veredicto:** LIMPIO", "- **Veredicto:** HUECOS DE CORRECCIÓN"),
+            encoding="utf-8")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("huecos de corrección", salida.lower())
+        self.assertIn("SALIDA:", salida)
+        self.assertIn("ejecucion.py lanzar", salida)
+
+    def test_cerrar_con_veredicto_limpio_sigue_pasando_igual_que_hoy(self):
+        """El camino feliz no se toca: una revisión LIMPIA a la primera cierra igual."""
+        nombre, _ = self.preparar_unidad_cerrable("limpia-a-la-primera")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("veredicto: LIMPIO", salida)
+
+    def test_cerrar_avisa_de_un_veredicto_fuera_del_vocabulario_pero_no_bloquea(self):
+        """Bloquear lo desconocido dejaría encerrada a toda unidad anterior que escribiera
+        su veredicto con sus palabras. Se avisa, que es lo que merece un dato sin normalizar.
+        """
+        nombre, hallazgos = self.preparar_unidad_cerrable("veredicto-raro")
+        hallazgos.write_text(
+            hallazgos.read_text(encoding="utf-8").replace(
+                "- **Veredicto:** LIMPIO", "- **Veredicto:** todo correcto, adelante"),
+            encoding="utf-8")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("vocabulario", salida.lower())
+
+    def test_cerrar_denuncia_una_ronda_tecleada_que_los_recibos_no_acreditan(self):
+        """R1 — el contador lo escribe `ejecucion.py`. Un número mayor que el que consta en
+        los recibos justifica vueltas que nadie dio, y eso es la firma del revisor de la 033
+        otra vez, con otro nombre."""
+        nombre, hallazgos = self.preparar_unidad_cerrable("ronda-inventada")
+        recibo = self.ws / ".runtime/ejecuciones" / f"{nombre}-constructor.json"
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
+        datos["ronda"] = 1
+        recibo.write_text(json.dumps(datos), encoding="utf-8")
+        hallazgos.write_text(
+            re.sub(r"(?m)^ronda:.*$", "ronda: 3",
+                   hallazgos.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("ronda: 3", salida)
+        self.assertIn("SALIDA:", salida)
+
+    def test_cerrar_acepta_la_ronda_que_los_recibos_acreditan(self):
+        """La simétrica: una ronda 2 con su recibo detrás no es un problema, es un dato."""
+        nombre, hallazgos = self.preparar_unidad_cerrable("ronda-acreditada")
+        recibo = self.ws / ".runtime/ejecuciones" / f"{nombre}-constructor.json"
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
+        datos["ronda"] = 2
+        recibo.write_text(json.dumps(datos), encoding="utf-8")
+        hallazgos.write_text(
+            re.sub(r"(?m)^ronda:.*$", "ronda: 2",
+                   hallazgos.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("ronda 2 de corrección", salida)
+
     def test_una_senal_solo_en_tests_avisa_pero_no_cierra_el_atajo(self):
         """R5 — un fixture con la palabra `login` dentro no es un cambio de acceso."""
         declarado = self.sembrar("tests/test_login.py", contenido="def test_login():\n    pass\n")
