@@ -493,12 +493,8 @@ class SinPlanosTest(ConWorkspace):
         self.assertIn("planos", json.loads(cuerpo)["error"].lower())
 
 
-if __name__ == "__main__":
-    unittest.main()
-
-
 class ServirRespetaIrSinNavegadorTest(unittest.TestCase):
-    """Bug 110: `servir.py` lanzado SIN `--sin-navegador` pero con `IR_SIN_NAVEGADOR=1` en el
+    """Bug 111: `servir.py` lanzado SIN `--sin-navegador` pero con `IR_SIN_NAVEGADOR=1` en el
     entorno no abre el navegador real (ni `BROWSER` ni `webbrowser.open`)."""
 
     def test_con_la_variable_no_abre_navegador(self):
@@ -520,4 +516,8 @@ class ServirRespetaIrSinNavegadorTest(unittest.TestCase):
             proceso.kill(); salida, _ = proceso.communicate()
         self.assertIn("en pie", salida)
         self.assertFalse(huella.exists(), "abrió el navegador real con IR_SIN_NAVEGADOR=1")
+
+
+if __name__ == "__main__":
+    unittest.main()
 
