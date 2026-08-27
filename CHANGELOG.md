@@ -4,6 +4,19 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.3 — 2026-08-27
+
+Dos cosas que Nate vio en la web la misma noche de la 1.9.2.
+
+**Una ficha que aún es plantilla no es un contrato (123).** Contratos la agrupa en «El agente aún no lo
+ha escrito», sin botones, y la web se niega a aprobarla (409) hasta que el agente la rellene; el criterio es
+el mismo que el del despacho (bug 120), comprobado contra las plantillas reales del método.
+
+**Servidores: uno por workspace, y se apagan (124).** `abrir.py` reutiliza la web viva del workspace aunque
+esté en otro puerto; los servidores caducan a las 4 h sin actividad salvo `--minutos 0` explícito y borran su
+registro al apagarse; y al actualizar el método, `actualizar.py` apaga los lanzadores retirados —solo los de
+ese workspace, nunca los de otro— y lo dice.
+
 ## 1.9.2 — 2026-08-27
 
 La tarde-noche del 27 con Nate delante de la web. Siete unidades, todas revisadas por un agente fresco.
