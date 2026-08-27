@@ -71,6 +71,9 @@ CONTRATOS_PETICION = {
     "expres": "rama-expres-v1", "investigacion": "fase3-sintetizada-v1",
     "auditoria": "unidad-auditoria-mergeada-v1", "flujos": "planos-aprobados-v1",
     "deploy": "despliegue-verificado-v1",
+    # Bug 118: el proceso de la 087 (un merge hecho FUERA del método) nace terminal en
+    # `peticion.py`; sin esta entrada el lint lo daba por «sin contrato canónico».
+    "merge-externo": "merge-externo-v1",
 }
 
 # Marca que `unidad.py despachar --force` escribe en la ficha de un hotfix P0. Es la única
@@ -212,6 +215,22 @@ def revisar_deuda_hotfix(nombre, ruta, fm):
     else:
         warn(f"{nombre}: DEUDA DE SPEC del hotfix sin pagar (dentro del plazo de 24 h desde "
              f"{actualizado}): completa la ficha y borra la marca")
+
+
+RE_MERGE_EXTERNO_PR = re.compile(r"#\d+|https?://\S+/(?:pull|merge_requests)/\d+/?")
+RE_MERGE_EXTERNO_SHA = re.compile(r"[0-9a-f]{7,40}")
+
+
+def merge_externo_existe(ref):
+    """Bug 118 — ¿la cita de un merge externo apunta a algo real? PR: sí por forma; SHA: si
+    el repo de código lo tiene (`git cat-file -e`), igual que `peticion.validar_merge_externo`."""
+    ref = str(ref or "").strip()
+    if RE_MERGE_EXTERNO_PR.fullmatch(ref):
+        return True
+    if not RE_MERGE_EXTERNO_SHA.fullmatch(ref):
+        return False
+    repo, _ = repo_codigo()
+    return git(repo, "cat-file", "-e", f"{ref}^{{commit}}")[0] == 0
 
 
 def repo_codigo():
@@ -552,6 +571,17 @@ def revisar_cola_peticiones():
                 canonica = next((item for item in candidatos if item.is_file()), None)
                 if canonica and (frontmatter(canonica) or {}).get("tipo") != "auditoria":
                     canonica = None
+            elif tipo == "merge-externo":
+                # Bug 118: la `ref` no es un fichero: es un PR (`#36`, su URL) o un SHA del
+                # repo de código. El PR se acepta tal cual (no hay GitHub que consultar en
+                # local); el SHA tiene que existir en el repo, como exige `peticion.py`.
+                if not merge_externo_existe(ref):
+                    fail(f"{pid}: merge externo {ref} no existe en el repo de código · "
+                         f"SALIDA: trae el commit (git -C main fetch origin) y vuelve a "
+                         f"pasar el lint, o cita el PR con `peticion.py enlazar {pid} "
+                         f"--tipo merge-externo --ref '#N'`")
+                    continue
+                canonica = True
             elif tipo not in {"expres"}:
                 candidata = Path(str(ref))
                 if not candidata.is_absolute() and ".." not in candidata.parts:
