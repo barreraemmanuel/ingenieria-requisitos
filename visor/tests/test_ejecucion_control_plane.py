@@ -1211,6 +1211,50 @@ pathlib.Path('.harness-record.json').write_text(
             "R2: el rechazo es ANTES del harness; si el agente llegó a correr, no hubo parada")
         self.assertEqual(self.clave("ronda"), "2", "un rechazo no gasta la ronda")
 
+    def test_bajar_la_ronda_a_mano_no_regala_una_tercera_vuelta(self):
+        """H1 de la revisión — la parada NO puede depender de una línea que el constructor
+        posee. `hallazgos.md` está en su set escribible: si el contador solo viviera en su
+        cabecera, `sed -i 's/ronda: 2/ronda: 1/'` compraba una ronda más. Los recibos de
+        `.runtime/ejecuciones` los escribe el lanzador y nadie los tiene escribibles, así
+        que mandan ellos (ADR-029)."""
+        self.crear_doble_harness_que_corrige("claude")
+        recibos = self.ws / ".runtime/ejecuciones"
+        recibos.mkdir(parents=True, exist_ok=True)
+        (recibos / f"{self.unidad}-anterior.json").write_text(json.dumps({
+            "schema": "ejecucion/v1", "id": "anterior", "unidad": self.unidad,
+            "rol": "constructor", "ronda": 2, "exit_code": 0, "resultado": "ok",
+        }), encoding="utf-8")
+        # La cabecera dice 1 —es el número que el constructor SÍ posee y puede rebajar—
+        # mientras el recibo de arriba acredita que la ronda 2 ya se gastó.
+        self.assertEqual(self.clave("ronda"), "1")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("tercera ronda", salida.lower())
+        self.assertFalse(
+            (self.worktree / ".harness-record.json").exists(),
+            "la cabecera decía 1, pero los recibos acreditan 2: el harness no debió arrancar")
+
+    def test_sin_recibos_con_ronda_manda_la_cabecera(self):
+        """La simétrica: los recibos ACREDITAN, no inventan. Una unidad anterior a la 069
+        —recibos sin `ronda`— sigue contando por su cabecera y no se para de más."""
+        self.crear_doble_harness_que_corrige("claude")
+        recibos = self.ws / ".runtime/ejecuciones"
+        recibos.mkdir(parents=True, exist_ok=True)
+        (recibos / f"{self.unidad}-viejo.json").write_text(json.dumps({
+            "schema": "ejecucion/v1", "id": "viejo", "unidad": self.unidad,
+            "rol": "constructor", "exit_code": 0, "resultado": "ok",
+        }), encoding="utf-8")
+        self.poner_veredicto("HUECOS DE CORRECCIÓN")
+
+        resultado = self.ejecutar()
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.clave("ronda"), "2")
+
     def test_el_rechazo_de_la_tercera_ronda_lleva_su_marca_de_salida_por_diseno(self):
         """R6 — no hay comando que lo arregle, y eso se declara con el vocabulario cerrado
         de `lint_salidas.py`: la decisión es del usuario, no del método."""

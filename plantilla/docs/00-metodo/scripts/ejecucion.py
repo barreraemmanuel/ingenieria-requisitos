@@ -692,6 +692,36 @@ def ronda_declarada(texto):
     return valor if valor >= 1 else None
 
 
+def ronda_acreditada(unidad):
+    """La ronda más alta que los RECIBOS de constructor de esta unidad acreditan, o None.
+
+    H1 de la revisión de la 069: la cabecera de `hallazgos.md` es un fichero de texto que el
+    constructor posee, así que bajar `ronda: 2` a `ronda: 1` era una tercera ronda gratis. Un
+    contador que se puede editar no es un contador (ADR-029). Los recibos viven en
+    `.runtime/ejecuciones`, los escribe el lanzador y nadie los tiene en su set escribible:
+    la parada se apoya en ellos, y la cabecera pasa a ser su copia legible.
+
+    Devuelve None cuando no hay recibos con ronda —unidad anterior a la 069, o primera
+    obra—: ahí no hay nada que acreditar y manda la cabecera.
+    """
+    carpeta = RAIZ / ".runtime/ejecuciones"
+    if not carpeta.is_dir():
+        return None
+    rondas = []
+    for ruta in sorted(carpeta.glob(f"{unidad}-*.json")):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue                  # un recibo ilegible no acredita nada; se ignora
+        if not isinstance(datos, dict) or datos.get("unidad") != unidad:
+            continue
+        if str(datos.get("rol") or "").strip() != "constructor":
+            continue
+        if isinstance(datos.get("ronda"), int):
+            rondas.append(datos["ronda"])
+    return max(rondas, default=None)
+
+
 def rondas_del_constructor(hallazgos, unidad):
     """(ronda_previa, ronda_a_gastar) para este lanzamiento. Levanta en la tercera (R2).
 
@@ -707,6 +737,11 @@ def rondas_del_constructor(hallazgos, unidad):
     previa = ronda_declarada(texto)
     if previa is None:
         return None, None
+    # H1 de la revisión: manda la MAYOR de las dos. Bajar el número a mano en la cabecera no
+    # devuelve rondas gastadas, porque los recibos siguen contándolas.
+    acreditada = ronda_acreditada(unidad)
+    if acreditada is not None and acreditada > previa:
+        previa = acreditada
     if not hay_huecos(veredicto_ultimo(texto)):
         return previa, previa           # relanzar tras un LIMPIO no es una corrección
     siguiente = previa + 1

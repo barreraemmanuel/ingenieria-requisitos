@@ -2656,8 +2656,9 @@ def puerta_ronda_declarada(nombre, fm_hallazgos):
     La cuenta vive en los recibos del control plane; la cabecera es su copia legible. Si
     alguien teclea una ronda mayor que la que los recibos acreditan, lo que está haciendo es
     justificar vueltas que no constan — el mismo agujero que la firma del revisor tenía antes
-    de la 033. Una ronda MENOR que los recibos no se denuncia: es lo que deja `ejecucion.py`
-    al devolver una ronda vacía (R5).
+    de la 033. Y una ronda MENOR se denuncia igual —H1 de la revisión—: borra vueltas que sí
+    ocurrieron. Una ronda vacía (R5) no crea ese desajuste, porque `ejecucion.py` devuelve el
+    contador Y el `ronda` del recibo a la vez.
     """
     declarada = str((fm_hallazgos or {}).get("ronda") or "").strip()
     if not declarada:
@@ -2671,17 +2672,25 @@ def puerta_ronda_declarada(nombre, fm_hallazgos):
     acreditada = max([r for r in rondas if isinstance(r, int)], default=None)
     if acreditada is None:
         return None, ""                # sin recibos con ronda no hay contra qué cotejar
-    if declarada > acreditada:
+    if declarada != acreditada:
+        # H1 de la revisión de la 069: el cotejo es simétrico. Una ronda de MÁS justifica
+        # vueltas que nadie dio; una de MENOS es peor, porque devuelve rondas gastadas y
+        # abre la tercera — que es justo la parada que esta unidad existe para poner.
+        de_mas = declarada > acreditada
         return (
             f"{nombre} declara `ronda: {declarada}` en hallazgos.md, pero los recibos de "
-            f"{rel(EJECUCIONES)} solo acreditan {acreditada}: ese número lo escribe "
-            f"`ejecucion.py` al lanzar al constructor, no se teclea. Una ronda inventada "
-            f"justifica vueltas que nadie dio. {SALIDA} deja el valor que digan los recibos "
-            f"y compruébalo con "
-            f"`python3 docs/00-metodo/scripts/unidad.py estado {nombre}`"
+            f"{rel(EJECUCIONES)} acreditan {acreditada}: ese número lo escribe "
+            f"`ejecucion.py` al lanzar al constructor, no se teclea. "
+            + ("Una ronda de más justifica vueltas que nadie dio."
+               if de_mas else
+               "Una ronda de MENOS borra vueltas que sí ocurrieron y regala una tercera, "
+               "que es exactamente la parada que el método no negocia.")
+            + f" {SALIDA} pon `ronda: {acreditada}`, que es lo que dicen los recibos, y "
+              f"compruébalo con "
+              f"`python3 docs/00-metodo/scripts/unidad.py estado {nombre}`"
         ), ""
-    return None, (f"ronda {declarada} de corrección, acreditada por los recibos del control "
-                  f"plane (tope {TOPE_DE_RONDAS_DEL_METODO})")
+    return None, (f"ronda {declarada} de corrección, y los recibos del control plane "
+                  f"acreditan la misma (tope {TOPE_DE_RONDAS_DEL_METODO})")
 
 
 def patch_id_del_diff(repo, base, punta):

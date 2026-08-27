@@ -1309,6 +1309,29 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertIn("ronda: 3", salida)
         self.assertIn("SALIDA:", salida)
 
+    def test_cerrar_denuncia_una_ronda_BAJADA_a_mano_por_debajo_de_los_recibos(self):
+        """H1 de la revisión — el simétrico del anterior, y el que de verdad muerde: una
+        ronda de MENOS no justifica vueltas de más, sino que BORRA las que ocurrieron. Con el
+        cotejo solo en `>`, el constructor bajaba `ronda: 2` a `ronda: 1`, se regalaba la
+        tercera vuelta y el cierre acreditaba lo contrario de lo que dicen los recibos."""
+        nombre, hallazgos = self.preparar_unidad_cerrable("ronda-bajada")
+        recibo = self.ws / ".runtime/ejecuciones" / f"{nombre}-constructor.json"
+        datos = json.loads(recibo.read_text(encoding="utf-8"))
+        datos["ronda"] = 2
+        recibo.write_text(json.dumps(datos), encoding="utf-8")
+        hallazgos.write_text(
+            re.sub(r"(?m)^ronda:.*$", "ronda: 1",
+                   hallazgos.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8")
+
+        resultado = self.cerrar(nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("ronda: 1", salida)
+        self.assertIn("acreditan 2", salida)
+        self.assertIn("SALIDA:", salida)
+
     def test_cerrar_acepta_la_ronda_que_los_recibos_acreditan(self):
         """La simétrica: una ronda 2 con su recibo detrás no es un problema, es un dato."""
         nombre, hallazgos = self.preparar_unidad_cerrable("ronda-acreditada")
