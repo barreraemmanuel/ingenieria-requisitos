@@ -180,25 +180,35 @@ def ficheros_de(fm):
     return limpias
 
 
-def _casillas(texto, cabecera):
-    """Casillas marcadas/totales bajo `cabecera`, hasta el siguiente `## `. None si no hay.
+# H1 del revisor de la 078: la sección se localiza por su LÍNEA de cabecera, no por la
+# primera mención de esas palabras en el texto. Con un `split("## Plan")` bastaba con que la
+# prosa de más arriba citara la sección —cosa que las propias plantillas hacen— para anclar
+# el conteo en el párrafo equivocado y volver a enseñar un plan vacío.
+RE_PLAN_FICHA = re.compile(r"^#{2,6}[ \t]+[^\n]*Plan de trabajo[^\n]*$", re.M)
+RE_PLAN_HALLAZGOS = re.compile(r"^##[ \t]+Plan[ \t]*$", re.M)
+RE_CORTE_SECCION = re.compile(r"^## ", re.M)
+
+
+def _casillas(texto, patron):
+    """Casillas marcadas/totales bajo esa cabecera, hasta el siguiente `## `. None si no hay.
 
     El corte importa desde el bug 078: `hallazgos.md` lleva más abajo la «Bitácora del
-    cierre», que también son casillas y NO son el plan. Un `### sub-apartado` no corta (no
-    empieza por `## `), que es lo que mantiene intacta la lectura de las fichas de bug,
-    donde el plan cuelga de `### Plan de trabajo del subagente`.
+    cierre», que también son casillas y NO son el plan. Un `### sub-apartado` no corta, que
+    es lo que mantiene intacta la lectura de las fichas de bug, donde el plan cuelga de
+    `### Plan de trabajo del subagente`.
     """
-    trozo = texto.split(cabecera, 1)
-    if len(trozo) != 2:
+    casa = patron.search(texto or "")
+    if casa is None:
         return None
+    inicio = casa.end()
+    corte = RE_CORTE_SECCION.search(texto, inicio)
+    cuerpo = texto[inicio:corte.start() if corte else len(texto)]
     hechos = total = 0
-    for linea in trozo[1].splitlines()[1:]:
-        if linea.startswith("## "):
-            break
-        casa = TAREA.match(linea)
-        if casa:
+    for linea in cuerpo.splitlines():
+        casilla = TAREA.match(linea)
+        if casilla:
             total += 1
-            hechos += casa.group(1).lower() == "x"
+            hechos += casilla.group(1).lower() == "x"
     return {"hechos": hechos, "total": total} if total else None
 
 
@@ -211,10 +221,10 @@ def _plan(texto, texto_hallazgos=""):
     dato que mentía. La ficha sigue siendo el respaldo (R4) para las unidades que ya estaban
     en vuelo, y para los bugs, cuya ficha SÍ es su propia bitácora.
     """
-    plan = _casillas(texto_hallazgos or "", "## Plan")
+    plan = _casillas(texto_hallazgos or "", RE_PLAN_HALLAZGOS)
     if plan is not None:
         return plan
-    return _casillas(texto, "## Plan de trabajo")
+    return _casillas(texto, RE_PLAN_FICHA)
 
 
 # --------------------------------------------------------------------------- unidades y bugs

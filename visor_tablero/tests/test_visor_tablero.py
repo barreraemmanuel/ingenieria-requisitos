@@ -163,6 +163,10 @@ def workspace_sintetico(raiz, con_remoto=True, con_canario=True):
     (trabajo / "105-en-revision" / "hallazgos.md").write_text(
         "---\nunidad: 105-en-revision\nrevisor: no\nrevisado: no\n---\n\n"
         "# 105 · Hallazgos de la obra\n\n"
+        # H1 del revisor de la 078: la prosa CITA la sección antes de que la sección
+        # exista. Anclar en la primera aparición del texto contaba aquí, no en la
+        # cabecera, y el plan volvía a leerse vacío.
+        "> Las casillas van en el `## Plan` de aquí abajo, no en la ficha.\n\n"
         "## Plan\n\n"
         "- [x] 1. Test en rojo\n- [x] 2. Implementar\n- [x] 3. Verde\n- [ ] 4. Cerrar\n\n"
         "## Bitácora del cierre\n\n- [ ] 1 · Evidencia — —\n",

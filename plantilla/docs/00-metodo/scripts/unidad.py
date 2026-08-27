@@ -326,35 +326,42 @@ def pide_tests_cruzados(texto):
 # operativo denegaba, y el tablero enseñaba «Plan: 0 de N» con la obra a media mañana.
 # El progreso se muda a `hallazgos.md` —que sí posee— y la ficha se queda como contrato.
 RE_CASILLA = re.compile(r"^\s*-\s*\[([ xX])\]\s", re.M)
-CABECERA_PLAN_FICHA = "Plan de trabajo"
-CABECERA_PLAN_HALLAZGOS = "## Plan"
+# H1 del revisor de la 078: la sección se localiza por su LÍNEA de cabecera, no por la
+# primera vez que el texto menciona esas palabras. Con un `split("## Plan")` bastaba con que
+# la prosa de más arriba citara la sección —cosa que estas mismas plantillas hacen— para que
+# el conteo y la siembra se anclaran en el párrafo equivocado y el plan volviera a leerse
+# como vacío. Cabecera = línea entera que casa, y nada más.
+RE_PLAN_FICHA = re.compile(r"^#{2,6}[ \t]+[^\n]*Plan de trabajo[^\n]*$", re.M)
+RE_PLAN_HALLAZGOS = re.compile(r"^##[ \t]+Plan[ \t]*$", re.M)
+RE_CORTE_SECCION = re.compile(r"^## ", re.M)
 
 
-def _seccion_por_cabecera(texto, cabecera):
-    """El cuerpo de la sección cuya cabecera contiene `cabecera`, hasta el siguiente `## `.
+def _seccion_por_cabecera(texto, patron):
+    """(cuerpo, inicio, fin) de la sección cuya CABECERA casa con `patron`; None si no está.
 
     El corte importa: `hallazgos.md` lleva más abajo la «Bitácora del cierre», que también
-    son casillas y NO son el plan. Un `### sub-apartado` no corta (no empieza por `## `),
-    que es lo que mantiene intacta la lectura de las fichas de bug, donde el plan cuelga de
-    `### Plan de trabajo del subagente` dentro de `## 5 · Resolución`.
+    son casillas y NO son el plan. Un `### sub-apartado` no corta (el patrón de corte pide
+    `## ` a principio de línea), que es lo que mantiene intacta la lectura de las fichas de
+    bug, donde el plan cuelga de `### Plan de trabajo del subagente` dentro de
+    `## 5 · Resolución`.
     """
-    trozo = texto.split(cabecera, 1)
-    if len(trozo) != 2:
+    casa = patron.search(texto or "")
+    if casa is None:
         return None
-    lineas = []
-    for linea in trozo[1].splitlines()[1:]:
-        if linea.startswith("## "):
-            break
-        lineas.append(linea)
-    return "\n".join(lineas)
+    inicio = casa.end()
+    if inicio < len(texto) and texto[inicio] == "\n":
+        inicio += 1
+    corte = RE_CORTE_SECCION.search(texto, inicio)
+    fin = corte.start() if corte else len(texto)
+    return texto[inicio:fin], inicio, fin
 
 
-def casillas_de(texto, cabecera):
-    """(marcadas, totales) del plan bajo `cabecera`, o None si esa sección no está."""
-    cuerpo = _seccion_por_cabecera(texto or "", cabecera)
-    if cuerpo is None:
+def casillas_de(texto, patron):
+    """(marcadas, totales) del plan bajo esa cabecera, o None si esa sección no está."""
+    seccion = _seccion_por_cabecera(texto or "", patron)
+    if seccion is None:
         return None
-    marcas = RE_CASILLA.findall(cuerpo)
+    marcas = RE_CASILLA.findall(seccion[0])
     if not marcas:
         return None
     return sum(1 for m in marcas if m.lower() == "x"), len(marcas)
@@ -362,10 +369,10 @@ def casillas_de(texto, cabecera):
 
 def plan_del_contrato(texto):
     """Las líneas `- [ ] …` del `## Plan de trabajo` del contrato, tal cual están escritas."""
-    cuerpo = _seccion_por_cabecera(texto or "", CABECERA_PLAN_FICHA)
-    if cuerpo is None:
+    seccion = _seccion_por_cabecera(texto or "", RE_PLAN_FICHA)
+    if seccion is None:
         return []
-    return [l.rstrip() for l in cuerpo.splitlines() if RE_CASILLA.match(l)]
+    return [l.rstrip() for l in seccion[0].splitlines() if RE_CASILLA.match(l)]
 
 
 def progreso_del_plan(ruta_ficha, texto_ficha, clase="unidad"):
@@ -382,12 +389,12 @@ def progreso_del_plan(ruta_ficha, texto_ficha, clase="unidad"):
             try:
                 cuenta = casillas_de(
                     hallazgos.read_text(encoding="utf-8", errors="replace"),
-                    CABECERA_PLAN_HALLAZGOS)
+                    RE_PLAN_HALLAZGOS)
             except OSError:
                 cuenta = None
             if cuenta is not None:
                 return cuenta[0], cuenta[1], "hallazgos.md"
-    cuenta = casillas_de(texto_ficha, CABECERA_PLAN_FICHA)
+    cuenta = casillas_de(texto_ficha, RE_PLAN_FICHA)
     if cuenta is None:
         return None
     return cuenta[0], cuenta[1], "en la ficha"
@@ -405,22 +412,25 @@ def sembrar_plan_en_hallazgos(ruta_ficha, texto_ficha):
     if not hallazgos.exists():
         return None
     texto = leer_fichero_unidad(hallazgos)
-    if casillas_de(texto, CABECERA_PLAN_HALLAZGOS) is not None:
+    if casillas_de(texto, RE_PLAN_HALLAZGOS) is not None:
         return None
     pasos = plan_del_contrato(texto_ficha)
     if not pasos:
         return None
-    cuerpo = _seccion_por_cabecera(texto, CABECERA_PLAN_HALLAZGOS)
     bloque = "\n".join(pasos) + "\n"
-    if cuerpo is None:
+    seccion = _seccion_por_cabecera(texto, RE_PLAN_HALLAZGOS)
+    if seccion is None:
         # `hallazgos.md` anterior a esta corrección: se le abre la sección antes de la
         # evidencia, que es donde la plantilla la coloca.
-        ancla = "## Evidencia de verificación"
-        if ancla not in texto:
+        corte = re.search(r"^## Evidencia de verificación", texto, re.M)
+        if corte is None:
             return None
-        texto = texto.replace(ancla, f"## Plan\n\n{bloque}\n{ancla}", 1)
+        texto = texto[:corte.start()] + f"## Plan\n\n{bloque}\n" + texto[corte.start():]
     else:
-        texto = texto.replace(cuerpo, cuerpo.rstrip("\n") + f"\n{bloque}", 1)
+        # Empalme por POSICIÓN, no por `replace` del cuerpo: un cuerpo que apareciera dos
+        # veces en el fichero se escribiría en el sitio equivocado (H1 del revisor).
+        cuerpo, inicio, fin = seccion
+        texto = texto[:inicio] + cuerpo.rstrip("\n") + f"\n{bloque}" + texto[fin:]
     escribir_fichero_unidad(hallazgos, texto)
     return len(pasos)
 

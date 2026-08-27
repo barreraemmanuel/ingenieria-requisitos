@@ -1339,6 +1339,43 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(antes.split("---", 2)[2], despues.split("---", 2)[2])
         self.assertEqual(3, despues.count("- [ ] "))
 
+    def test_la_seccion_del_plan_se_ancla_en_su_cabecera_no_en_una_mencion(self):
+        """H1 del revisor — la sección se localiza por su LÍNEA de cabecera. Estas mismas
+        plantillas CITAN `## Plan de trabajo` y `## Plan` en su prosa, así que buscar la
+        primera aparición del texto anclaba el conteo y la siembra en el párrafo equivocado
+        y el plan volvía a leerse vacío: el bug 078 otra vez, por la puerta de atrás."""
+        nombre = self.preparar_con_plan("plan-citado-en-prosa")
+        spec = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        spec.write_text(
+            spec.read_text(encoding="utf-8").replace(
+                "## Verificación\n",
+                "## Contexto\n\nOjo: el `## Plan de trabajo` de esta ficha es el contrato y "
+                "sus casillas se marcan en hallazgos.md.\n\n## Verificación\n", 1),
+            encoding="utf-8")
+
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        hallazgos = self.ws / "docs/05-trabajo" / nombre / "hallazgos.md"
+        texto = hallazgos.read_text(encoding="utf-8")
+        self.assertIn("- [ ] 1. Test en rojo", texto)
+        # Y ahora la misma trampa del otro lado: una mención de `## Plan` en la prosa que
+        # va ANTES de la cabecera de verdad, con una casilla ya marcada más abajo.
+        hallazgos.write_text(
+            texto.replace(
+                "# 001 · Hallazgos de la obra",
+                "# 001 · Hallazgos de la obra\n\n> Las casillas van en el `## Plan` de aquí "
+                "abajo, no en la ficha.", 1
+            ).replace("- [ ] 1. Test en rojo", "- [x] 1. Test en rojo"),
+            encoding="utf-8")
+
+        resultado = self.ejecutar(self.unidad, "estado", "--sin-navegador")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("plan 1/3", salida.lower())
+        self.assertNotIn("en la ficha", salida.lower())
+
     def test_cerrar_dice_lo_que_falta_del_plan_y_no_revienta(self):
         """R5 — el cierre ya no copia casillas a mano (así se hizo en la 060): mira dónde se
         marcaron y, si falta alguna, lo DICE con el comando que lo enseña. No bloquea."""
