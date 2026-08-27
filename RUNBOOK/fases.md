@@ -340,11 +340,17 @@ Cuando no queden huecos:
    --confirmar-supuestos`; no escribas `aprobado` a mano. Comprueba
    `requisitos.py estado` y finaliza con `visor/finalizar.py`, que rechazará
    cualquier plano distinto del recibo.
-7. Dile qué hacer después: cerrar esta sesión y abrir una nueva desde la raíz
-   `<proyecto>-agents`. El agente padre leerá `AGENTS.md`, `ESTADO.md`, los
-   planos y el encargo; no se abre directamente dentro de `main/`. Y que la validación final
-   es usar la obra con los ejemplos de los planos ("haz el pedido de Paco
-   con la deuda de 300€"), no mirar pantallas.
+7. Solo cuando `finalizar.py` ha terminado en verde (te imprime la ruta del
+   `<proyecto>-agents` creado), dile qué hacer después: cerrar esta sesión y
+   abrir una nueva desde la raíz `<proyecto>-agents`. El agente padre leerá
+   `AGENTS.md`, `ESTADO.md`, los planos y el encargo; no se abre directamente
+   dentro de `main/`. Y que la validación final es usar la obra con los
+   ejemplos de los planos ("haz el pedido de Paco con la deuda de 300€"), no
+   mirar pantallas. Si `requisitos.py aprobar` o `finalizar.py` se bloquean
+   (el visor no abre, el E2E sale en rojo, los planos no coinciden con el
+   recibo), NO le mandes cerrar nada: dile qué está bloqueado, con el mensaje
+   literal, y cómo desbloquearlo; el relevo llega cuando el paso 6 esté en
+   verde (bug 116).
 
 Encargo modo A, construcción:
 
