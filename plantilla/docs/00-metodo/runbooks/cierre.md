@@ -234,6 +234,13 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    `hallazgos.md`.
    Un rojo NO se negocia, sea del nivel que sea.
 
+   **UNA suite completa a la vez, en toda la máquina.** El paralelismo del ADR-036 es para
+   CONSTRUIR: varias unidades disjuntas a la vez, cada una con su subagente. La verificación
+   completa no se paraleliza — dos suites simultáneas se pisan la CPU y sacan rojos de timeout
+   que no son del código, y un rojo que no es del código enseña a ignorar los rojos. Ningún
+   script puede imponerlo (desde una sesión no se ven las demás): si otra sesión tiene una suite
+   corriendo, se espera.
+
    Después del merge, `quality-security` debe quedar verde sobre el commit de la principal.
    Con GitHub se espera y verifica ese check; sin GitHub se ejecutan desde `main/`
    `scripts/ci/lint` y `scripts/ci/security`. Un rojo deja la unidad sin cerrar y `main` sin
