@@ -38,7 +38,7 @@ def escribir_parte_honesto(ws, hallazgos):
         ruta.write_text(f"salida real de {fichero} para {nombre}\n", encoding="utf-8")
         hashes[fichero] = hashlib.sha256(ruta.read_bytes()).hexdigest()
 
-    requisitos, marcadas, totales = lint_cierre.contar_reales(carpeta / "especificacion.md")
+    requisitos, marcadas, totales = lint_cierre.contar_reales(carpeta / "especificacion.md", carpeta / "hallazgos.md")  # 078: el plan vive en hallazgos.md
     bloque = (
         "```parte-de-cierre\n"
         "veredicto: entregada\n"
