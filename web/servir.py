@@ -1004,7 +1004,10 @@ def main():
         print("Se apaga tras %g minutos sin actividad." % args.minutos, flush=True)
     else:
         print("Sesión estable: no se apaga sola.", flush=True)
-    if not args.sin_navegador:
+    # `IR_SIN_NAVEGADOR` manda sobre todo (misma regla que `abrir.py: hay_pantalla`): un test
+    # o un agente en batch que lance este servidor sin `--sin-navegador` abría el navegador
+    # REAL del usuario en un puerto efímero que moría al acabar (bug 111, P-20260827-af7a3c37).
+    if not args.sin_navegador and not os.environ.get("IR_SIN_NAVEGADOR", "").strip():
         import webbrowser
         webbrowser.open(url)
 

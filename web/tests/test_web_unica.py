@@ -493,5 +493,31 @@ class SinPlanosTest(ConWorkspace):
         self.assertIn("planos", json.loads(cuerpo)["error"].lower())
 
 
+class ServirRespetaIrSinNavegadorTest(unittest.TestCase):
+    """Bug 111: `servir.py` lanzado SIN `--sin-navegador` pero con `IR_SIN_NAVEGADOR=1` en el
+    entorno no abre el navegador real (ni `BROWSER` ni `webbrowser.open`)."""
+
+    def test_con_la_variable_no_abre_navegador(self):
+        raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz, True)
+        anotador = raiz / "anotador.sh"
+        huella = raiz / "navegador-abierto.txt"
+        anotador.write_text("#!/bin/sh\necho abierto > '%s'\n" % huella, encoding="utf-8")
+        anotador.chmod(0o755)
+        proceso = subprocess.Popen(
+            [sys.executable, str(WEB / "servir.py"), "--workspace", str(raiz),
+             "--minutos", "0.05"],
+            stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+            env=dict(os.environ, PYTHONUTF8="1", IR_SIN_NAVEGADOR="1",
+                     BROWSER=str(anotador)))
+        try:
+            salida, _ = proceso.communicate(timeout=60)
+        except subprocess.TimeoutExpired:
+            proceso.kill(); salida, _ = proceso.communicate()
+        self.assertIn("en pie", salida)
+        self.assertFalse(huella.exists(), "abrió el navegador real con IR_SIN_NAVEGADOR=1")
+
+
 if __name__ == "__main__":
     unittest.main()
+
