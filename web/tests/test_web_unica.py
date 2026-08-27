@@ -518,6 +518,38 @@ class ServirRespetaIrSinNavegadorTest(unittest.TestCase):
         self.assertFalse(huella.exists(), "abrió el navegador real con IR_SIN_NAVEGADOR=1")
 
 
+# --------------------------------------------------------------------------- 121
+
+class InicioSeExplicaSolaTest(ConWorkspace):
+    """121 — la portada se llama Inicio y su JSON trae el estado del taller.
+
+    Aquí se comprueba SERVIDO, por el proceso de verdad: lo que llega al
+    navegador es lo que se ve, no lo que dice la plantilla suelta.
+    """
+
+    def test_la_barra_servida_llama_inicio_al_primer_apartado(self):
+        _, _, cuerpo = self.web.pedir("/")
+        pagina = cuerpo.decode("utf-8")
+        self.assertIn(">Inicio<", pagina)
+        self.assertNotIn(">Tablero<", pagina)
+
+    def test_el_json_de_inicio_trae_el_taller_con_sus_cuatro_bloques(self):
+        _, _, crudo = self.web.pedir("/tablero/estado.json")
+        taller = json.loads(crudo)["taller"]
+        for clave in ("repos", "servidores", "docker", "sesion"):
+            self.assertIn(clave, taller)
+        claves = {r["clave"] for r in taller["repos"]}
+        self.assertEqual({"meta-repo", "repo de código"}, claves)
+
+    def test_entregas_y_contratos_se_sirven_con_su_cabecera_explicativa(self):
+        _, _, contratos = self.web.pedir("/contratos")
+        self.assertIn("explica", contratos.decode("utf-8"))
+        _, _, entregas = self.web.pedir("/presentaciones")
+        pagina = entregas.decode("utf-8")
+        self.assertIn("Entregas: te toca probar", pagina)
+        self.assertIn("explica", pagina)
+
+
 if __name__ == "__main__":
     unittest.main()
 

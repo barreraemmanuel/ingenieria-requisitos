@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Tablero de control · ingeniería de requisitos</title>
+<title>Inicio · ingeniería de requisitos</title>
 <style id="minimo-sin-base-css">
   /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
      familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
@@ -25,6 +25,15 @@
      de contratos: allí se lee UN documento, aquí se mira un workspace entero.
      Ni una regla de aquí pisa las del bloque común: sólo añade. */
 
+
+  /* ---------- la tarjeta del taller (unidad 121) ----------
+     Reutiliza `.tira` y `.dato` de `base.css`: aquí sólo se le da su rótulo y
+     el aire que la separa de la cabecera. Ni un color a mano. */
+  .taller { margin-top: var(--e-bloque); }
+  .taller h2 { font-size: var(--t-nota); font-weight: bold; text-transform: none; color: var(--faint); margin: 0 0 var(--hueco-chico); padding-bottom: 6px; border-bottom: 1px solid var(--line); }
+  .taller .tira { margin-top: var(--hueco-chico); }
+  .taller .detalle a { color: var(--accent); }
+  .explica-corta { color: var(--faint); font-size: var(--t-nota); line-height: var(--lh-lectura); margin: 4px 0 var(--hueco-chico); }
 
   /* R2 del bug 067: el enlace no se apaga ni desaparece — al lado se DICE que
      esa web no está levantada. Un enlace muerto miente; esto no. */
@@ -102,6 +111,9 @@
       <h1>Qué hay en curso</h1>
       <div class="sub" id="sub">Cargando…</div>
       <div class="tira" id="cabecera"></div>
+      <!-- Unidad 121: el estado de la MÁQUINA donde se trabaja. Va arriba del
+           todo y en las tres secciones: es lo primero que se mira al abrir. -->
+      <div class="taller" id="taller"></div>
     </header>
 
     <div class="aviso-flotante" id="banner">⚠ El tablero perdió la conexión.
@@ -109,7 +121,7 @@
 
     <div class="cuerpo">
       <aside class="menu-lateral" id="menu" aria-label="Secciones del tablero">
-        <div class="titulo-menu">Tablero</div>
+        <div class="titulo-menu">Inicio</div>
         <nav id="secciones" class="menu-grupo-lista">
           <a href="#ahora" data-seccion="ahora" class="menu-item"><span class="nombre">Ahora</span><span class="recuento cuenta" data-recuento="ahora">·</span></a>
           <a href="#te-toca" data-seccion="te-toca" class="menu-item"><span class="nombre">Te toca a ti</span><span class="recuento cuenta" data-recuento="te-toca">·</span></a>
@@ -161,6 +173,7 @@
 
   var panel = document.getElementById("panel");
   var cabecera = document.getElementById("cabecera");
+  var taller = document.getElementById("taller");
   var banner = document.getElementById("banner");
   var sub = document.getElementById("sub");
   var foto = null;
@@ -286,6 +299,94 @@
     cabecera.innerHTML = html;
   }
 
+  /* ---------- R1-R3 de la 121: el taller ----------
+     Lo que hay que saber de la MÁQUINA para no preguntarlo: en qué dos repos
+     estás y cómo los tienes, qué hay levantado, y si la sesión que dirige el
+     trabajo está viva. Todo sale de `taller` en /estado.json, leído del disco
+     en el momento; aquí sólo se pinta. Regla G-2302: lo que no se pudo leer se
+     DICE («sin datos»), nunca se pinta como un cero tranquilizador. */
+
+  function sinDatos(bloque, porDefecto) {
+    return esc((bloque && bloque.detalle) || porDefecto || "sin datos");
+  }
+
+  function pintarRepo(r) {
+    var etiqueta = r.clave === "meta-repo" ? "Meta-repo" : "Repo de código";
+    if (r.estado !== "ok") {
+      return dato(etiqueta, sinDatos(r, "no hay repo aquí"), true);
+    }
+    var titulo = esc(r.nombre || r.carpeta);
+    if (r.github) {
+      titulo = '<a href="' + esc(r.github) + '" target="_blank" rel="noopener">' +
+        titulo + "</a>";
+    }
+    var lineas = ["rama " + esc(r.rama || "sin rama")];
+    var c = r.sin_commitear;
+    lineas.push(c.estado === "ok"
+      ? (c.cambios === 0 ? "limpio"
+         : c.cambios + (c.cambios === 1 ? " cambio sin commitear"
+                                        : " cambios sin commitear"))
+      : "cambios: " + sinDatos(c));
+    var e = r.sin_empujar;
+    lineas.push(e.estado === "ok"
+      ? e.commits + (e.commits === 1 ? " commit sin empujar"
+                                     : " commits sin empujar")
+      : "sin empujar: " + sinDatos(e));
+    if (!r.github) lineas.push("sin remoto de GitHub");
+    return dato(etiqueta, titulo + '<div class="detalle">' +
+                lineas.join("<br>") + "</div>");
+  }
+
+  function pintarServidoresDelTaller(s) {
+    if (!s || s.estado !== "ok") return dato("Servidores", sinDatos(s), true);
+    if (!s.lista.length) {
+      return dato("Servidores", "0" + '<div class="detalle">' +
+                  "nada del método escuchando ahora mismo</div>");
+    }
+    return dato("Servidores", String(s.lista.length) + '<div class="detalle">' +
+      s.lista.map(function (x) {
+        return ":" + x.puerto + " · " + esc(x.servicio) +
+          (x.arbol ? " · " + esc(x.arbol) : "") +
+          (x.desde ? " · desde " + esc(fecha(x.desde)) : "");
+      }).join("<br>") + "</div>");
+  }
+
+  function pintarDocker(d) {
+    if (!d || d.estado !== "ok") return dato("Docker", sinDatos(d), true);
+    if (!d.lista.length) {
+      return dato("Docker", "0" + '<div class="detalle">ningún contenedor en marcha</div>');
+    }
+    return dato("Docker", String(d.lista.length) + '<div class="detalle">' +
+      d.lista.map(function (c) {
+        return esc(c.nombre) + " · " + esc(c.imagen);
+      }).join("<br>") + "</div>");
+  }
+
+  function pintarSesion(s) {
+    if (!s || s.estado !== "ok") return dato("Sesión principal", sinDatos(s), true);
+    if (s.activa) {
+      return dato("Sesión principal", "trabajando ahora" +
+                  '<div class="detalle">desde hace ' + esc(duracion(s.minutos)) +
+                  "</div>");
+    }
+    return dato("Sesión principal", "parada" + '<div class="detalle">desde ' +
+                esc(fecha(s.desde)) + "</div>");
+  }
+
+  function pintarTaller(f) {
+    var d = (f && f.taller) || f;
+    if (!d || !d.repos) return "";
+    return "<h2>Taller</h2>" +
+      '<div class="explica-corta">Dónde estás trabajando y qué tienes en marcha ' +
+      "en esta máquina, leído en el momento.</div>" +
+      '<div class="tira">' +
+      d.repos.map(pintarRepo).join("") +
+      pintarServidoresDelTaller(d.servidores) +
+      pintarDocker(d.docker) +
+      pintarSesion(d.sesion) +
+      "</div>";
+  }
+
   /* ---------- las tres secciones ---------- */
 
   function tarjetaQuieta(a) {
@@ -365,7 +466,10 @@
               '<div class="resultado" aria-live="polite"></div></div></div>';
           }).join("") + "</div>"
         : '<div class="vacio-corto">Ningún contrato espera tu OK.</div>') +
-      '<div class="subtitulo">Entregas por validar · ' + d.en_validacion.length + '</div>' +
+      '<div class="subtitulo">Te toca validar · ' + d.en_validacion.length + '</div>' +
+      /* 121: NO se llaman «terminadas». Están fusionadas y revisadas, pero la
+         unidad no se archiva hasta que la persona la prueba y lo confirma. */
+      '<div class="explica-corta">Cada una está fusionada y revisada; se archiva cuando la pruebes y confirmes.</div>' +
       lista(d.en_validacion, function (v) {
         return enlaceA(f, "presentaciones", "/" + encodeURIComponent(v.unidad), v.unidad);
       }, "Nada pendiente de validar.") +
@@ -483,6 +587,7 @@
       sub.textContent = "Leído " + fecha(datos.generado) + " · " +
         foto.ahora.vivos.length + " agente(s) trabajando ahora";
       pintarCabecera(datos.cabecera);
+      taller.innerHTML = pintarTaller(datos);
       pintarRecuentos(datos);
       pintar();
     }).catch(function () {
@@ -501,7 +606,7 @@
      `/estado.json` y comprueba los enlaces sin abrir un navegador. La página no
      las usa por aquí — pinta llamándolas directamente en `pintar()`. */
   window.tablero = {pintarAhora: pintarAhora, pintarTeToca: pintarTeToca, pintarEn: pintarEn,
-                    pintarPorHacer: pintarPorHacer};
+                    pintarPorHacer: pintarPorHacer, pintarTaller: pintarTaller};
 })();
 </script>
 <!-- /apartado:guion -->

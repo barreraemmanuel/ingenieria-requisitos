@@ -72,6 +72,27 @@ SERVICIOS = (
 )
 PUERTOS_VIGILADOS = (8765, 8766, 8767, 9043)
 
+# --- taller (unidad 121) ---------------------------------------------------
+# La web única (081) ya no vive en un puerto fijo: el suyo sale de la huella del
+# workspace. Lo que SÍ es fijo es el rastro que deja al levantarse
+# (`.runtime/web-<puerto>.log`), y de ahí se saca «desde cuándo».
+RECIBOS_SERVIDOR = (
+    ("web-", "la web del método"),
+    ("visor-contratos-", "visor de contratos"),
+    ("tablero-", "tablero de control"),
+    ("visor-", "visor de flujos"),
+)
+# `_arbol_de` reconoce un servidor por la carpeta de su `servir.py`. Para el
+# taller se añade la cáscara de la web única, que en SERVICIOS no hacía falta.
+SERVICIOS_TALLER = SERVICIOS + (("web", "la web del método"),)
+# Ni el nombre de la persona ni su árbol de carpetas salen de aquí (R8 de la 058):
+# de una ruta absoluta sólo viaja el último tramo.
+GITHUB = re.compile(
+    r"^(?:git@github\.com:|ssh://git@github\.com/|git://github\.com/"
+    r"|https?://(?:[^@/]+@)?github\.com/)(?P<ruta>[^\s]+?)(?:\.git)?/?$"
+)
+SEGUNDOS_COMANDO_EXTERNO = 2.0     # R6: nada de la tarjeta bloquea la página
+
 VIGILADAS = (
     ("docs", "05-trabajo"),
     ("docs", "bugs"),
@@ -792,7 +813,7 @@ def _cwd_de(pid):
     return None
 
 
-def _arbol_de(comando, workspace, cwd=None):
+def _arbol_de(comando, workspace, cwd=None, servicios=SERVICIOS):
     """De qué árbol sirve un visor: la carpeta que contiene su paquete.
 
     Es la mitad interesante de R6 — «visor de contratos: worktree 056, no main»:
@@ -810,7 +831,7 @@ def _arbol_de(comando, workspace, cwd=None):
             continue
         camino = Path(trozo)
         paquete = camino.parent
-        for carpeta, servicio in SERVICIOS:
+        for carpeta, servicio in servicios:
             if paquete.name != carpeta:
                 continue
             if not camino.is_absolute():
@@ -861,6 +882,331 @@ def cabecera(workspace, procesos=None):
     }
 
 
+# --------------------------------------------------------------------------- taller
+
+def _url_github(remoto):
+    """La URL que abriría una persona, o `None` si el remoto no es de GitHub.
+
+    Las cuatro formas que escribe `git remote add` en esta casa —SSH corto,
+    SSH largo, `git://` y HTTPS con o sin usuario— acaban en la misma página.
+    Cualquier otro alojamiento NO se convierte: un enlace inventado es peor
+    que ningún enlace.
+    """
+    encaje = GITHUB.match((remoto or "").strip())
+    return "https://github.com/" + encaje.group("ruta") if encaje else None
+
+
+def _nombre_de_repo(remoto, ruta):
+    """El nombre por el que se conoce el repo: el del remoto, o el de su carpeta."""
+    limpio = (remoto or "").strip().rstrip("/")
+    if limpio:
+        if limpio.endswith(".git"):
+            limpio = limpio[:-4]
+        ultimo = limpio.replace("\\", "/").rsplit("/", 1)[-1].rsplit(":", 1)[-1]
+        if ultimo:
+            return ultimo
+    return Path(ruta).resolve().name or None
+
+
+def _cambios_sin_commitear(ruta):
+    """Cuántas rutas lleva tocadas el repo. Sin poder mirar: NO es cero (G-2302)."""
+    salida = _git(ruta, "status", "--porcelain")
+    if salida.returncode != 0:
+        return {"estado": NO_COMPROBABLE, "cambios": None,
+                "detalle": (salida.stderr.strip().splitlines() or
+                            ["git no pudo mirar el repo"])[0][:200]}
+    lineas = [l for l in salida.stdout.splitlines() if l.strip()]
+    return {"estado": OK, "cambios": len(lineas), "detalle": ""}
+
+
+def _repo(ruta, clave):
+    """Un repo del taller: nombre, rama, enlace y sus dos cuentas (R1).
+
+    De la ruta sólo viaja el último tramo: el resto es el nombre de la persona
+    y su árbol de carpetas, que no salen por la web (R8 de la 058).
+    """
+    ruta = Path(ruta)
+    vacio = {
+        "clave": clave, "carpeta": ruta.name or ".", "nombre": None,
+        "rama": None, "remoto": None, "github": None,
+        "sin_commitear": {"estado": AUSENTE, "cambios": None, "detalle": ""},
+        "sin_empujar": {"estado": AUSENTE, "commits": None, "detalle": ""},
+    }
+    if not (ruta / ".git").exists():
+        return dict(vacio, estado=AUSENTE,
+                    detalle="no hay repo git en %s" % (ruta.name or "."))
+    remoto = _git(ruta, "remote", "get-url", "origin")
+    url = remoto.stdout.strip() if remoto.returncode == 0 else ""
+    rama = _git(ruta, "rev-parse", "--abbrev-ref", "HEAD")
+    return {
+        "clave": clave,
+        "carpeta": ruta.name or ".",
+        "estado": OK,
+        "detalle": "",
+        "nombre": _nombre_de_repo(url, ruta),
+        "rama": rama.stdout.strip() if rama.returncode == 0 else None,
+        # El remoto se enseña sólo cuando es público: un `file:///Users/...`
+        # sería la ruta de la persona en pantalla.
+        "remoto": url if _url_github(url) else None,
+        "github": _url_github(url),
+        "sin_commitear": _cambios_sin_commitear(ruta),
+        "sin_empujar": _sin_empujar(ruta),
+    }
+
+
+def _listeners():
+    """(pid, puerto, comando, cwd) de TODO servidor del método que escucha.
+
+    A diferencia de `_procesos_escuchando`, que sólo mira los cuatro puertos
+    históricos, aquí no se filtra por puerto: desde la 081 el puerto sale de la
+    huella del workspace y no hay lista que valga. Se filtra por lo que corre —
+    un `servir.py` del método— y con UNA sola llamada a `ps` para todos los
+    pids, que si no esto costaría un proceso por conexión abierta de la máquina.
+    """
+    salida = subprocess.run(
+        ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=SEGUNDOS_COMANDO_EXTERNO,
+    )
+    if salida.returncode not in (0, 1):
+        raise OSError("lsof devolvió %d" % salida.returncode)
+    pares, pid = [], None
+    for linea in salida.stdout.splitlines():
+        if linea.startswith("p"):
+            pid = linea[1:].strip()
+        elif linea.startswith("n") and pid:
+            direccion = linea[1:].strip()
+            if ":" not in direccion:
+                continue
+            try:
+                pares.append((int(pid), int(direccion.rsplit(":", 1)[1])))
+            except ValueError:
+                continue
+    if not pares:
+        return []
+    pids = sorted({str(par[0]) for par in pares})
+    comandos = {}
+    ps = subprocess.run(
+        ["ps", "-o", "pid=,command=", "-p", ",".join(pids)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=SEGUNDOS_COMANDO_EXTERNO,
+    )
+    for linea in ps.stdout.splitlines():
+        trozos = linea.strip().split(None, 1)
+        if len(trozos) == 2 and trozos[0].isdigit():
+            comandos[int(trozos[0])] = trozos[1]
+    procesos = []
+    for pid, puerto in sorted(set(pares)):
+        comando = comandos.get(pid, "")
+        if "servir.py" not in comando:
+            continue
+        procesos.append({"pid": pid, "puerto": puerto, "comando": comando,
+                         "cwd": _cwd_de(pid)})
+    return procesos
+
+
+def _recibos_de_servidor(workspace):
+    """`{puerto: (servicio, desde)}` leído de los rastros de `.runtime/`.
+
+    Cada web del método deja un `.log` con su puerto en el nombre al levantarse
+    (`web-9041.log`, `visor-8765.log`…). Su fecha de creación es el único
+    «desde cuándo» honesto que hay en disco: el proceso no lo guarda.
+    """
+    runtime = Path(workspace) / ".runtime"
+    encontrados = {}
+    if not runtime.is_dir():
+        return encontrados
+    try:
+        rastros = sorted(runtime.glob("*.log"))
+    except OSError:
+        return encontrados
+    for rastro in rastros:
+        for prefijo, servicio in RECIBOS_SERVIDOR:
+            if not rastro.name.startswith(prefijo):
+                continue
+            resto = rastro.name[len(prefijo):-len(".log")]
+            if not resto.isdigit():
+                break
+            try:
+                marca = datetime.fromtimestamp(rastro.stat().st_mtime,
+                                               timezone.utc)
+            except OSError:
+                break
+            encontrados[int(resto)] = (servicio,
+                                       marca.isoformat(timespec="seconds"))
+            break
+    return encontrados
+
+
+def servidores_locales(workspace, procesos=None):
+    """Los servidores del método que están escuchando AHORA (R2).
+
+    Se cruzan dos fuentes y hacen falta las dos: los puertos realmente abiertos
+    (un rastro viejo no es un servidor vivo) y los rastros de `.runtime/` (que
+    son los que saben desde cuándo). Si no se pudieron mirar los puertos se
+    DICE: no saber no es saber que no hay ninguno.
+    """
+    proveedor = procesos or _listeners
+    try:
+        crudos = proveedor()
+    except (OSError, subprocess.SubprocessError, ValueError) as exc:
+        return {"estado": NO_COMPROBABLE, "lista": [],
+                "detalle": "no pude mirar los puertos: %s" % str(exc)[:120]}
+    recibos = _recibos_de_servidor(workspace)
+    lista = []
+    for proceso in crudos:
+        comando = proceso.get("comando", "")
+        puerto = proceso.get("puerto")
+        servicio, arbol = _arbol_de(comando, workspace, proceso.get("cwd"),
+                                    SERVICIOS_TALLER)
+        recibo = recibos.get(puerto)
+        if not servicio:
+            if not recibo or "servir.py" not in comando:
+                continue
+            servicio, arbol = recibo[0], None
+        lista.append({"servicio": servicio, "puerto": puerto,
+                      "pid": proceso.get("pid"), "arbol": arbol,
+                      "desde": recibo[1] if recibo else None})
+    lista.sort(key=lambda s: (s["puerto"] or 0, s["servicio"]))
+    return {"estado": OK, "lista": lista, "detalle": ""}
+
+
+def contenedores(ejecutar=None):
+    """Lo que Docker tiene en marcha, o por qué no se sabe (R2, R6).
+
+    `docker ps` con dos segundos de correa. Sin Docker instalado, con el demonio
+    parado o si tarda, se dice en una línea y la página sigue: un cero aquí
+    diría «no tienes nada levantado», que es justo lo contrario de la verdad.
+    """
+    correr = ejecutar or (lambda: subprocess.run(
+        ["docker", "ps", "--format", "{{json .}}"],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        timeout=SEGUNDOS_COMANDO_EXTERNO))
+    try:
+        salida = correr()
+    except FileNotFoundError:
+        return {"estado": AUSENTE, "lista": [],
+                "detalle": "Docker no disponible en esta máquina"}
+    except (OSError, subprocess.SubprocessError) as exc:
+        return {"estado": NO_COMPROBABLE, "lista": [],
+                "detalle": "Docker no disponible: %s" % str(exc)[:120]}
+    if salida.returncode != 0:
+        motivo = (salida.stderr.strip() or salida.stdout.strip()
+                  or "docker ps falló")
+        return {"estado": NO_COMPROBABLE, "lista": [],
+                "detalle": "Docker no disponible: %s" % motivo.splitlines()[0][:160]}
+    lista = []
+    for linea in salida.stdout.splitlines():
+        linea = linea.strip()
+        if not linea:
+            continue
+        try:
+            fila = json.loads(linea)
+        except ValueError:
+            continue
+        lista.append({"nombre": _sin_pii(fila.get("Names", "")),
+                      "imagen": _sin_pii(fila.get("Image", "")),
+                      "estado": _sin_pii(fila.get("Status", ""))})
+    return {"estado": OK, "lista": lista, "detalle": ""}
+
+
+def sesion_principal(workspace):
+    """¿La sesión que dirige el taller está trabajando ahora, o parada? (R3)
+
+    El criterio, escrito una vez y probado:
+
+    - **trabajando ahora** si hay al menos UNA señal viva: un cerrojo de
+      `.runtime/leases/active/` cuyo PID todavía existe, o un recibo de
+      `.runtime/ejecuciones/` sin `resultado` cuyo lanzador sigue vivo. Es el
+      mismo criterio doble de `agentes()`: un fichero abierto de una sesión que
+      murió sin cerrar no es alguien trabajando, es un cadáver.
+    - **parada desde <hora>** si hay señales pero ninguna viva: la hora es la
+      más reciente de todas ellas.
+    - **sin datos** si no hay una sola señal: no se afirma que esté parada
+      desde una hora que nadie escribió.
+
+    Los minutos son los que lleva la señal viva más antigua, que es cuando
+    empezó esta tanda de trabajo.
+    """
+    raiz = Path(workspace)
+    vivas, todas = [], []
+
+    for fichero in sorted((raiz / ".runtime" / "leases" / "active").glob("*.json")
+                          if (raiz / ".runtime" / "leases" / "active").is_dir()
+                          else []):
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        marca = datos.get("created") or ""
+        todas.append(marca)
+        if _pid_vivo((datos.get("owner") or {}).get("pid")):
+            vivas.append(marca)
+
+    ejecuciones = raiz / ".runtime" / "ejecuciones"
+    for fichero in sorted(ejecuciones.glob("*.json") if ejecuciones.is_dir() else []):
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        try:
+            marca = datetime.fromtimestamp(
+                fichero.stat().st_mtime, timezone.utc).isoformat(timespec="seconds")
+        except OSError:
+            continue
+        todas.append(marca)
+        if datos.get("resultado") is not None:
+            continue
+        pid = (datos.get("lanzador") or {}).get("pid")
+        if pid is None:
+            pid = (datos.get("owner") or {}).get("pid")
+        if _pid_vivo(pid):
+            vivas.append(marca)
+
+    if not todas:
+        return {"estado": AUSENTE, "leido": _leido(), "activa": False,
+                "desde": None, "minutos": None,
+                "detalle": "sin cerrojos ni recibos: no hay dato"}
+    if vivas:
+        desde = min(m for m in vivas if m) if any(vivas) else None
+        return {"estado": OK, "leido": _leido(), "activa": True,
+                "desde": desde, "minutos": _minutos_desde(desde), "detalle": ""}
+    desde = max(m for m in todas if m) if any(todas) else None
+    return {"estado": OK, "leido": _leido(), "activa": False, "desde": desde,
+            "minutos": _minutos_desde(desde), "detalle": ""}
+
+
+def _minutos_desde(marca):
+    if not marca:
+        return None
+    try:
+        momento = datetime.fromisoformat(str(marca).replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if momento.tzinfo is None:
+        momento = momento.replace(tzinfo=timezone.utc)
+    return max(0, int((_ahora() - momento).total_seconds() // 60))
+
+
+def taller(workspace, procesos=None, docker=None):
+    """El estado de la máquina donde se trabaja, leído en el momento (R1-R3, R6).
+
+    Nada de esto se guarda ni se cachea aquí: se lee del disco y de la máquina
+    cada vez que se compone la foto. Ninguna de las cuatro piezas puede tumbar
+    la página — cada una trae su propio `estado` y su motivo cuando no se pudo
+    mirar, y los comandos externos van con correa (`SEGUNDOS_COMANDO_EXTERNO`).
+    """
+    raiz = Path(workspace)
+    return {
+        "estado": OK,
+        "leido": _leido(),
+        "repos": [_repo(raiz, "meta-repo"), _repo(raiz / "main", "repo de código")],
+        "servidores": servidores_locales(workspace, procesos),
+        "docker": contenedores(docker),
+        "sesion": sesion_principal(workspace),
+    }
+
+
 # --------------------------------------------------------------------------- la foto entera
 
 def instantanea(workspace, procesos=None):
@@ -879,6 +1225,8 @@ def instantanea(workspace, procesos=None):
         "por_hacer": por_hacer(workspace, censo),
         "historial": historial(workspace, censo),
         "documentacion": documentacion(workspace),
+        # Unidad 121: el estado de la máquina, que Inicio pinta arriba del todo.
+        "taller": taller(workspace, procesos),
     }
 
 

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <link rel="icon" href="data:,">
-<title>Presentaciones locales · ingeniería de requisitos</title>
+<title>Entregas: te toca probar · ingeniería de requisitos</title>
 <style id="minimo-sin-base-css">
   /* R5 (unidad 076): el mínimo por si `/base.css` no llegara — fondo, tinta y
      familia literales, sin `var()`. La página quedaría sosa, pero NUNCA en
@@ -24,6 +24,11 @@
      test lo comparaba línea a línea; desde la 076 vive una sola vez en
      `visor/base.css`, que este servidor sirve en `/base.css`. Aquí abajo queda
      SÓLO lo propio de presentaciones: pestañas, adjuntos y decisión. */
+
+  /* Unidad 121: la cabecera que explica de qué va este apartado (misma regla
+     que en contratos, sólo tokens de `base.css`). */
+  .explica { max-width: 76ch; margin-top: var(--hueco); font-size: var(--t-menor); line-height: var(--lh-lectura); color: var(--muted); border-left: 2px solid var(--line); padding-left: var(--hueco); }
+  .explica strong { color: var(--ink); font-weight: bold; }
 
   /* ---------- propio del visor de presentaciones: pestañas, adjuntos, decisión ---------- */
   .boton-bandeja { border-bottom: 1px solid var(--line-soft) !important; margin-bottom: 8px !important; padding-bottom: 10px !important; }
@@ -78,8 +83,13 @@
     <header>
       <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
       <!-- apartado:barra -->
-      <div class="marca">ingeniería de requisitos · presentaciones</div>
-      <h1>Presentaciones</h1>
+      <div class="marca">ingeniería de requisitos · entregas</div>
+      <h1>Entregas: te toca probar</h1>
+      <div class="explica">
+        Aquí está lo que ya está construido y espera que lo pruebes tú, con sus pasos y la evidencia de que funciona.
+        Al confirmar das la entrega por buena y la unidad se archiva; nada se archiva sin que tú lo hayas visto funcionar.
+        Si algo falla, marcas <strong>problema</strong> y cuentas qué pasó: se abre un bug y el trabajo vuelve al taller.
+      </div>
       <div class="sub" id="sub">Cargando…</div>
     </header>
 
@@ -125,7 +135,7 @@
   var GRUPOS = [
     {tipo: "lector", titulo: "Lecturas"},
     {tipo: "propuesta", titulo: "Propuestas"},
-    {tipo: "validacion", titulo: "Validaciones"}
+    {tipo: "validacion", titulo: "Te toca validar"}
   ];
   var ETIQUETAS_TIPO = {lector: "lectura", propuesta: "propuesta", validacion: "validación", bandeja: "bandeja"};
 

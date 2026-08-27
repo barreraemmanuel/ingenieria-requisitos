@@ -22,6 +22,14 @@
      menú lateral, panel, plegables y tipografía) vive en `visor/base.css`, la
      hoja común que sirve `servir.py` en `/base.css`. Si algo hay que retocar,
      se retoca allí y las cuatro webs cambian a la vez. -->
+<!-- apartado:estilos -->
+<style>
+  /* Unidad 121: la cabecera que explica de qué va este apartado. Es lo único
+     propio de esta plantilla, y sólo usa tokens: ni un color a mano. */
+  .explica { max-width: 76ch; margin-top: var(--hueco); font-size: var(--t-menor); line-height: var(--lh-lectura); color: var(--muted); border-left: 2px solid var(--line); padding-left: var(--hueco); }
+  .explica strong { color: var(--ink); font-weight: bold; }
+</style>
+<!-- /apartado:estilos -->
 </head>
 <body>
 <script>
@@ -68,6 +76,11 @@
       <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos · contratos de trabajo</div>
       <h1>Contratos de las unidades</h1>
+      <div class="explica">
+        Un contrato es lo que el agente <strong>se compromete a construir</strong> y cómo lo probarás tú cuando esté.
+        Aprobarlo pone a un agente a trabajar en ello, y desde ese momento no cambia sin volver a esta pantalla.
+        Si algo no encaja, en lugar de aprobar puedes <strong>pedir cambios</strong>: nada arranca hasta que vuelvas a aprobarlo.
+      </div>
       <div class="sub" id="sub">Cargando…</div>
     </header>
 

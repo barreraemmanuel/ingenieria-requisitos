@@ -160,10 +160,14 @@ def escribir_rastro_aprobacion(workspace, que, ruta, huella, cliente, extra=None
 
 # Los cuatro apartados, en el orden de la barra común (desde la 076):
 # (clave, ruta, rótulo, marca de la cabecera).
+# Unidad 121: los rótulos son los que lee una persona que no conoce el método.
+# «Tablero» no decía qué era ni que fuese la portada; «Presentaciones» no decía
+# que ahí te toca probar algo. La clave interna (`tablero`, `presentaciones`) NO
+# cambia: es la que enrutan `web/abrir.py` y los lanzadores del método.
 APARTADOS = (
-    ("tablero", "/", "Tablero"),
+    ("tablero", "/", "Inicio"),
     ("contratos", "/contratos", "Contratos"),
-    ("presentaciones", "/presentaciones", "Presentaciones"),
+    ("presentaciones", "/presentaciones", "Entregas"),
     ("flujos", "/flujos", "Flujos"),
 )
 CLAVES = tuple(clave for clave, _, _ in APARTADOS)
@@ -341,7 +345,7 @@ CUERPO_SIN_PLANOS = """
       <main class="panel">
         <div class="vacio">Aquí no hay planos que enseñar todavía. Cuando el analista
         de flujos escriba el mapa, este apartado se llena solo. Mientras tanto, los
-        otros tres apartados funcionan: <a href="/">Tablero</a>,
+        otros tres apartados funcionan: <a href="/">Inicio</a>,
         <a href="/contratos">Contratos</a> y
         <a href="/presentaciones">Presentaciones</a>.</div>
       </main>
