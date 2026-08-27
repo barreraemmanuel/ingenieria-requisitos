@@ -269,7 +269,7 @@ def aprobar_contrato(workspace, nombre, quien="usuario (web)", via=VIA_WEB):
     if not LINEA_APROBADO.search(texto):
         raise ValueError("el contrato no tiene línea aprobado:")
     texto = LINEA_APROBADO.sub(
-        "aprobado: %s      # aprobado desde %s por el %s" % (hoy, via, quien), texto, count=1)
+        "aprobado: %s      # aprobado desde %s por %s" % (hoy, via, quien), texto, count=1)
     Path(ruta).write_text(texto, encoding="utf-8")
     registro = Path(workspace) / ".runtime" / RASTRO
     registro.parent.mkdir(parents=True, exist_ok=True)

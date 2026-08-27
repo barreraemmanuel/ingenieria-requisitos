@@ -1119,7 +1119,7 @@ def cmd_aprobar(args):
 
     quien = f"{args.por} (terminal)"
     huella = mod_web.huella_fichero(ruta)      # la huella de lo que ACABA de leer
-    fecha = mod_contratos.aprobar_contrato(str(RAIZ), nombre, quien,
+    fecha = mod_contratos.aprobar_contrato(str(RAIZ), nombre, args.por,
                                            mod_contratos.VIA_TERMINAL)
     mod_web.anotar_aprobado_por(ruta, quien)
     rastro = mod_web.escribir_rastro_aprobacion(
