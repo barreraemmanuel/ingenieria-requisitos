@@ -27,9 +27,9 @@ APARTADOS = (RAIZ / "visor_tablero" / "plantilla.html",
 YO = "presentaciones"
 
 WEBS = (
-    ("tablero", "/", "Tablero"),
+    ("tablero", "/", "Inicio"),
     ("contratos", "/contratos", "Contratos"),
-    ("presentaciones", "/presentaciones", "Presentaciones"),
+    ("presentaciones", "/presentaciones", "Entregas"),
     ("flujos", "/flujos", "Flujos"),
 )
 

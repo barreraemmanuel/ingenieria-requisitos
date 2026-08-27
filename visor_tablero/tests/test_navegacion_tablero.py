@@ -50,9 +50,9 @@ from test_visor_tablero import (            # noqa: E402  (mismo directorio)
 
 # Unidad 081: los cuatro apartados son rutas del MISMO origen, no cuatro puertos.
 WEBS = (
-    ("tablero", "/", "Tablero"),
+    ("tablero", "/", "Inicio"),
     ("contratos", "/contratos", "Contratos"),
-    ("presentaciones", "/presentaciones", "Presentaciones"),
+    ("presentaciones", "/presentaciones", "Entregas"),
     ("flujos", "/flujos", "Flujos"),
 )
 
