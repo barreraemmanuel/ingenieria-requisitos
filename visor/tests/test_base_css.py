@@ -557,3 +557,26 @@ class ServidoPorLosCuatroTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class HoverDelBotonPrimarioTest(unittest.TestCase):
+    """Bug 109: `.boton:hover` pone fondo `--panel` y `.boton-primario` lleva texto `--paper`:
+    al pasar el ratón por «Confirmar decisión» el texto se fundía con el fondo. La hoja tiene
+    que declarar un hover PROPIO del primario que conserve el contraste (fondo ≠ panel)."""
+
+    def setUp(self):
+        self.css = (RAIZ / "visor/base.css").read_text(encoding="utf-8")
+
+    def regla(self, selector):
+        import re
+        encontrada = re.search(re.escape(selector) + r"\s*\{([^}]*)\}", self.css)
+        return encontrada.group(1) if encontrada else None
+
+    def test_el_primario_tiene_hover_propio_con_contraste(self):
+        hover = self.regla(".boton-primario:hover")
+        self.assertIsNotNone(hover, "bug 109: .boton-primario no tiene hover propio; hereda el "
+                                    "fondo panel de .boton:hover y el texto papel desaparece")
+        self.assertIn("background", hover)
+        self.assertNotIn("var(--panel)", hover, "el fondo del hover no puede ser el panel: el texto es papel")
+        self.assertIn("color: var(--paper)", hover.replace("  ", " "))
+
