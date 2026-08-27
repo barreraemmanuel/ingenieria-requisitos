@@ -543,12 +543,60 @@ def resolver_skill(nombre, home_original):
     raise ErrorEjecucion(f"skill técnica no instalada: {nombre}")
 
 
-def encargo(nombre, rol, ficha, prompt, skills, home_original):
+def senales_para_el_revisor(worktree, rol):
+    """R3 (070): lo delicado que toca ESTE diff, para ponérselo delante al revisor.
+
+    Un revisor fresco llega sin saber dónde mirar primero y empieza por el principio del
+    diff, que es donde menos importa. La tabla de `senales-de-riesgo.json` ya sabe qué es
+    delicado; aquí solo se aplica al cambio real de la rama.
+
+    Nunca bloquea ni levanta: si el repo de código no está, si la rama no tiene base común o
+    si `unidad.py` no viaja al lado, el revisor recibe el encargo de siempre. El foco es una
+    ayuda, y una ayuda que impide lanzar al revisor es peor que no tenerla.
+    """
+    if rol != "revisor":
+        return ()
+    try:
+        import unidad as gestion_unidades
+    except ImportError:
+        return ()
+    try:
+        principal = repo_config.repo_code(RAIZ)[1]
+    except repo_config.RepoConfigError:
+        principal = "main"
+    codigo, base = git(worktree, "merge-base", principal, "HEAD")
+    if codigo or not base:
+        return ()
+    return tuple(gestion_unidades.senales_del_diff(
+        base=base.strip().splitlines()[-1], punta="HEAD", repo=worktree))
+
+
+def bloque_de_senales(senales):
+    """Las líneas del encargo que enseñan el foco. Vacío si no hay señales: sin ellas el
+    encargo del revisor es el de siempre, byte a byte (R4)."""
+    if not senales:
+        return []
+    filas = []
+    for senal in senales:
+        donde = senal.ruta if senal.linea is None else f"{senal.ruta}:{senal.linea}"
+        marca = "" if senal.nivel == "alta" else "  (informativa: vive en pruebas)"
+        filas.append(f"  - {senal.nombre} → {donde}{marca}")
+    return [
+        "\n--- Señales de riesgo detectadas (mira esto primero) ---",
+        "El cambio toca sitios que la tabla del método marca como delicados. No son "
+        "veredictos: son dónde empezar a leer.",
+        *filas,
+        "--- fin de las señales ---",
+    ]
+
+
+def encargo(nombre, rol, ficha, prompt, skills, home_original, senales=()):
     partes = [
         f"UNIDAD CANÓNICA: {nombre}",
         f"ROL: {rol}",
         f"CONTRATO: {ficha}",
         "Trabaja únicamente bajo el contrato y los permisos ya impuestos por el launcher.",
+        *bloque_de_senales(senales),
     ]
     for nombre_skill in skills:
         ruta = resolver_skill(nombre_skill, home_original)
@@ -1126,7 +1174,8 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             worktree_de_la_ejecucion(args, datos) as (worktree, efimero, origen_worktree):
         home_original = Path(os.environ.get("HOME", str(Path.home()))).resolve()
         texto = encargo(
-            args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original
+            args.unidad, args.rol, ficha, args.prompt, args.skill_tecnica, home_original,
+            senales=senales_para_el_revisor(worktree, args.rol),
         )
         ficha_bloqueada = None
         if ficha.parent == RAIZ / "docs/bugs":

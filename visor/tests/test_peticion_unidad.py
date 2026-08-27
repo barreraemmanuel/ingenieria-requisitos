@@ -37,6 +37,12 @@ class PeticionUnidadTest(unittest.TestCase):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
         self.unidad = scripts / "unidad.py"
+        # La tabla de señales de riesgo (unidad 070) viaja PEGADA a los scripts que la leen:
+        # sin ella, la puerta del carril directo no tiene contra qué comparar.
+        shutil.copy2(
+            RAIZ / "plantilla/docs/00-metodo/senales-de-riesgo.json",
+            self.ws / "docs/00-metodo/senales-de-riesgo.json",
+        )
 
         plantillas = self.ws / "docs/00-metodo/plantillas"
         plantillas.mkdir(parents=True)
@@ -1114,6 +1120,122 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         self.assertIn("Construye el padre", resultado.stdout)
         self.assertNotIn("ejecucion.py lanzar", resultado.stdout)
+
+    # ------------------------------------------- 070 · el riesgo se lee en lo que se toca
+    def preparar_directo(self, slug, ficheros, nivel=None):
+        """Una unidad de carril directo aprobada y con su `ficheros:` puesto a mano."""
+        pid = self.capturar()
+        self.evaluar(pid, ruta="directo")
+        creada = self.ejecutar(
+            self.unidad, "nueva", "feature", slug, "--directo", "--desde", pid
+        )
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        nombre = f"001-{slug}"
+        ruta = self.aprobar_para_despacho(nombre, nivel=nivel)
+        texto = re.sub(
+            r"(?m)^ficheros:.*$", f"ficheros: [{', '.join(ficheros)}]",
+            ruta.read_text(encoding="utf-8"), count=1,
+        )
+        ruta.write_text(texto, encoding="utf-8")
+        return nombre
+
+    def sembrar(self, relativa, contenido="print('ok')\n"):
+        destino = self.repo / relativa
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(contenido, encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", f"añade {relativa}"], cwd=self.repo,
+                       check=True, capture_output=True)
+        return f"main/{relativa}"
+
+    def test_directo_que_toca_acceso_no_se_despacha_y_nombra_la_salida(self):
+        """R2 — el criterio PORTANTE: si el atajo no se cierra, el resto es un informe."""
+        declarado = self.sembrar("app/auth/login.py")
+        nombre = self.preparar_directo("toca-el-login", [declarado])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 1, salida)
+        self.assertIn("acceso y autenticación", salida)
+        self.assertIn("app/auth/login.py", salida)
+        self.assertIn("carril: normal", salida)
+        self.assertIn(f"unidad.py despachar {nombre}", salida)
+        self.assertFalse((self.ws / "worktrees" / nombre).exists())
+
+    def test_directo_sin_senales_se_despacha_sin_una_palabra_nueva(self):
+        """R4 — sin señales, el despacho es el de hoy: ni una línea de más."""
+        declarado = self.sembrar("docs/manual.md", contenido="# Manual\n")
+        nombre = self.preparar_directo("solo-un-texto", [declarado])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertNotIn("señal", salida.lower())
+        self.assertNotIn("senales-de-riesgo", salida)
+
+    def test_el_cierre_de_un_directo_rechaza_el_contenido_delicado_del_diff(self):
+        """H1 · R2, mitad «contenido»: en el cierre SÍ hay diff, y ahí es donde se mira.
+
+        El despacho solo pudo leer `ficheros:`. Entre aquel momento y el cierre, el trabajo
+        metió `os.system(` en un fichero de nombre inocente y dentro de los topes de tamaño:
+        sin esta puerta, el atajo se cerraba con acta de entrega.
+        """
+        self.sembrar("app/util.py", contenido="def limpiar(nombre):\n    return nombre\n")
+        nombre = self.preparar_directo("shell-en-el-diff", ["app/util.py"])
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        worktree = self.ws / "worktrees" / nombre
+        (worktree / "app/util.py").write_text(
+            "import os\n\n\ndef limpiar(nombre):\n    os.system(\"rm -rf \" + nombre)\n",
+            encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "limpieza"], cwd=worktree, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "merge", "--ff-only", nombre], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.preparar_cierre(nombre)
+
+        resultado = self.ejecutar(
+            self.unidad, "cerrar", nombre, "--ok-usuario", datetime.date.today().isoformat())
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("comandos de sistema", salida)
+        self.assertIn("app/util.py:5", salida)
+        self.assertIn(f"unidad.py reencuadrar {nombre} --carril normal", salida)
+
+    def preparar_cierre(self, nombre):
+        """Lo que el ritual de cierre exige antes de la puerta 6: estado, revisión y parte."""
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        spec = carpeta / "especificacion.md"
+        spec.write_text(
+            re.sub(r"(?m)^estado:.*$", "estado: en_revision",
+                   spec.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8")
+        hallazgos = carpeta / "hallazgos.md"
+        texto = hallazgos.read_text(encoding="utf-8")
+        texto = re.sub(r"^revisor:.*$", "revisor: agente-fresco", texto, count=1, flags=re.M)
+        texto = re.sub(r"^revisado:.*$", f"revisado: {datetime.date.today().isoformat()}",
+                       texto, count=1, flags=re.M)
+        texto = texto.replace("- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN",
+                              "- **Veredicto:** LIMPIO")
+        hallazgos.write_text(texto, encoding="utf-8")
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
+        self.recibos_de_revision(nombre)
+
+    def test_una_senal_solo_en_tests_avisa_pero_no_cierra_el_atajo(self):
+        """R5 — un fixture con la palabra `login` dentro no es un cambio de acceso."""
+        declarado = self.sembrar("tests/test_login.py", contenido="def test_login():\n    pass\n")
+        nombre = self.preparar_directo("senal-en-un-test", [declarado])
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("acceso y autenticación", salida)
+        self.assertIn("informativa", salida.lower())
     # ------------------------------------------------------ 096 · reencuadre de carril
     def despachar_directo(self, slug):
         """Una unidad directo ya en obra: el punto en que se descubre que era más grande."""
@@ -2514,6 +2636,200 @@ class SalidaDelTrabajoProbadaTest(unittest.TestCase):
         fm = {"ficheros": "[api/x.py, ./api/x.py, API/x.py, api\\x.py]"}
 
         self.assertEqual(self.unidad.ficheros_de(fm), {"api/x.py"})
+
+
+class SenalesDeRiesgoTest(unittest.TestCase):
+    """Unidad 070: el riesgo se lee en lo que toca el cambio, no en cuántas líneas tiene.
+
+    El carril directo se decidía por tamaño (1-3 ficheros, 250 líneas) y los hotspots eran
+    una lista en prosa de `runbooks/directo.md` que solo recordaba quien redactaba la ficha.
+    Aquí se comprueba la tabla ejecutable que la sustituye.
+    """
+
+    def setUp(self):
+        self.unidad = cargar_modulo_unidad()
+        self.tabla = self.unidad.cargar_senales(
+            RAIZ / "plantilla/docs/00-metodo/senales-de-riesgo.json"
+        )
+        self.tmp = tempfile.TemporaryDirectory(prefix="senales-")
+        self.addCleanup(self.tmp.cleanup)
+        self.repo = Path(self.tmp.name) / "codigo"
+        self.repo.mkdir()
+        self.git("init", "-b", "main")
+        self.git("config", "user.name", "Test")
+        self.git("config", "user.email", "test@example.com")
+        (self.repo / "notas.txt").write_text("base\n", encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-m", "base")
+        self.base = self.git("rev-parse", "HEAD")
+
+    def git(self, *args):
+        return subprocess.run(
+            ["git", *args], cwd=self.repo, check=True, capture_output=True, text=True,
+            encoding="utf-8", errors="replace",
+        ).stdout.strip()
+
+    def commit(self, relativa, contenido):
+        destino = self.repo / relativa
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        destino.write_text(contenido, encoding="utf-8")
+        self.git("add", ".")
+        self.git("commit", "-m", f"toca {relativa}")
+        return self.git("rev-parse", "HEAD")
+
+    # ------------------------------------------------------------------ R1 · la tabla
+    def test_la_tabla_es_valida_y_lleva_los_hotspots_que_directo_md_listaba(self):
+        ids = [senal.id for senal in self.tabla]
+        self.assertEqual(len(ids), len(set(ids)), "ids repetidos en senales-de-riesgo.json")
+        for senal in self.tabla:
+            self.assertIn(senal.nivel, ("alta", "informativa"))
+            self.assertTrue(senal.nombre.strip(), f"{senal.id} sin nombre humano")
+            self.assertTrue(senal.rutas or senal.contenido,
+                            f"{senal.id} no tiene ni un patrón: no puede casar nunca")
+        for hotspot in ("migraciones", "rutas", "modelos-compartidos", "lockfiles"):
+            self.assertIn(hotspot, ids)
+
+    def test_directo_md_remite_al_fichero_en_vez_de_repetir_la_lista(self):
+        runbook = (RAIZ / "plantilla/docs/00-metodo/runbooks/directo.md").read_text(
+            encoding="utf-8")
+        self.assertIn("senales-de-riesgo.json", runbook)
+
+    # ------------------------------------------- R2 · la señal por ruta y por contenido
+    def test_la_ruta_declarada_basta_para_cantar_la_senal(self):
+        detectadas = self.unidad.senales_del_diff(
+            ficheros=["main/app/pagos/checkout.py"], senales=self.tabla)
+
+        self.assertEqual([d.id for d in detectadas], ["dinero"])
+        self.assertEqual(detectadas[0].nivel, "alta")
+        self.assertIsNone(detectadas[0].linea)
+
+    def test_el_contenido_del_diff_canta_aunque_la_ruta_sea_inocente(self):
+        punta = self.commit(
+            "app/util.py",
+            "def limpiar(nombre):\n    os.system(\"rm -rf \" + nombre)\n",
+        )
+
+        detectadas = self.unidad.senales_del_diff(
+            repo=self.repo, base=self.base, punta=punta, senales=self.tabla)
+
+        ids = {d.id for d in detectadas}
+        self.assertIn("comandos-de-sistema", ids)
+        comando = next(d for d in detectadas if d.id == "comandos-de-sistema")
+        self.assertEqual(comando.nivel, "alta")
+        self.assertEqual(comando.ruta, "app/util.py")
+        self.assertEqual(comando.linea, 2)
+
+    def test_el_mensaje_del_rechazo_nombra_senal_fichero_y_comando(self):
+        detectadas = self.unidad.senales_del_diff(
+            ficheros=["main/app/auth/login.py"], senales=self.tabla)
+
+        mensaje = self.unidad.mensaje_senales_altas("001-x", detectadas)
+
+        self.assertIn("acceso y autenticación", mensaje)
+        self.assertIn("main/app/auth/login.py", mensaje)
+        self.assertIn("unidad.py despachar 001-x", mensaje)
+        self.assertIn("senales-de-riesgo.json", mensaje)
+
+        # Tras la rama la salida es OTRA: reencuadrar, no corregir la ficha (H1).
+        con_rama = self.unidad.mensaje_senales_altas("001-x", detectadas, tras_la_rama=True)
+        self.assertIn("unidad.py reencuadrar 001-x --carril normal", con_rama)
+        self.assertNotIn("unidad.py despachar 001-x", con_rama)
+
+    # --------------------------------------------------- R4 · sin señales, nada cambia
+    def test_sin_senales_no_hay_deteccion_alguna(self):
+        punta = self.commit("docs/manual.md", "# Manual\n\nUn párrafo.\n")
+
+        self.assertEqual(
+            self.unidad.senales_del_diff(repo=self.repo, base=self.base, punta=punta,
+                                         ficheros=["main/docs/manual.md"],
+                                         senales=self.tabla),
+            [],
+        )
+
+    def test_un_nombre_de_fichero_suelto_no_es_un_hotspot(self):
+        """H2 — los cinco ejemplos que la revisión encontró dando ALTA sin tocar nada.
+
+        La frontera ancha que R5 necesitaba (`test_login.py`) hacía que los hotspots casaran
+        contra NOMBRES sueltos y contra documentación: un directo que editaba `docs/api.md`
+        se rechazaba, y eso es justo lo que R4 prohíbe («un texto pasa exactamente como hoy»).
+        Los hotspots casan por segmento de ruta o por fichero de código, nunca por el nombre.
+        """
+        for inocente in ("docs/api.md", "docs/api-reference.md", "docs/roles.md",
+                         "docs/models.md", "hot-keys.js"):
+            with self.subTest(fichero=inocente):
+                self.assertEqual(
+                    self.unidad.senales_del_diff(ficheros=[inocente], senales=self.tabla), [],
+                    f"{inocente} no toca nada delicado y no puede cerrar el carril directo")
+
+    def test_el_hotspot_sigue_cantando_donde_de_verdad_vive(self):
+        """El otro lado de H2: acotar no puede dejar la señal sin morder."""
+        for ruta, esperado in (("app/routes.py", "rutas"),
+                               ("app/routes/publicas.py", "rutas"),
+                               ("app/models.py", "modelos-compartidos"),
+                               ("db/migrations/001_inicial.sql", "migraciones"),
+                               ("package-lock.json", "lockfiles"),
+                               ("app/secrets.py", "secretos")):
+            with self.subTest(fichero=ruta):
+                detectadas = self.unidad.senales_del_diff(ficheros=[ruta], senales=self.tabla)
+                self.assertEqual([(d.id, d.nivel) for d in detectadas], [(esperado, "alta")])
+
+    def test_un_secreto_pegado_en_un_markdown_sigue_cantando_por_contenido(self):
+        """La exclusión de H2 es solo para los patrones de RUTA: el contenido sigue vivo."""
+        punta = self.commit("README.md", "# Guía\n\n    API_KEY = sk-live-1234\n")
+
+        detectadas = self.unidad.senales_del_diff(
+            repo=self.repo, base=self.base, punta=punta, senales=self.tabla)
+
+        self.assertEqual([(d.id, d.ruta, d.linea) for d in detectadas],
+                         [("secretos", "README.md", 3)])
+
+    # --------------------------------------------- R5 · dentro de tests, solo informa
+    def test_una_senal_dentro_de_tests_baja_a_informativa(self):
+        detectadas = self.unidad.senales_del_diff(
+            ficheros=["main/tests/test_login.py", "main/app/fixtures/pagos.json"],
+            senales=self.tabla)
+
+        self.assertEqual(
+            {(d.id, d.ruta) for d in detectadas},
+            {("acceso", "main/tests/test_login.py"),
+             ("dinero", "main/app/fixtures/pagos.json")},
+        )
+        self.assertEqual({d.nivel for d in detectadas}, {"informativa"})
+
+    # --------------------------------------- R3 · el encargo del revisor lleva el foco
+    def test_el_encargo_del_revisor_lleva_las_senales_con_fichero_y_linea(self):
+        sys.path.insert(0, str(SCRIPTS))
+        try:
+            ejecucion = importlib.import_module("ejecucion")
+        finally:
+            sys.path.remove(str(SCRIPTS))
+        detectadas = [
+            self.unidad.Deteccion("acceso", "acceso y autenticación", "alta",
+                                  "app/auth/login.py", 12),
+            self.unidad.Deteccion("lockfiles", "ficheros de bloqueo de dependencias "
+                                  "(hotspot)", "alta", "package-lock.json", None),
+        ]
+        argumentos = ("001-x", "revisor", Path("docs/05-trabajo/001-x/especificacion.md"),
+                      "Revisa el diff", (), Path.home())
+
+        con = ejecucion.encargo(*argumentos, senales=detectadas)
+        sin = ejecucion.encargo(*argumentos, senales=())
+
+        self.assertIn("Señales de riesgo detectadas", con)
+        self.assertIn("app/auth/login.py:12", con)
+        self.assertIn("package-lock.json", con)
+        # R4: sin señales el encargo es el de hoy, byte a byte.
+        self.assertEqual(sin, ejecucion.encargo(*argumentos))
+        self.assertNotIn("Señales de riesgo", sin)
+
+    # ------------------------------------------------------- R6 · rechazos en banda
+    def test_los_rechazos_nuevos_estan_en_banda(self):
+        guardian = SCRIPTS / "lint_salidas.py"
+        resultado = subprocess.run(
+            [sys.executable, str(guardian)], cwd=RAIZ / "plantilla",
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
 
 
 if __name__ == "__main__":
