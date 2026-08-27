@@ -135,9 +135,11 @@ DECISIONES = (
     "031-sanidad-repara-papeles-nunca-codigo.md",
     "032-receta-de-despliegue-de-serie.md",
     "033-el-constructor-es-un-subagente-del-padre.md",
+    "034-los-guardianes-no-pueden-encerrar-al-usuario.md",
     "035-sin-ci-remoto-por-defecto.md",
     "036-paralelizar-por-defecto.md",
     "037-paridad-codex-claude.md",
+    "038-el-entorno-limpio-tambien-tiene-que-serlo-en-windows.md",
 )
 METODO_RAIZ = (
     "README.md", "VERSION", "roles.md", "comunicacion.md", "auditoria-calidad.md",

@@ -104,17 +104,21 @@ HEREDAR_ENV = {
     # `claude auth status` da loggedIn=false pese a heredar HOME real (verificado en
     # sesión, unidad 012 — no es HOME lo que faltaba, es esto).
     "USER", "LOGNAME",
-    # Bug 037: Windows. Sin SYSTEMROOT/WINDIR el propio cargador del sistema no
-    # encuentra sus DLL y winsock no llega a resolver un nombre: el agente delegado se
-    # queda reconectando con el socket 11003 aunque el equipo resuelva DNS de sobra
-    # (caja negra a19ef4d7, verificado por el alumno inyectando estas variables a
-    # mano). USERPROFILE/APPDATA/LOCALAPPDATA son el equivalente de HOME allí, y sin
-    # ellas ni el harness ni git encuentran su configuración. La lista se escribió
-    # para macOS y Linux y nunca se revisó contra Windows.
+    # Bug 037 / ADR-038: sin las variables del sistema, un ejecutable NATIVO de Windows
+    # ni encuentra sus DLL (el proceso se aborta antes de main() con 0xC0000409, exit
+    # 3221226505) ni resuelve nombres por winsock (socket 11003, caja negra a19ef4d7) ni
+    # localiza su propia configuración (USERPROFILE/APPDATA/LOCALAPPDATA son el
+    # equivalente de HOME allí). Medido en los dos sentidos: sin SYSTEMROOT da
+    # 3221226505, añadiendo solo esa variable da exit 0. Arreglado dos veces en paralelo
+    # (fork y upstream) contra el mismo bug; esta es la unión de ambas listas.
     # `os.environ` normaliza estas claves a mayúsculas en Windows (os.py,
-    # encodekey=str.upper), así que el nombre en mayúsculas es el que hay que buscar
-    # aunque el sistema las escriba `SystemRoot` o `windir`.
-    "SYSTEMROOT", "WINDIR", "USERPROFILE", "APPDATA", "LOCALAPPDATA",
+    # encodekey=str.upper) al poblarlas desde el sistema real, así que el nombre en
+    # mayúsculas es el que hay que buscar aunque el sistema las escriba `SystemRoot` o
+    # `windir` — importa para los tests que simulan os.environ con un dict plano, donde
+    # no hay normalización automática de mayúsculas.
+    "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+    "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
+    "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
 }
 
 
