@@ -1,5 +1,5 @@
 {
- "_porque": "El riesgo de un cambio no se lee en cuántas líneas tiene, sino en QUÉ toca: cinco líneas en la autorización pesan más que un rename mecánico de cinco mil. Esta tabla nombra lo delicado —acceso, dinero, borrado de datos, secretos, comandos de sistema— y los cuatro hotspots que `runbooks/directo.md` listaba en prosa y nadie medía (migraciones, rutas, modelos compartidos, lockfiles). Dos consumidores: `unidad.py` cierra el carril directo cuando una señal ALTA aparece, y `ejecucion.py` se las pone delante al revisor como foco. Los patrones son expresiones regulares de Python, sin distinguir mayúsculas: `rutas` casa contra la ruta del fichero (con `/` como separador), `contenido` contra las líneas AÑADIDAS del diff.",
+ "_porque": "El riesgo de un cambio no se lee en cuántas líneas tiene, sino en QUÉ toca: cinco líneas en la autorización pesan más que un rename mecánico de cinco mil. Esta tabla nombra lo delicado —acceso, dinero, borrado de datos, secretos, comandos de sistema— y los cuatro hotspots que `runbooks/directo.md` listaba en prosa y nadie medía (migraciones, rutas, modelos compartidos, lockfiles). Dos consumidores: `unidad.py` cierra el carril directo cuando una señal ALTA aparece, y `ejecucion.py` se las pone delante al revisor como foco. Los patrones son expresiones regulares de Python, sin distinguir mayúsculas: `rutas` casa contra la ruta del fichero (con `/` como separador), `contenido` contra las líneas AÑADIDAS del diff. Los patrones de RUTA no se aplican a documentación (`.md`, `.rst`, `.txt`, `.adoc`): un `docs/api.md` no es el fichero de rutas de la app, y confundirlos cerraba el carril directo del día a día (hueco H2 de la revisión de la 070). Los hotspots casan por SEGMENTO de ruta —un directorio `routes/`— o por un nombre de fichero de código —`routes.py`—, nunca por un nombre suelto como `hot-keys.js`.",
  "version": 1,
  "senales": [
   {
@@ -45,8 +45,9 @@
    "nivel": "alta",
    "porque": "lo que se filtra aquí ya no se puede recoger; y el método prohíbe que un secreto salga de `.private/`",
    "rutas": [
-    "(^|/)(\\.env(?:\\.\\w+)?|secrets?|credenciales|credentials|\\.netrc|id_rsa|.*\\.pem|.*\\.key)$",
-    "(^|[/._-])(secretos?|secrets?|credenciales|credentials|keys?)([/._-]|$)"
+    "(?:^|/)(?:\\.env(?:\\.\\w+)?|\\.netrc|id_rsa|[^/]+\\.pem|[^/]+\\.key)$",
+    "(?:^|/)(?:secretos?|secrets?|credenciales|credentials|keys)(?:/|$)",
+    "(?:^|/)(?:secretos?|secrets?|credenciales|credentials)\\.[a-z0-9]+$"
    ],
    "contenido": [
     "\\b(API_KEY|SECRET_KEY|CLIENT_SECRET|ACCESS_TOKEN|PRIVATE_KEY|PASSWORD)\\b",
@@ -74,7 +75,8 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: una migración no se deshace revirtiendo el commit",
    "rutas": [
-    "(^|[/._-])(migrations?|migraciones|alembic|db/migrate|schema_migrations)([/._-]|$)"
+    "(?:^|/)(?:migrations?|migraciones|alembic|schema_migrations)(?:/|$)",
+    "(?:^|/)db/migrate(?:/|$)"
    ],
    "contenido": [
     "\\b(?:ALTER\\s+TABLE|CREATE\\s+TABLE)\\b",
@@ -87,7 +89,8 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: es el fichero que TODAS las unidades en vuelo tocan a la vez",
    "rutas": [
-    "(^|[/._-])(routes?|rutas?|router|routers|urls?|urlconf|endpoints?|controllers?|api)([/._-]|$)"
+    "(?:^|/)(?:routes?|rutas?|router|routers|urls?|urlconf|endpoints?|controllers?|api)(?:/|$)",
+    "(?:^|/)(?:routes?|rutas?|router|urls?|urlconf|endpoints?|controllers?)\\.(?:py|js|mjs|cjs|jsx|ts|tsx|rb|go|java|kt|php|rs|cs|swift|scala|ex|exs|sql)$"
    ],
    "contenido": []
   },
@@ -97,7 +100,8 @@
    "nivel": "alta",
    "porque": "hotspot de `runbooks/directo.md`: lo que cambia aquí cambia debajo de todo el que lee ese modelo",
    "rutas": [
-    "(^|[/._-])(models?|modelos?|schemas?|esquemas?|entities|entidades|dominio|domain)([/._-]|$)"
+    "(?:^|/)(?:models?|modelos?|schemas?|esquemas?|entities|entidades|dominio|domain)(?:/|$)",
+    "(?:^|/)(?:models?|modelos?|schemas?|esquemas?|entities|entidades)\\.(?:py|js|mjs|cjs|jsx|ts|tsx|rb|go|java|kt|php|rs|cs|swift|scala|ex|exs|sql)$"
    ],
    "contenido": []
   },

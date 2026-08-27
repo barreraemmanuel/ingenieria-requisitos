@@ -1904,8 +1904,8 @@ def _cmd_despachar(args, autoridad, snapshot=None):
     # --- Precondición 5quáter (070): un directo que toca algo delicado no era directo ------
     # Solo en carril DIRECTO, y solo cuando hay señal: sin ella el despacho es el de siempre,
     # línea por línea. Aquí todavía no hay rama, así que lo único que se puede mirar es el
-    # `ficheros:` declarado — el contenido lo miran el revisor (ejecucion.py) y el cierre,
-    # que sí tienen diff.
+    # `ficheros:` declarado. El CONTENIDO se mira donde sí hay diff: el revisor lo recibe
+    # como foco (`ejecucion.py`) y el cierre lo RECHAZA en `puerta_carril_directo`.
     if not args.documental and (fm.get("carril") or "").strip().lower() == "directo":
         detecciones = senales_del_diff(ficheros=[r for r, _ in rutas_declaradas(fm)])
         for informativa in [d for d in detecciones if d.nivel != "alta"]:
@@ -2593,6 +2593,18 @@ def es_de_pruebas(ruta):
     return bool(RE_PRUEBAS.search(normalizar_ruta(ruta)))
 
 
+# Un `.md` no es el fichero de rutas de la app aunque se llame `docs/api.md`, ni el modelo
+# compartido aunque se llame `docs/models.md`. Los patrones de RUTA hablan de dónde vive el
+# código; sobre documentación solo tiene sentido mirar el CONTENIDO (un secreto pegado en un
+# README sigue siendo un secreto). Sin esto, un directo que edita `docs/roles.md` se
+# rechazaba: justo lo que R4 prohíbe (hueco H2 de la revisión).
+RE_DOCUMENTACION = re.compile(r"\.(?:md|markdown|rst|txt|adoc|org)$", re.I)
+
+
+def es_documentacion(ruta):
+    return bool(RE_DOCUMENTACION.search(normalizar_ruta(ruta)))
+
+
 def normalizar_ruta(ruta):
     return posixpath.normpath(str(ruta).replace("\\", "/"))
 
@@ -2685,6 +2697,8 @@ def senales_del_diff(base=None, punta=None, ficheros=(), repo=None, senales=None
         rutas_del_diff, anadidas = cambio_del_diff(repo, base, punta)
     for ruta in list(ficheros) + list(rutas_del_diff):
         normal = normalizar_ruta(ruta)
+        if es_documentacion(normal):
+            continue
         for senal in senales:
             if any(patron.search(normal) for patron in senal.rutas):
                 anotar(senal, normal, None)
@@ -2702,20 +2716,38 @@ def donde_de(deteccion):
     return f"{deteccion.ruta}:{deteccion.linea}"
 
 
-def mensaje_senales_altas(nombre, detecciones):
-    """El rechazo del despacho: qué señal, en qué fichero, y por dónde se sale."""
+def mensaje_senales_altas(nombre, detecciones, tras_la_rama=False):
+    """El rechazo por señal ALTA: qué señal, en qué fichero, y por dónde se sale.
+
+    La salida NO es la misma en los dos puntos donde se rechaza, y por eso el parámetro:
+    en el despacho todavía no hay rama y basta con corregir la ficha; en el cierre la rama
+    existe y tiene commits, así que subir de carril es `reencuadrar` — el mismo camino que
+    ya ofrece la puerta de tamaño, que vive dos líneas más arriba.
+    """
     altas = [d for d in detecciones if d.nivel == "alta"]
     puntos = "; ".join(f"«{d.nombre}» en {donde_de(d)}" for d in altas)
-    return (
+    cabeza = (
         f"{nombre} sale por el carril DIRECTO y lo que toca es delicado: {puntos}. El "
         f"directo promete un cambio que encaja donde ya vive y se deshace revirtiendo; "
         f"esto no lo es, y el tamaño no lo dice — cinco líneas en el acceso pesan más que "
-        f"un rename de cinco mil. {SALIDA} súbelo a normal antes de que exista una rama: "
+        f"un rename de cinco mil. "
+    )
+    escape = (f"  Si la señal es un falso positivo, acótala en "
+              f"docs/00-metodo/senales-de-riesgo.json y vuelve a intentarlo")
+    if tras_la_rama:
+        motivo = altas[0].id if altas else "una señal de riesgo"
+        return (
+            cabeza + f"{SALIDA} reencuádralo a normal, que reescribe el registro de "
+            f"despacho y deja el motivo con fecha en la ficha; después se cierra por el "
+            f"ritual de `runbooks/feature.md`, con sus puertas:\n"
+            f"      python3 docs/00-metodo/scripts/unidad.py reencuadrar {nombre} "
+            f"--carril normal --motivo \"toca {motivo}\"\n" + escape
+        )
+    return (
+        cabeza + f"{SALIDA} súbelo a normal antes de que exista una rama: "
         f"pon `carril: normal` en la ficha de {nombre} y complétala con "
         f"`plantillas/especificacion.md` (runbooks/feature.md); después:\n"
-        f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}\n"
-        f"  Si la señal es un falso positivo, acótala en "
-        f"docs/00-metodo/senales-de-riesgo.json y vuelve a despachar"
+        f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}\n" + escape
     )
 
 
@@ -2879,6 +2911,15 @@ def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_pr
     )
     if (len(tocados) > LIMITE_DIRECTO_FICHEROS or lineas > LIMITE_DIRECTO_LINEAS or fuera):
         return mensaje_directo_desbordado(nombre, len(tocados), lineas, fuera, punta), None
+    # Unidad 070, segunda mitad de R2: aquí SÍ hay diff, así que aquí se mira el CONTENIDO.
+    # El despacho solo pudo leer el `ficheros:` declarado; entre aquel momento y este, el
+    # trabajo pudo meter un `os.system(` en un fichero de nombre inocente y dentro de los
+    # topes de tamaño, y el tamaño no dice nada de eso. Misma base y misma punta que la
+    # medida de arriba: una sola verdad, la que el contrato pedía reutilizar.
+    altas = [d for d in senales_del_diff(base=base, punta=punta, repo=repo)
+             if d.nivel == "alta"]
+    if altas:
+        return mensaje_senales_altas(nombre, altas, tras_la_rama=True), None
     return None, (f"carril directo dentro de sus límites: {len(tocados)} fichero(s), "
                   f"{lineas} línea(s), todos declarados (medido desde {base[:8]}, "
                   f"{origen_base}, hasta {punta})")

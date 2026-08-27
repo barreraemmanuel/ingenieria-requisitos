@@ -1175,6 +1175,56 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertNotIn("señal", salida.lower())
         self.assertNotIn("senales-de-riesgo", salida)
 
+    def test_el_cierre_de_un_directo_rechaza_el_contenido_delicado_del_diff(self):
+        """H1 · R2, mitad «contenido»: en el cierre SÍ hay diff, y ahí es donde se mira.
+
+        El despacho solo pudo leer `ficheros:`. Entre aquel momento y el cierre, el trabajo
+        metió `os.system(` en un fichero de nombre inocente y dentro de los topes de tamaño:
+        sin esta puerta, el atajo se cerraba con acta de entrega.
+        """
+        self.sembrar("app/util.py", contenido="def limpiar(nombre):\n    return nombre\n")
+        nombre = self.preparar_directo("shell-en-el-diff", ["app/util.py"])
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        worktree = self.ws / "worktrees" / nombre
+        (worktree / "app/util.py").write_text(
+            "import os\n\n\ndef limpiar(nombre):\n    os.system(\"rm -rf \" + nombre)\n",
+            encoding="utf-8")
+        subprocess.run(["git", "add", "."], cwd=worktree, check=True)
+        subprocess.run(["git", "commit", "-m", "limpieza"], cwd=worktree, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "merge", "--ff-only", nombre], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.preparar_cierre(nombre)
+
+        resultado = self.ejecutar(
+            self.unidad, "cerrar", nombre, "--ok-usuario", datetime.date.today().isoformat())
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn("comandos de sistema", salida)
+        self.assertIn("app/util.py:5", salida)
+        self.assertIn(f"unidad.py reencuadrar {nombre} --carril normal", salida)
+
+    def preparar_cierre(self, nombre):
+        """Lo que el ritual de cierre exige antes de la puerta 6: estado, revisión y parte."""
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        spec = carpeta / "especificacion.md"
+        spec.write_text(
+            re.sub(r"(?m)^estado:.*$", "estado: en_revision",
+                   spec.read_text(encoding="utf-8"), count=1),
+            encoding="utf-8")
+        hallazgos = carpeta / "hallazgos.md"
+        texto = hallazgos.read_text(encoding="utf-8")
+        texto = re.sub(r"^revisor:.*$", "revisor: agente-fresco", texto, count=1, flags=re.M)
+        texto = re.sub(r"^revisado:.*$", f"revisado: {datetime.date.today().isoformat()}",
+                       texto, count=1, flags=re.M)
+        texto = texto.replace("- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN",
+                              "- **Veredicto:** LIMPIO")
+        hallazgos.write_text(texto, encoding="utf-8")
+        ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
+        self.recibos_de_revision(nombre)
+
     def test_una_senal_solo_en_tests_avisa_pero_no_cierra_el_atajo(self):
         """R5 — un fixture con la palabra `login` dentro no es un cambio de acceso."""
         declarado = self.sembrar("tests/test_login.py", contenido="def test_login():\n    pass\n")
@@ -2680,6 +2730,11 @@ class SenalesDeRiesgoTest(unittest.TestCase):
         self.assertIn("unidad.py despachar 001-x", mensaje)
         self.assertIn("senales-de-riesgo.json", mensaje)
 
+        # Tras la rama la salida es OTRA: reencuadrar, no corregir la ficha (H1).
+        con_rama = self.unidad.mensaje_senales_altas("001-x", detectadas, tras_la_rama=True)
+        self.assertIn("unidad.py reencuadrar 001-x --carril normal", con_rama)
+        self.assertNotIn("unidad.py despachar 001-x", con_rama)
+
     # --------------------------------------------------- R4 · sin señales, nada cambia
     def test_sin_senales_no_hay_deteccion_alguna(self):
         punta = self.commit("docs/manual.md", "# Manual\n\nUn párrafo.\n")
@@ -2690,6 +2745,43 @@ class SenalesDeRiesgoTest(unittest.TestCase):
                                          senales=self.tabla),
             [],
         )
+
+    def test_un_nombre_de_fichero_suelto_no_es_un_hotspot(self):
+        """H2 — los cinco ejemplos que la revisión encontró dando ALTA sin tocar nada.
+
+        La frontera ancha que R5 necesitaba (`test_login.py`) hacía que los hotspots casaran
+        contra NOMBRES sueltos y contra documentación: un directo que editaba `docs/api.md`
+        se rechazaba, y eso es justo lo que R4 prohíbe («un texto pasa exactamente como hoy»).
+        Los hotspots casan por segmento de ruta o por fichero de código, nunca por el nombre.
+        """
+        for inocente in ("docs/api.md", "docs/api-reference.md", "docs/roles.md",
+                         "docs/models.md", "hot-keys.js"):
+            with self.subTest(fichero=inocente):
+                self.assertEqual(
+                    self.unidad.senales_del_diff(ficheros=[inocente], senales=self.tabla), [],
+                    f"{inocente} no toca nada delicado y no puede cerrar el carril directo")
+
+    def test_el_hotspot_sigue_cantando_donde_de_verdad_vive(self):
+        """El otro lado de H2: acotar no puede dejar la señal sin morder."""
+        for ruta, esperado in (("app/routes.py", "rutas"),
+                               ("app/routes/publicas.py", "rutas"),
+                               ("app/models.py", "modelos-compartidos"),
+                               ("db/migrations/001_inicial.sql", "migraciones"),
+                               ("package-lock.json", "lockfiles"),
+                               ("app/secrets.py", "secretos")):
+            with self.subTest(fichero=ruta):
+                detectadas = self.unidad.senales_del_diff(ficheros=[ruta], senales=self.tabla)
+                self.assertEqual([(d.id, d.nivel) for d in detectadas], [(esperado, "alta")])
+
+    def test_un_secreto_pegado_en_un_markdown_sigue_cantando_por_contenido(self):
+        """La exclusión de H2 es solo para los patrones de RUTA: el contenido sigue vivo."""
+        punta = self.commit("README.md", "# Guía\n\n    API_KEY = sk-live-1234\n")
+
+        detectadas = self.unidad.senales_del_diff(
+            repo=self.repo, base=self.base, punta=punta, senales=self.tabla)
+
+        self.assertEqual([(d.id, d.ruta, d.linea) for d in detectadas],
+                         [("secretos", "README.md", 3)])
 
     # --------------------------------------------- R5 · dentro de tests, solo informa
     def test_una_senal_dentro_de_tests_baja_a_informativa(self):
