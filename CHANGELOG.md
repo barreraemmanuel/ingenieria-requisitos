@@ -4,6 +4,53 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.0 — 2026-08-27
+
+Tres días de trabajo con feedback de campo (correo de soporte, cajas negras y Discord): la web
+única, la verificación en local, el trabajo en paralelo y una tanda larga de robustez.
+
+**Una sola web para todo (081, 091, 107 y la iteración del 26-08).** Un solo servidor y un menú
+lateral con cuatro apartados: tablero, contratos, presentaciones y flujos. Desde ahí **apruebas o
+pides cambios** en cada contrato, apruebas los planos de flujos y das el OK de cada entrega con
+un botón: el recibo lleva la huella exacta de lo que tenías delante, y el agente ya no puede dar
+por aprobado lo que no has visto (a partir del 28-08 el despacho exige ese rastro; lo aprobado
+antes sigue valiendo). Estética más tranquila: sin mayúsculas forzadas, interlineado 1.6, listas
+y formularios como componentes, y Presentaciones enseña todas las validaciones pendientes.
+
+**La verificación es local (097, ADR-035).** El método deja de proponer GitHub Actions: la suite
+y los lints se corren en tu máquina antes de fusionar y ese output es la evidencia. Desaparece
+del plan el paso «espera al CI y míralo» que dejaba a los constructores sin turno.
+
+**Trabajo en paralelo por defecto (099, ADR-036).** Todas las unidades aprobadas que no compartan
+ficheros se despachan a la vez, cada una con su subagente; la serie es la excepción. Una sola
+suite completa a la vez en la máquina.
+
+**Codex a la par de Claude (100 y 108).** La regla de modelo y esfuerzo es por harness y Codex
+deja de ser inejecutable; el recibo de Claude acredita la sesión por su transcript y el revisor
+Codex corre en un perfil de solo lectura de verdad. Si el proyecto necesita Docker o WSL, el
+método los instala pero te avisa y pide permiso antes (098).
+
+**Puertas del cierre que no se engañan.** La firma del revisor vale para un contenido exacto
+(068); las rondas de corrección se cuentan y la tercera se rechaza (069); el carril directo se
+cierra por lo que toca el cambio, no solo por su tamaño (070); lo aprendido se escribe al
+terminar, por quien lo aprendió (071); las reglas del método están contadas y solo pueden
+bajar (073); el progreso del plan vive en `hallazgos.md`, lo único que el constructor puede
+escribir (078); `ficheros:` se contrasta con el disco y con el plan de tests antes de despachar
+(089); una unidad en obra puede subir de carril dejando rastro (096); el revisor fresco también
+corre sobre unidades documentales (090); una petición puede cerrarse citando un merge externo (087).
+
+**Robustez de campo.** El lanzador interrumpido no deja hijos vivos, leases retenidos ni la ficha
+en solo lectura (077); un `lsof` lento es «no sé», no «nadie», y no borra tu worktree (086); el
+runner de la suite da un veredicto claro en vez de una mezcla de bits (093); el canario avisa de
+los accidentes de sesión —cwd, git destructivo, stash, escritura en `main/`— (072); la caja
+negra clasifica cada bloqueo por si traía salida (074) y el envío redacta rutas de Windows y te
+deja elegir qué viaja (085); el arranque avisa si la sanidad lleva demasiado sin pasarse (079);
+la actualización nombra el commit que la desbloquea (088) y reescribe `METODO.json` aunque los
+ficheros coincidan (094); `compilar.py` respeta la estructura de tu proyecto (092) y
+`finalizar.py` delega en él el formato plano (095); los tests no abren tu navegador real (111);
+el recibo del subagente del padre viaja con el método y el tablero lo ve; salida UTF-8 garantizada
+en Windows.
+
 ## 1.8.2 — 2026-08-26
 
 **El constructor vuelve a ser un subagente del agente que te habla (bug 084, hotfix, ADR-033).**
