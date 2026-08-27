@@ -722,6 +722,8 @@ class PeticionUnidadTest(unittest.TestCase):
             count=1,
             flags=re.M,
         )
+        # Bug 120: la ficha de un bug lleva título; con el de la plantilla ya no se despacha.
+        texto = texto.replace("<síntoma en una frase>", "el runbook cuenta el orden antiguo", 1)
         texto += (
             "\n## Reporte\n\n"
             "El usuario esperaba que el runbook del carril corto describiera el paso de "
@@ -1989,6 +1991,7 @@ class PeticionUnidadTest(unittest.TestCase):
             count=1,
             flags=re.M,
         )
+        texto = texto.replace("<síntoma en una frase>", "el runbook cuenta el orden antiguo", 1)
         texto += (
             "\n## Reporte\n\n"
             "El usuario esperaba que el runbook del carril corto describiera el paso de "

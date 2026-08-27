@@ -1001,6 +1001,22 @@ VINETA = re.compile(r"^(?:[-*]|\d+\.)\s*(?:\[[ xX]\]\s*)?")
 PLACEHOLDERS = {"", "—", "-", "…", "..."}
 
 
+TITULOS_DE_PLANTILLA = ("<síntoma en una frase>", "<título en una frase>")
+
+
+def titulo_de_plantilla(texto):
+    """El H1 de la ficha si sigue siendo el de la plantilla, o None (bug 120).
+
+    `nueva` copia `# NNN · BUG: <síntoma en una frase>` / `# NNN · <título en una frase>`;
+    si nadie lo rellena, la ficha no dice de qué va y la web enseña el marcador. La prosa del
+    Reporte puede estar escrita y el título no: por eso es una puerta aparte de `prosa_real`.
+    """
+    for linea in (texto or "").splitlines():
+        if linea.startswith("# "):
+            return linea.strip() if any(m in linea for m in TITULOS_DE_PLANTILLA) else None
+    return None
+
+
 def prosa_real(texto, texto_plantilla):
     """Caracteres de prosa PROPIA: lo escrito por encima de la plantilla.
 
@@ -1894,6 +1910,14 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         # tipo, fecha): si no, esas mismas líneas dejarían de casar y contarían como prosa.
         texto_plantilla = rellenar(plantilla.read_text(encoding="utf-8"),
                                    nombre, nombre[:3], fm.get("tipo", ""))
+    # Bug 120: el título es lo primero que enseña la web; con el de la plantilla no se despacha.
+    titulo_plantilla = titulo_de_plantilla(texto_unidad)
+    if titulo_plantilla and not args.force:
+        fail(f"{rel(ruta)}: el título sigue siendo el de la plantilla ({titulo_plantilla}). "
+             f"SALIDA: escribe en esa línea el síntoma o el cambio en una frase (lo que verá el "
+             f"usuario en la web) y repite `python3 docs/00-metodo/scripts/unidad.py despachar "
+             f"{nombre}`")
+        return 1
     prosa = prosa_real(texto_unidad, texto_plantilla)
     if prosa < MINIMO_PROSA:
         if not args.force:

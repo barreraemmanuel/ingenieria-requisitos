@@ -233,6 +233,21 @@ def merge_externo_existe(ref):
     return git(repo, "cat-file", "-e", f"{ref}^{{commit}}")[0] == 0
 
 
+TITULOS_DE_PLANTILLA = ("<síntoma en una frase>", "<título en una frase>")
+
+
+def avisar_titulo_de_plantilla(nombre, texto, prefijo=""):
+    """Bug 120 — la ficha sigue con el H1 de la plantilla: no dice de qué va y la web lo enseña.
+    WARN, no FAIL: `unidad.py despachar` es quien bloquea; aquí se avisa mientras se escribe."""
+    for linea in (texto or "").splitlines():
+        if linea.startswith("# "):
+            if any(m in linea for m in TITULOS_DE_PLANTILLA):
+                warn(f"{prefijo}{nombre}: el título sigue siendo el de la plantilla ({linea.strip()}). "
+                     f"SALIDA: escribe ahí el síntoma o el cambio en una frase; hasta entonces "
+                     f"`python3 docs/00-metodo/scripts/unidad.py despachar {nombre}` la rechaza")
+            return
+
+
 def repo_codigo():
     """Ruta y rama principal del repo de código, leídas de repos.yaml (igual que unidad.py)."""
     try:
@@ -824,6 +839,7 @@ for carpeta in sorted(trabajo.iterdir()):
     if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(carpeta.name):
         warn(f"{carpeta.name}: contrato pendiente de aprobar y sin rastro del visor de "
              f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
+    avisar_titulo_de_plantilla(carpeta.name, spec.read_text(encoding="utf-8") if spec.exists() else "")
     unidades[carpeta.name] = fm
     validar_origen_peticion(carpeta.name, fm)
 
@@ -861,6 +877,7 @@ if bugs_dir.is_dir():
         if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(nombre):
             warn(f"bugs/{nombre}: contrato pendiente de aprobar y sin rastro del visor de "
                  f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
+        avisar_titulo_de_plantilla(nombre, texto_bug, prefijo="bugs/")
         # Un bug NO se archiva (ADR-006): `mergeada` es su estado final, así que nadie vuelve a
         # mirarlo después. Las dos puertas del paso 9 de runbooks/bug.md —evidencia rojo→verde
         # y OK del usuario— se comprueban aquí, sobre la ficha viva, o no se comprueban nunca.
