@@ -4,6 +4,31 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.2 — 2026-08-27
+
+La tarde-noche del 27 con Nate delante de la web. Siete unidades, todas revisadas por un agente fresco.
+
+**La web se explica sola (121).** La portada se llama **Inicio** y enseña el estado del taller: en qué
+repos estás (con enlace a GitHub), cambios sin commitear y commits sin empujar en cada uno, servidores del
+método y contenedores Docker en marcha, y si la sesión principal está trabajando o parada. Lo que espera tu
+OK se llama «Te toca validar» (y dice que se archiva cuando confirmes), Contratos explica qué es un contrato
+y qué compromete aprobarlo, y Presentaciones pasa a ser **Entregas: te toca probar**.
+
+**Aprobar y validar sin la web (122).** `unidad.py aprobar NNN --por "Tú"` enseña el contrato en la terminal
+y lo aprueba tecleando `APRUEBO NNN`; `unidad.py confirmar NNN --por "Tú"` hace lo mismo con la validación
+guiada (`CONFIRMO NNN` / `PROBLEMA NNN`). Dejan el mismo recibo que la web —con huella— y solo los teclea
+una persona: sin terminal interactiva se niegan. Y la web valida el recibo con la misma función que la
+terminal.
+
+**Al arrancar, los dos repos al día (119).** `setup.py` trae también el meta-repo por fast-forward; si hay
+cambios sin commitear o la rama divergió, dice cómo resolverlo y sigue.
+
+**Guardianes nuevos.** Una ficha que sigue con el título de plantilla («<síntoma en una frase>») ya no se
+despacha y el lint avisa (120). El lanzador sella el ancla del revisor también en las fichas de bug (117).
+`lint_metodo.py` conoce el proceso `merge-externo` y comprueba el SHA contra el repo de código (118).
+
+**Y el hover de «Confirmar decisión» vuelve a leerse (109).**
+
 ## 1.9.1 — 2026-08-27
 
 Parche sobre la 1.9.0, con dos arreglos que salieron del campo el mismo día.
