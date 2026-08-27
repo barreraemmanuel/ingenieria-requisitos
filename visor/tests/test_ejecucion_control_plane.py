@@ -328,5 +328,89 @@ class AcreditarClaudeDirectoTest(unittest.TestCase):
             ("encontrado", "high"))
 
 
+class VariablesDeWindowsEnLaAllowlistTest(unittest.TestCase):
+    """ADR-039 · el detector de regresión que la propia decisión pide por escrito.
+
+    La unidad 165 (delegación nativa) se llevó por delante el E2E del launcher externo
+    que antes cubría esto: aquel test lanzaba un harness doble como proceso aparte, y
+    ese proceso ya no existe. Lo que SÍ sigue existiendo es la allowlist `HEREDAR_ENV`
+    y `entorno_base()`, que la lee. ADR-039 dice literalmente que si una actualización
+    ve desaparecer las variables de Windows de `HEREDAR_ENV`, eso es la regresión y no
+    el arreglo — así que la garantía se vigila donde vive, sin resucitar 1800 líneas de
+    tests de una máquina que ya no se lanza.
+
+    Alcance honesto: esto comprueba el FILTRO, no que winsock resuelva DNS. Lo segundo
+    lo acredita una máquina Windows real, no esta suite.
+    """
+
+    # Las variables sin las que un ejecutable nativo de Windows ni carga sus DLL
+    # (0xC0000409) ni resuelve nombres (socket 11003) ni encuentra su configuración.
+    VARIABLES_DE_WINDOWS = (
+        "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "COMSPEC", "PATHEXT",
+        "USERPROFILE", "APPDATA", "LOCALAPPDATA", "PROGRAMDATA",
+        "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS",
+    )
+
+    # El envenenamiento que la allowlist existe para dejar fuera: si alguna de estas
+    # entrara, el aislamiento del entorno limpio dejaría de valer nada.
+    VARIABLES_ENVENENADAS = (
+        "BASH_ENV", "ENV", "ZDOTDIR", "CDPATH", "PYTHONPATH", "NODE_OPTIONS",
+    )
+
+    def test_la_allowlist_conserva_las_variables_de_sistema_de_windows(self):
+        for variable in self.VARIABLES_DE_WINDOWS:
+            self.assertIn(
+                variable, ejecucion.HEREDAR_ENV,
+                f"ADR-039: {variable} ha desaparecido de HEREDAR_ENV. Eso es la "
+                f"regresion, no el arreglo: sin ella Windows nativo se queda sin "
+                f"salida. Ver decisiones/039-el-entorno-limpio-tambien-tiene-que-"
+                f"serlo-en-windows.md",
+            )
+
+    def test_la_allowlist_sigue_dejando_fuera_el_entorno_envenenado(self):
+        # ADR-039 § Limites: esto no relaja lo que el launcher aisla.
+        for variable in self.VARIABLES_ENVENENADAS:
+            self.assertNotIn(
+                variable, ejecucion.HEREDAR_ENV,
+                f"{variable} no puede colarse en la allowlist: el entorno limpio deja "
+                f"de serlo.",
+            )
+
+    def test_entorno_base_simulando_windows_conserva_esas_variables(self):
+        # El mecanismo, no solo la lista: `entorno_base()` filtra POR la allowlist, asi
+        # que lo que no este en ella no llega al hijo, corra donde corra.
+        entorno_windows = {
+            "PATH": r"C:\Windows\system32;C:\Program Files\Git\cmd",
+            "SYSTEMROOT": r"C:\Windows",
+            "SYSTEMDRIVE": "C:",
+            "WINDIR": r"C:\Windows",
+            "COMSPEC": r"C:\Windows\system32\cmd.exe",
+            "PATHEXT": ".COM;.EXE;.BAT;.CMD",
+            "USERPROFILE": r"C:\Users\alumno",
+            "APPDATA": r"C:\Users\alumno\AppData\Roaming",
+            "LOCALAPPDATA": r"C:\Users\alumno\AppData\Local",
+            "PROGRAMDATA": r"C:\ProgramData",
+            "NUMBER_OF_PROCESSORS": "8",
+            "PROCESSOR_ARCHITECTURE": "AMD64",
+            "OS": "Windows_NT",
+            # Y una envenenada, para que el filtro se vea trabajando en el mismo test.
+            "NODE_OPTIONS": "--require /tmp/malo.js",
+        }
+        with tempfile.TemporaryDirectory(prefix="adr039-") as tmp:
+            base = Path(tmp)
+            worktree = base / "worktree"
+            worktree.mkdir()
+            with mock.patch.object(ejecucion.os, "environ", entorno_windows):
+                limpio = ejecucion.entorno_base(worktree, base / "tmp", base / "home")
+
+        for variable in self.VARIABLES_DE_WINDOWS:
+            self.assertEqual(
+                limpio.get(variable), entorno_windows[variable],
+                f"ADR-039: entorno_base() descarta {variable} — la allowlist se "
+                f"escribio para POSIX y nunca se reviso contra Windows.",
+            )
+        self.assertNotIn("NODE_OPTIONS", limpio)
+
+
 if __name__ == "__main__":
     unittest.main()
