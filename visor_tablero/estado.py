@@ -180,18 +180,41 @@ def ficheros_de(fm):
     return limpias
 
 
-def _plan(texto):
-    """Cuántos pasos del Plan de trabajo están marcados: la fase de verdad."""
-    trozo = texto.split("## Plan de trabajo", 1)
+def _casillas(texto, cabecera):
+    """Casillas marcadas/totales bajo `cabecera`, hasta el siguiente `## `. None si no hay.
+
+    El corte importa desde el bug 078: `hallazgos.md` lleva más abajo la «Bitácora del
+    cierre», que también son casillas y NO son el plan. Un `### sub-apartado` no corta (no
+    empieza por `## `), que es lo que mantiene intacta la lectura de las fichas de bug,
+    donde el plan cuelga de `### Plan de trabajo del subagente`.
+    """
+    trozo = texto.split(cabecera, 1)
     if len(trozo) != 2:
         return None
     hechos = total = 0
-    for linea in trozo[1].splitlines():
+    for linea in trozo[1].splitlines()[1:]:
+        if linea.startswith("## "):
+            break
         casa = TAREA.match(linea)
         if casa:
             total += 1
             hechos += casa.group(1).lower() == "x"
     return {"hechos": hechos, "total": total} if total else None
+
+
+def _plan(texto, texto_hallazgos=""):
+    """Cuántos pasos del plan están marcados: la fase de verdad.
+
+    Bug 078: se cuenta sobre `hallazgos.md`, no sobre la ficha. La ficha corre en 0444
+    mientras dura la obra (unidad 028), así que sus casillas no las puede marcar quien
+    construye — contarlas ahí daba «Plan: 0 de 8» con constructores llevando media hora, un
+    dato que mentía. La ficha sigue siendo el respaldo (R4) para las unidades que ya estaban
+    en vuelo, y para los bugs, cuya ficha SÍ es su propia bitácora.
+    """
+    plan = _casillas(texto_hallazgos or "", "## Plan")
+    if plan is not None:
+        return plan
+    return _casillas(texto, "## Plan de trabajo")
 
 
 # --------------------------------------------------------------------------- unidades y bugs
@@ -201,6 +224,16 @@ def _ficha(ruta, carpeta, origen, relativa):
         texto = Path(ruta).read_text(encoding="utf-8")
     except OSError:
         texto = ""
+    # Bug 078: el progreso vive en `hallazgos.md`, el único fichero de la unidad que el
+    # constructor puede escribir. Un bug no tiene hallazgos aparte (ADR-006): su ficha es a
+    # la vez contrato y bitácora, así que se queda con su propio texto.
+    texto_hallazgos = ""
+    if origen != "bug":
+        hallazgos = Path(ruta).parent / "hallazgos.md"
+        try:
+            texto_hallazgos = hallazgos.read_text(encoding="utf-8")
+        except OSError:
+            texto_hallazgos = ""
     fm = frontmatter(texto)
     aprobado = fm.get("aprobado", "")
     return {
@@ -216,7 +249,7 @@ def _ficha(ruta, carpeta, origen, relativa):
         "actualizado": fm.get("actualizado", ""),
         "fusion": fm.get("fusion", ""),
         "ficheros": sorted(ficheros_de(fm)),
-        "plan": _plan(texto),
+        "plan": _plan(texto, texto_hallazgos),
         "fase": FASES.get(fm.get("estado", ""), fm.get("estado", "") or "sin estado"),
         "ficha": relativa,
     }

@@ -118,7 +118,12 @@ Rutas desde el worktree.>
 4. `<AGENTS.md del repo de código>` — comandos de build/test
 5. <otros ficheros específicos de esta unidad>
 
-## Plan de trabajo (marcar `[x]` inmediatamente al completar)
+## Plan de trabajo (el contrato; las casillas se marcan en `hallazgos.md`)
+
+<Aquí el plan se ACUERDA; el avance se apunta en el `## Plan` de `hallazgos.md`, que
+`unidad.py despachar` siembra con estas mismas casillas. Es donde quien construye puede
+escribir: esta ficha corre en solo lectura mientras dura la obra (unidad 028), y de
+`hallazgos.md` leen el progreso `unidad.py estado` y el tablero. Estas casillas no se tocan.>
 
 <Los pasos 1-3 y 5-8 son fijos. El paso 4 se BORRA si los casos límite ya están cubiertos por
 el paso 1: un paso que se cumple marcando la casilla sin escribir nada no es un paso, es un

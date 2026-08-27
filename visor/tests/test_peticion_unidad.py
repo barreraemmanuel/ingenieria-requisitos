@@ -1236,6 +1236,137 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 0, salida)
         self.assertIn("acceso y autenticación", salida)
         self.assertIn("informativa", salida.lower())
+    # --------------------------------- 078 · el progreso del plan vive en hallazgos.md
+    PLAN_SINTETICO = (
+        "\n## Plan de trabajo (marcar `[x]` inmediatamente al completar)\n\n"
+        "- [ ] 1. Test en rojo\n"
+        "- [ ] 2. Implementar\n"
+        "- [ ] 3. Verde y evidencia\n"
+    )
+
+    def preparar_con_plan(self, slug, ficheros=("app/terminal.py",)):
+        """Una feature de carril normal, aprobada y CON su `## Plan de trabajo` escrito.
+
+        `aprobar_para_despacho` reescribe el cuerpo del contrato y se lleva el plan por
+        delante: aquí se vuelve a poner, que es justo lo que estos tests miden.
+        """
+        pid = self.capturar(f"Preparar {slug}")
+        self.evaluar(pid)
+        creada = self.ejecutar(self.unidad, "nueva", "feature", slug, "--desde", pid)
+        self.assertEqual(creada.returncode, 0, creada.stdout + creada.stderr)
+        nombre = f"001-{slug}"
+        ruta = self.aprobar_para_despacho(nombre)
+        texto = re.sub(
+            r"(?m)^ficheros:.*$", f"ficheros: [{', '.join(ficheros)}]",
+            ruta.read_text(encoding="utf-8") + self.PLAN_SINTETICO, count=1,
+        )
+        ruta.write_text(texto, encoding="utf-8")
+        return nombre
+
+    def test_despachar_siembra_el_plan_en_hallazgos(self):
+        """R1 — el constructor no puede tocar su ficha (0444), así que el despacho le deja
+        las MISMAS casillas en `hallazgos.md`, que sí posee. Sin esto, la regla 2 le manda
+        escribir donde el lanzador le ha denegado la escritura."""
+        nombre = self.preparar_con_plan("plan-sembrado")
+
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        hallazgos = (self.ws / "docs/05-trabajo" / nombre / "hallazgos.md").read_text(
+            encoding="utf-8")
+        self.assertIn("## Plan", hallazgos)
+        self.assertIn("- [ ] 1. Test en rojo", hallazgos)
+        self.assertIn("- [ ] 2. Implementar", hallazgos)
+        self.assertIn("- [ ] 3. Verde y evidencia", hallazgos)
+
+    def test_estado_cuenta_el_plan_desde_hallazgos(self):
+        """R3 — «Plan: 0 de 8» con un constructor llevando media hora era un dato que
+        mentía: se contaba sobre la ficha congelada. Se cuenta donde de verdad se marca."""
+        nombre = self.preparar_con_plan("plan-contado")
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        hallazgos = self.ws / "docs/05-trabajo" / nombre / "hallazgos.md"
+        hallazgos.write_text(
+            hallazgos.read_text(encoding="utf-8").replace(
+                "- [ ] 1. Test en rojo", "- [x] 1. Test en rojo"),
+            encoding="utf-8")
+
+        resultado = self.ejecutar(self.unidad, "estado", "--sin-navegador")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("plan 1/3", salida.lower())
+
+    def test_estado_cae_a_la_ficha_si_hallazgos_no_trae_plan(self):
+        """R4 — las unidades ya en vuelo tienen las casillas en la ficha: el contador lee
+        de donde estén, primero `hallazgos.md` y si no la ficha, y lo dice."""
+        nombre = self.preparar_con_plan("plan-heredado")
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        hallazgos = carpeta / "hallazgos.md"
+        # Una unidad nacida ANTES de esta corrección: sin sección `## Plan` y con las
+        # casillas marcadas en la ficha (que en su día se pudo escribir).
+        hallazgos.write_text(
+            "\n".join(l for l in hallazgos.read_text(encoding="utf-8").splitlines()
+                      if not l.startswith("- [ ] ")).replace("## Plan\n", ""),
+            encoding="utf-8")
+        spec = carpeta / "especificacion.md"
+        spec.write_text(
+            spec.read_text(encoding="utf-8").replace(
+                "- [ ] 1. Test en rojo", "- [x] 1. Test en rojo"),
+            encoding="utf-8")
+
+        resultado = self.ejecutar(self.unidad, "estado", "--sin-navegador")
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("plan 1/3", salida.lower())
+        self.assertIn("en la ficha", salida.lower())
+
+    def test_despachar_no_toca_las_casillas_de_la_ficha(self):
+        """R6 — la frontera de la 028 no se relaja: la ficha sigue siendo el contrato y
+        sus casillas se quedan como estaban (el 0444 del lanzador sigue siendo legítimo)."""
+        nombre = self.preparar_con_plan("ficha-intacta")
+        spec = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        antes = spec.read_text(encoding="utf-8")
+
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        despues = spec.read_text(encoding="utf-8")
+        # Lo único que `despachar` escribe en la ficha es el frontmatter de estado/fecha.
+        self.assertEqual(antes.split("---", 2)[2], despues.split("---", 2)[2])
+        self.assertEqual(3, despues.count("- [ ] "))
+
+    def test_cerrar_dice_lo_que_falta_del_plan_y_no_revienta(self):
+        """R5 — el cierre ya no copia casillas a mano (así se hizo en la 060): mira dónde se
+        marcaron y, si falta alguna, lo DICE con el comando que lo enseña. No bloquea."""
+        nombre = self.preparar_con_plan("plan-a-medias")
+        despachada = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(despachada.returncode, 0, despachada.stdout + despachada.stderr)
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        hallazgos = carpeta / "hallazgos.md"
+        hallazgos.write_text(
+            hallazgos.read_text(encoding="utf-8").replace(
+                "- [ ] 1. Test en rojo", "- [x] 1. Test en rojo"),
+            encoding="utf-8")
+        (self.ws / "worktrees" / nombre / "app/terminal.py").write_text(
+            "print('cambiado')\n", encoding="utf-8")
+        subprocess.run(["git", "commit", "-am", "cambio"], cwd=self.ws / "worktrees" / nombre,
+                       check=True, capture_output=True)
+        subprocess.run(["git", "merge", "--ff-only", nombre], cwd=self.repo, check=True,
+                       capture_output=True)
+        self.preparar_cierre(nombre)
+
+        resultado = self.ejecutar(
+            self.unidad, "cerrar", nombre, "--ok-usuario", datetime.date.today().isoformat())
+
+        salida = resultado.stdout + resultado.stderr
+        self.assertEqual(resultado.returncode, 0, salida)
+        self.assertIn("plan 1/3", salida.lower())
+        self.assertIn("unidad.py estado", salida)
+
     # ------------------------------------------------------ 096 · reencuadre de carril
     def despachar_directo(self, slug):
         """Una unidad directo ya en obra: el punto en que se descubre que era más grande."""
