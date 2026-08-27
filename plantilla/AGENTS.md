@@ -19,8 +19,8 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
    por ahora** · **nunca más** (`… herramienta.py nunca`). ¿Fallo, tardanza, red o acceso? Ni una línea: arranca igual, sin aviso ni pedir nada.
 1. **Solo-consulta arranca ligero.** ¿La petición solo LEE? Salta el resto del arranque (2-6) —el
    paso 0 no se salta jamás— y responde con el router, sin rol. Si va a escribir o ejecutar: 2-6.
-2. **Actualiza el taller:** ejecuta `setup.py` con el Python disponible: coloca `main/` en la última
-   `origin/main` por fast-forward; si no puede, PARA y explica por qué. Nunca trabajes desde una referencia remota antigua.
+2. **Actualiza el taller:** `setup.py` pone `main/` en la última `origin/main` por fast-forward (si no puede, PARA y explica
+   por qué) y trae el META-REPO igual (si no puede —cambios sin commitear, divergencia— dice cómo resolverlo y sigue). Nunca trabajes desde una referencia remota antigua.
 3. **Linta el método:** `python3 docs/00-metodo/scripts/lint_metodo.py`. Un FAIL tuyo se
    arregla antes de seguir; uno causado por el método no te bloquea (regla 13, ADR-026).
 4. **Lee `docs/05-trabajo/ESTADO.md`**: dónde estamos, qué hay en vuelo y qué toca ahora.

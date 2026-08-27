@@ -83,6 +83,57 @@ def es_repo_git(ruta):
     return resultado.returncode == 0
 
 
+def actualizar_meta_repo(raiz, imprimir=print):
+    """Unidad 119 — el meta-repo también se pone al día al arrancar, no solo `main/`.
+
+    Devuelve `al_dia` · `actualizado` · `no_tocado` · `sin_remoto`. Solo fast-forward, y
+    solo con el árbol limpio: si hay cambios sin commitear o la rama divergió, no se toca
+    nada, se imprime cómo resolverlo (SALIDA) y el arranque SIGUE — un meta-repo atrasado
+    se avisa, no bloquea (el que sí bloquea es `main/`, que es de donde sale el código).
+    """
+    raiz = Path(raiz)
+    if not es_repo_git(raiz):
+        imprimir("[3b/5] meta-repo: no es un repo git, nada que traer.")
+        return "sin_remoto"
+    remoto = ejecutar("git", "-C", raiz, "remote", "get-url", "origin", cwd=raiz)
+    if remoto.returncode:
+        imprimir("[3b/5] meta-repo: sin remoto, no hay nada que traer.")
+        return "sin_remoto"
+    rama = ejecutar("git", "-C", raiz, "rev-parse", "--abbrev-ref", "HEAD", cwd=raiz)
+    rama = rama.stdout.strip() if rama.returncode == 0 else ""
+    if not rama or rama == "HEAD":
+        imprimir("[3b/5] meta-repo: sin rama (HEAD suelto), no lo toco.")
+        return "no_tocado"
+    sucio = ejecutar("git", "-C", raiz, "status", "--porcelain", "--untracked-files=no", cwd=raiz)
+    if sucio.returncode == 0 and sucio.stdout.strip():
+        imprimir(
+            f"[3b/5] meta-repo: no lo toco, hay cambios sin commitear que un pull pisaría. "
+            f"SALIDA: commitea (o descarta) y repite `git -C {raiz} pull --ff-only origin {rama}`."
+        )
+        return "no_tocado"
+    traido = ejecutar("git", "-C", raiz, "fetch", "origin", rama, cwd=raiz)
+    if traido.returncode:
+        imprimir(
+            f"[3b/5] meta-repo: no pude consultar origin ({traido.stdout.strip().splitlines()[-1] if traido.stdout.strip() else 'sin detalle'}); sigo con lo local."
+        )
+        return "no_tocado"
+    antes = ejecutar("git", "-C", raiz, "rev-parse", "--short", "HEAD", cwd=raiz).stdout.strip()
+    pull = ejecutar("git", "-C", raiz, "merge", "--ff-only", "FETCH_HEAD", cwd=raiz)
+    if pull.returncode:
+        imprimir(
+            f"[3b/5] meta-repo: no lo toco, la rama {rama} divergió de origin y no es "
+            f"fast-forward. SALIDA: en {raiz}, `git pull --rebase origin {rama}`, resuelve "
+            f"y vuelve a arrancar."
+        )
+        return "no_tocado"
+    despues = ejecutar("git", "-C", raiz, "rev-parse", "--short", "HEAD", cwd=raiz).stdout.strip()
+    if antes == despues:
+        imprimir(f"[3b/5] meta-repo: al día ({despues}).")
+        return "al_dia"
+    imprimir(f"[3b/5] meta-repo: actualizado {antes} → {despues} (fast-forward desde origin/{rama}).")
+    return "actualizado"
+
+
 def main():
     print("\n=== Preparando el workspace ===\n")
     if shutil.which("git") is None:
@@ -150,6 +201,10 @@ def main():
         morir(
             f"falta {ruta_local} y repos.yaml todavía no contiene el remoto del código"
         )
+
+    # Unidad 119: el meta-repo también (ESTADO.md, fichas, peticiones), en cuanto `main/`
+    # está en su sitio. Nunca bloquea: avisa y sigue.
+    actualizar_meta_repo(RAIZ)
 
     hook = (RAIZ / ".githooks").resolve()
     configurado = ejecutar(
