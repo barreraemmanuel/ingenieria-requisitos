@@ -10,10 +10,11 @@ Dos versiones del bug:
 
 Sin Playwright en el CI, se modela la MECÁNICA con un doble de página: en la
 sub-vista de actividad el `nav` está oculto y "Por persona" no es accesible
-(count 0, clic cuelga); solo tras pulsar "🗺 El mapa" reaparece.
+(count 0, clic cuelga); solo tras pulsar el botón del mapa (`BOTON_MAPA`) reaparece.
 """
 
 import argparse
+import re
 import contextlib
 import importlib.util
 import io
@@ -41,7 +42,7 @@ class BotonFalso:
         return 1 if self.nombre in self.page.pestanas_accesibles() else 0
 
     def click(self):
-        if self.nombre == "🗺 El mapa":
+        if self.nombre == validar_web.BOTON_MAPA:
             self.page.vista = "global"
             return
         if self.nombre not in self.page.pestanas_accesibles():
@@ -74,7 +75,7 @@ class PaginaMapa:
     def pestanas_accesibles(self):
         if self.vista != "global":
             return set()  # nav.hidden en la sub-vista de actividad
-        tabs = {"🗺 El mapa"}
+        tabs = {validar_web.BOTON_MAPA}
         if self.tiene_superficie:
             tabs.add("Por persona")
         return tabs
@@ -87,6 +88,54 @@ class PaginaMapa:
 
     def locator(self, selector):
         return LocatorTexto("")
+
+
+class JuntaBotonDelMapaTest(unittest.TestCase):
+    """Bug 115: el E2E buscaba «🗺 El mapa» y la plantilla pinta «El mapa» (el emoji se fue
+    con la estética 076/081 y el E2E no se enteró): `validar_web.py` fallaba en el lateral
+    de TODO proyecto con mapa y con él `requisitos.py aprobar` y `finalizar.py`. La junta
+    se fija leyendo los dos ficheros: el nombre con el que el E2E busca el botón es el
+    literal que la plantilla renderiza."""
+
+    def nombre_en_el_e2e(self):
+        fuente = (RAIZ / "visor/validar_web.py").read_text(encoding="utf-8")
+        nombres = set(re.findall(r'get_by_role\("button",\s*name=("[^"]*[Mm]apa[^"]*"|BOTON_MAPA)', fuente))
+        self.assertTrue(nombres, "validar_web.py ya no pulsa el botón del mapa por su nombre")
+        resueltos = set()
+        for nombre in nombres:
+            resueltos.add(nombre.strip('"') if nombre.startswith('"') else getattr(validar_web, nombre))
+        self.assertEqual(len(resueltos), 1, resueltos)
+        return resueltos.pop()
+
+    def nombre_en_la_plantilla(self):
+        html = (RAIZ / "visor/plantilla.html").read_text(encoding="utf-8")
+        encontrado = re.search(r'el\("button",[^\n]*"menu-item"[^\n]*,\s*"([^"]+)"\)', html)
+        self.assertIsNotNone(encontrado, "plantilla.html ya no pinta el botón del mapa como menu-item")
+        return encontrado.group(1)
+
+    def test_el_e2e_busca_el_boton_del_mapa_con_el_texto_que_la_plantilla_pinta(self):
+        self.assertEqual(
+            self.nombre_en_el_e2e(), self.nombre_en_la_plantilla(),
+            "bug 115: el E2E y la plantilla no llaman igual al botón del mapa → "
+            "validar_web falla en el lateral y bloquea aprobar/finalizar",
+        )
+
+    def test_el_e2e_espera_la_clase_con_la_que_la_plantilla_marca_el_boton_elegido(self):
+        html = (RAIZ / "visor/plantilla.html").read_text(encoding="utf-8")
+        clase = re.search(r'"menu-item" \+ \(seleccion === "mapa" \? " (\w+)" : ""\)', html)
+        self.assertIsNotNone(clase, "plantilla.html ya no marca el botón elegido del menú")
+        fuente = (RAIZ / "visor/validar_web.py").read_text(encoding="utf-8")
+        self.assertFalse("contains('activo')" in fuente,
+                         "bug 115: el E2E esperaba la clase `activo` y la plantilla pinta `activa`")
+        self.assertEqual(validar_web.CLASE_ACTIVA, clase.group(1))
+
+    def test_la_lista_esperada_del_lateral_empieza_por_ese_mismo_boton(self):
+        fuente = (RAIZ / "visor/validar_web.py").read_text(encoding="utf-8")
+        encontrado = re.search(r'esperados = \[("[^"]+"|[A-Z_]+)\]', fuente)
+        self.assertIsNotNone(encontrado)
+        literal = encontrado.group(1)
+        primero = literal.strip('"') if literal.startswith('"') else getattr(validar_web, literal)
+        self.assertEqual(primero, self.nombre_en_la_plantilla())
 
 
 class ContratoE2EConMapaTest(unittest.TestCase):

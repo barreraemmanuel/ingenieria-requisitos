@@ -53,6 +53,15 @@ SERVIR_LAYOUTS = (BASE / "web" / "servir.py", BASE.parent / "web" / "servir.py")
 APARTADO_FLUJOS = "flujos"
 ANCHOS = (1280, 700)
 
+# Bug 115: el texto EXACTO del botón del mapa que pinta `plantilla.html` (menú lateral).
+# Antes era «🗺 El mapa»; el emoji se fue con la estética (076/081) y el E2E siguió
+# buscándolo, así que fallaba en todo proyecto con mapa. Un test de junta lo vigila.
+BOTON_MAPA = "El mapa"
+# Y la clase con la que `plantilla.html` marca el botón elegido del menú lateral
+# (`menu-item activa`): el E2E esperaba `activo` y no llegaba nunca.
+CLASE_ACTIVA = "activa"
+
+
 
 def ruta_servir():
     for candidata in SERVIR_LAYOUTS:
@@ -159,7 +168,7 @@ def comprobar_lateral(page, datos, ancho):
             for actividad in actividades
             if actividad["area"] == area
         ]
-        esperados = ["🗺 El mapa"] + [x["nombre"] for x in ordenadas]
+        esperados = [BOTON_MAPA] + [x["nombre"] for x in ordenadas]
         if textos != esperados:
             raise AssertionError(
                 "actividades del lateral distintas: %r != %r"
@@ -175,11 +184,11 @@ def comprobar_lateral(page, datos, ancho):
                 "button", name=actividad["nombre"], exact=True
             ).click()
             page.wait_for_function(
-                """titulo => Array.from(
+                """([titulo, clase]) => Array.from(
                   document.querySelectorAll('#menuIzq button')
                 ).some(b => b.textContent.trim() === titulo &&
-                            b.classList.contains('activo'))""",
-                arg=actividad["nombre"],
+                            b.classList.contains(clase))""",
+                arg=[actividad["nombre"], CLASE_ACTIVA],
             )
     elif flujos:
         esperados = [x["titulo"] for x in flujos]
@@ -219,11 +228,12 @@ def volver_a_vista_global(page, datos):
     el lateral ya deja una vista con nav, así que no hay nada que restaurar."""
     if not datos.get("actividades"):
         return
-    page.get_by_role("button", name="🗺 El mapa", exact=True).click()
+    page.get_by_role("button", name=BOTON_MAPA, exact=True).click()
     page.wait_for_function(
-        """() => Array.from(document.querySelectorAll('#menuIzq button'))
-          .some(b => b.textContent.trim() === '🗺 El mapa' &&
-                     b.classList.contains('activo'))"""
+        """([nombre, clase]) => Array.from(document.querySelectorAll('#menuIzq button'))
+          .some(b => b.textContent.trim() === nombre &&
+                     b.classList.contains(clase))""",
+        arg=[BOTON_MAPA, CLASE_ACTIVA],
     )
 
 
