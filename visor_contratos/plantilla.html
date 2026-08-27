@@ -197,7 +197,9 @@
   // En la LISTA solo el chip que decide (pendiente / aprobado) y, si no es normal, el carril:
   // cuatro chips por entrada saturaban el menú. En la ficha van todos.
   function chipsCompactos(u) {
-    var html = u.pendiente_de_aprobar
+    var html = u.sin_escribir
+      ? '<span class="chip">sin escribir</span>'
+      : u.pendiente_de_aprobar
       ? '<span class="chip chip-pendiente">te toca</span>'
       : '<span class="chip chip-aprobado">aprobado</span>';
     if (u.estado && u.estado !== "planificada") html += '<span class="chip">' + esc(u.estado.replace("_", " ")) + "</span>";
@@ -206,7 +208,9 @@
 
   // Cabecera de la ficha: UN chip (lo que decide) y el resto como línea de texto tenue.
   function chipsDe(u) {
-    var html = u.pendiente_de_aprobar
+    var html = u.sin_escribir
+      ? '<span class="chip">contrato sin escribir</span>'
+      : u.pendiente_de_aprobar
       ? '<span class="chip chip-pendiente">pendiente de aprobar</span>'
       : '<span class="chip chip-aprobado">aprobado ' + esc(u.aprobado) + "</span>";
     var meta = [u.tipo, u.estado && u.estado.replace("_", " "), u.carril && ("carril " + u.carril)]
@@ -245,6 +249,8 @@
   }
 
   function accionesDe(u) {
+    // Bug 123: una ficha que sigue siendo plantilla no es un contrato: nada que decidir.
+    if (u.sin_escribir) return '<p class="secundario">El agente aún no lo ha escrito: lo que ves es la plantilla. Cuando la rellene, aquí aparecerán los botones para aprobarlo o pedir cambios.</p>';
     if (!u.pendiente_de_aprobar) return "";
     return '<div class="acciones" data-carpeta="' + esc(u.carpeta) + '">' +
            '<button type="button" class="boton boton-ok" data-accion="aprobar">Aprobar este contrato</button>' +
@@ -301,6 +307,7 @@
   // Jerarquía de la lista: primero lo que te toca a TI, luego lo que está en marcha,
   // luego lo que espera tu validación, al final lo cerrado. Dentro, lo más nuevo arriba.
   var GRUPOS = [
+    {clave: "sin-escribir", titulo: "El agente aún no lo ha escrito", test: function (u) { return u.sin_escribir; }},
     {clave: "aprobar", titulo: "Te toca aprobar", test: function (u) { return u.pendiente_de_aprobar; }},
     {clave: "validar", titulo: "Esperan tu validación", test: function (u) { return u.estado === "en_validacion"; }},
     {clave: "obra", titulo: "En marcha", test: function (u) { return u.estado === "en_obra" || u.estado === "en_revision"; }},

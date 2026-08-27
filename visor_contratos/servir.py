@@ -131,6 +131,37 @@ def leer_frontmatter(texto):
     return campos
 
 
+H1_DE_PLANTILLA = re.compile(r"^# \d{3} · (?:BUG: )?<(?:síntoma|título) en una frase>\s*$")
+HUECO_ENTERO = re.compile(r"^(?:- \*\*[^*]+\*\* )?<[^>]{3,}>\s*$")
+
+
+def contrato_sin_escribir(texto):
+    """Bug 123 — ¿la ficha sigue siendo la plantilla que copió `unidad.py nueva`?
+
+    Mismo criterio que `unidad.titulo_de_plantilla` (bug 120): el H1 EXACTO de la plantilla
+    (`# NNN · <título en una frase>` / `# NNN · BUG: <síntoma en una frase>`); o el primer
+    renglón del Qué / del Reporte que sigue siendo un hueco entero `<…>` (una ficha escrita
+    puede citar `<…>` en su prosa —la del 120 lo hace— y no por eso es plantilla).
+    """
+    cuerpo = (texto or "").split("\n---", 2)[-1] if (texto or "").startswith("---") else (texto or "")
+    lineas = cuerpo.splitlines()
+    for linea in lineas:
+        if linea.startswith("# "):
+            if H1_DE_PLANTILLA.match(linea):
+                return True
+            break
+    dentro = False
+    for linea in lineas:
+        if linea.startswith("## "):
+            if dentro:
+                break
+            dentro = linea.startswith(("## Qué", "## 1 · Reporte"))
+            continue
+        if dentro and linea.strip():
+            return bool(HUECO_ENTERO.match(linea.strip()))
+    return False
+
+
 def listar_trabajo(workspace):
     """Todas las unidades activas de `docs/05-trabajo/`, en orden de número.
 
@@ -152,9 +183,10 @@ def listar_trabajo(workspace):
             continue
         try:
             with open(ruta, "r", encoding="utf-8") as f:
-                campos = leer_frontmatter(f.read())
+                texto = f.read()
+                campos = leer_frontmatter(texto)
         except OSError:
-            campos = {}
+            campos, texto = {}, ""
         aprobado = campos.get("aprobado", "")
         unidades.append({
             "unidad": campos.get("unidad") or nombre,
@@ -165,6 +197,7 @@ def listar_trabajo(workspace):
             "actividad": campos.get("actividad", ""),
             "aprobado": aprobado,
             "pendiente_de_aprobar": not FECHA.match(aprobado),
+            "sin_escribir": contrato_sin_escribir(texto),
             "origen": "trabajo",
         })
     return unidades
@@ -198,9 +231,10 @@ def listar_bugs(workspace):
             continue
         try:
             with open(ruta, "r", encoding="utf-8") as f:
-                campos = leer_frontmatter(f.read())
+                texto = f.read()
+                campos = leer_frontmatter(texto)
         except OSError:
-            campos = {}
+            campos, texto = {}, ""
         aprobado = campos.get("aprobado", "")
         estado = campos.get("estado", "")
         pendiente_de_aprobar = not FECHA.match(aprobado)
@@ -215,6 +249,7 @@ def listar_bugs(workspace):
             "actividad": campos.get("actividad", ""),
             "aprobado": aprobado,
             "pendiente_de_aprobar": pendiente_de_aprobar,
+            "sin_escribir": contrato_sin_escribir(texto),
             "origen": "bug",
         })
     return bugs
@@ -337,6 +372,18 @@ def hacer_handler(workspace, estado):
                     "visor de solo lectura salvo /aprobar/<unidad> y /pedir-cambios/<unidad>, "
                     "que escriben lo que el USUARIO decide desde la web")})
             accion, nombre = m.group(1), m.group(2)
+            ruta = ruta_contrato(workspace, nombre)
+            if ruta:
+                try:
+                    with open(ruta, "r", encoding="utf-8") as f:
+                        if contrato_sin_escribir(f.read()):
+                            return self._json(409, {"error": (
+                                "contrato sin escribir: el agente todavía no ha rellenado la "
+                                "ficha (sigue con el título o los huecos de la plantilla). "
+                                "SALIDA: pídele que la escriba y recarga; hasta entonces no hay "
+                                "nada que aprobar")})
+                except OSError:
+                    pass
             try:
                 largo = int(self.headers.get("Content-Length") or 0)
                 cuerpo = json.loads(self.rfile.read(largo) or b"{}") if largo else {}
