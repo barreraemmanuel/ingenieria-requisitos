@@ -1915,22 +1915,37 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             return 1
         ok(f"criterio portante declarado: {portante[:60]}")
 
-    # --- Precondición 5: trabajo en vuelo (regla 5: UNA unidad por defecto) ------------------
+    # --- Precondición 5: trabajo en vuelo (regla 5: paralelo por defecto, ADR-036) ----------
     # Las documentales quedan fuera del censo de vuelo: la regla 5 lo dice («las --documental
     # tampoco: pueden ir en paralelo») y contarlas bloqueaba despachos legítimos por tope
     # (caso de campo, 05-08: una auditoría documental aparcada consumía cupo de constructor).
     activas = sorted(n for n, u in censo().items()
                      if n != nombre and u["fm"].get("estado") in EN_VUELO
                      and (u["fm"].get("ejecucion") or "").strip() != "documental")
-    if activas and not args.paralelo:
-        fail(f"ya hay {len(activas)} unidad(es) en vuelo: {', '.join(activas)}")
-        err(f"\n  Regla 5: UNA unidad en vuelo por defecto — el límite real es la atención, no\n"
-            f"  la máquina. Cierra la que está en obra, o repite con --paralelo si esta unidad\n"
-            f"  NO comparte ningún fichero con ella (declarado en el frontmatter 'ficheros').")
+    # ADR-036: el paralelismo es la NORMA, no la excepción que había que recordar. Hasta hoy
+    # el defecto bloqueaba con cualquier cosa en vuelo y `--paralelo` lo desactivaba: el
+    # método salía en serie por olvido, no por decisión, con la máquina y el contrato
+    # aprobado esperando. El único freno real —el cruce de `ficheros:`— ya existe y sigue
+    # abajo, intacto. `--paralelo` se acepta porque vive en runbooks y sesiones abiertas.
+    if getattr(args, "paralelo", False):
+        warn("«--paralelo» ya es el defecto (ADR-036): puedes omitirlo — lo único que "
+             "bloquea es compartir ficheros con otra unidad en vuelo")
+    if getattr(args, "serie", False) and activas:
+        fail(f"pediste --serie y ya hay {len(activas)} unidad(es) en vuelo: "
+             f"{', '.join(activas)}")
+        err(f"\n  `--serie` es la EXCEPCIÓN del ADR-036: pide expresamente que esta unidad\n"
+            f"  vaya SOLA, así que con trabajo en vuelo no puede salir. El defecto es el\n"
+            f"  paralelo y el único freno es compartir ficheros.\n"
+            f"  {SALIDA} quítale el --serie si los `ficheros:` no chocan con "
+            f"{activas[0]},\n"
+            f"  o espera a que esa unidad se fusione; después:\n"
+            f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
         return 1
-    # Sin tope numérico (ADR-027): con --paralelo caben tantas unidades como quepan sin
-    # chocar — el límite lo pone el propio grafo de ficheros del trabajo pedido, no una
-    # constante. El único gate real es la disjunción de ficheros que sigue abajo.
+    # Sin tope numérico (ADR-027) y sin flag que pedir (ADR-036): caben tantas unidades como
+    # quepan sin chocar — el límite lo pone el propio grafo de ficheros del trabajo pedido,
+    # no una constante. El único gate real es la disjunción de ficheros que sigue abajo.
+    # El límite que este script NO puede imponer —UNA suite completa a la vez— vive en la
+    # prosa de la regla 5 y de `runbooks/cierre.md`: desde aquí no se ven las otras sesiones.
     # La regla "en paralelo jamás se comparten ficheros" la comprobaba un WARN dirigido a un
     # humano, o sea a nadie: se despachaban dos unidades sobre el mismo fichero sin que nada
     # avisara. Aquí se verifica y se bloquea. Una unidad --documental no toca el repo de
@@ -1949,11 +1964,15 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             comunes = mios & ficheros_de(censo_actual[otra]["fm"])
             if comunes:
                 fail(f"{nombre} y {otra} comparten ficheros declarados: {sorted(comunes)}")
-                err("\n  Dos unidades en paralelo JAMÁS comparten fichero: el segundo merge\n"
-                    "  llega a un fichero que ya no es el que leyó su constructor. Los hotspots\n"
-                    "  (migraciones, rutas, modelos compartidos, manifiestos, lockfiles) van\n"
-                    "  SIEMPRE en secuencia: cierra una, o quítale el fichero a esta unidad y\n"
-                    "  que lo proponga en hallazgos.md para que lo aplique el padre al cerrar.")
+                err(f"\n  Dos unidades en paralelo JAMÁS comparten fichero: el segundo merge\n"
+                    f"  llega a un fichero que ya no es el que leyó su constructor. Los hotspots\n"
+                    f"  (migraciones, rutas, modelos compartidos, manifiestos, lockfiles) van\n"
+                    f"  SIEMPRE en secuencia. Es el ÚNICO freno del paralelismo (ADR-036), así\n"
+                    f"  que aquí no hay flag que lo levante.\n"
+                    f"  {SALIDA} espera al merge de {otra}, o quítale {sorted(comunes)[0]} a\n"
+                    f"  `ficheros:` de {rel(ruta)} y que esta unidad lo proponga en\n"
+                    f"  hallazgos.md para que lo aplique el padre al cerrar; después:\n"
+                    f"      python3 docs/00-metodo/scripts/unidad.py despachar {nombre}")
                 return 1
         ok(f"ficheros disjuntos de {', '.join(activas)} ({len(mios)} declarado(s))")
     elif activas:
@@ -2071,6 +2090,14 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         except gestion_peticiones.ErrorPeticion as exc:
             fail(f"no pude registrar el despacho documental; no toco la ficha: {exc}")
             return 1
+        if getattr(args, "serie", False):
+            try:
+                anotar_serie_en_el_despacho(
+                    revalidar_origenes(fm, proceso=(tipo_proceso, nombre)),
+                    tipo_proceso, nombre)
+                ok("registro de despacho: paralelo: no (--serie)")
+            except gestion_peticiones.ErrorPeticion as exc:
+                warn(f"no pude anotar `paralelo: no` en el registro de despacho: {exc}")
         marcar_en_obra(ruta, documental=True)
         ok(f"{rel(ruta)}: estado → en_obra · ejecución documental (sin rama ni worktree)")
         print(
@@ -2177,6 +2204,13 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         fail(f"no pude registrar el origen de la rama; deshice el despacho: {exc}")
         return 1
     ok(f"origen de rama registrado: {base_sha[:8]} en {rama_principal}")
+    if getattr(args, "serie", False):
+        try:
+            anotar_serie_en_el_despacho(
+                revalidar_origenes(fm, proceso=(tipo_proceso, nombre)), tipo_proceso, nombre)
+            ok("registro de despacho: paralelo: no (--serie, la excepción del ADR-036)")
+        except gestion_peticiones.ErrorPeticion as exc:
+            warn(f"no pude anotar `paralelo: no` en el registro de despacho: {exc}")
     marcar_en_obra(ruta)
     ok(f"{rel(ruta)}: estado → en_obra · actualizado → {HOY}")
 
@@ -2198,6 +2232,33 @@ def _cmd_despachar(args, autoridad, snapshot=None):
           f"    2. Actualiza ESTADO.md con la unidad en obra (lo escribe el padre).\n"
           f"    3. python3 {rel(RAIZ / 'docs/00-metodo/scripts/lint_metodo.py')}")
     return 0
+
+
+def anotar_serie_en_el_despacho(referencias, tipo_proceso, nombre):
+    """`paralelo: no` en el registro de despacho: la excepción del ADR-036 deja rastro.
+
+    Desde el ADR-036 el paralelismo es el defecto, así que lo que hay que poder auditar
+    después no es quién paralelizó, sino quién pidió ir de UNO EN UNO y sobre qué. Se
+    escribe donde el cierre ya mira —la metadata del proceso, dentro de su petición— y no
+    en el frontmatter, que lo teclea el mismo agente al que las puertas vigilan.
+
+    Usa el cerrojo y el cargar/guardar de `peticion.py` en vez de una API propia: el
+    despacho ya escribió ahí hace dos líneas, y duplicar el fichero de peticiones con otro
+    mecanismo sería inventarse un segundo camino a la misma verdad. Un fallo aquí NO
+    deshace el despacho: la rama y el worktree ya existen, y perder la nota es más barato
+    que dejar el entorno a medias — se avisa y se sigue.
+    """
+    for pid, revision in gestion_peticiones.parsear_referencias(referencias):
+        with gestion_peticiones.lock(pid):
+            datos = gestion_peticiones.cargar(pid)
+            tocado = False
+            for proceso in datos.get("procesos", []):
+                if (proceso.get("tipo") == tipo_proceso and proceso.get("ref") == nombre
+                        and proceso.get("revision") == revision):
+                    proceso.setdefault("metadata", {})["paralelo"] = "no"
+                    tocado = True
+            if tocado:
+                gestion_peticiones.guardar(datos)
 
 
 def encargo_subagente_del_padre(nombre, fm, destino, ruta_ficha):
@@ -4235,6 +4296,31 @@ def _linea_de_plan(unidad):
     return f"  · plan {hechas}/{totales}{sufijo}"
 
 
+def _subagente_de(nombre):
+    """`  · subagente claude-opus-5` para la línea de una unidad, o cadena vacía.
+
+    099 (R4): con el paralelismo por defecto, la pregunta del padre deja de ser «¿puedo
+    despachar otra?» y pasa a ser «¿quién está construyendo cada una?». El dato ya se
+    escribe —`subagente.py abrir` deja el recibo `ejecucion/v1` con `harness:
+    subagente-del-padre` y sin `resultado`—, solo que hasta hoy únicamente lo leía el
+    tablero. Un recibo ilegible no rompe el estado: se ignora, como hace el tablero.
+    """
+    ejecuciones = RAIZ / ".runtime" / "ejecuciones"
+    if not ejecuciones.is_dir():
+        return ""
+    for fichero in sorted(ejecuciones.glob("*.json"), reverse=True):
+        try:
+            datos = json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        if (datos.get("harness") == "subagente-del-padre"
+                and datos.get("unidad") == nombre and "resultado" not in datos):
+            modelo = datos.get("modelo") or "?"
+            rol = datos.get("rol") or "constructor"
+            return f"  · subagente {rol} {modelo}"
+    return ""
+
+
 def cmd_estado(args):
     unidades = censo()
     print("== Estado del trabajo ==\n")
@@ -4246,7 +4332,8 @@ def cmd_estado(args):
     for n, u in filas:
         fm = u["fm"]
         print(f"  {n:28} {fm.get('tipo', '?'):14} {fm.get('carril', '?'):9} "
-              f"{fm.get('estado', 'SIN FRONTMATTER')}{_linea_de_plan(u)}")
+              f"{fm.get('estado', 'SIN FRONTMATTER')}{_linea_de_plan(u)}"
+              f"{_subagente_de(n) if fm.get('estado') in EN_VUELO else ''}")
 
     print("\nBugs (docs/bugs/):")
     bugs = [(n, u) for n, u in sorted(unidades.items()) if u["clase"] == "bug"]
@@ -4256,6 +4343,7 @@ def cmd_estado(args):
     for n, u in bugs:
         estado = u["fm"].get("estado", "SIN FRONTMATTER")
         print(f"  {n:28} {estado}{_linea_de_plan(u)}"
+              f"{_subagente_de(n) if estado in EN_VUELO else ''}"
               f"{'  ← abierto' if (n, u) in abiertos else ''}")
 
     print("\nWorktrees (worktrees/):")
@@ -4267,18 +4355,23 @@ def cmd_estado(args):
 
     print("\nCoherencia:")
     activas = sorted(n for n, u in unidades.items() if u["fm"].get("estado") in EN_VUELO)
+    # ADR-036: varias unidades en vuelo son la NORMA, no una anomalía. Avisarlo como WARN
+    # enseñaba al padre a leer un rojo como ruido —y a dejar de mirar los rojos de al lado—
+    # por hacer exactamente lo que el método le pide. Lo que sí sigue siendo FAIL es que
+    # dos de ellas compartan ficheros, y eso lo comprueba `lint_metodo.py`.
     if not activas:
-        ok("nada en vuelo (regla 5: 1 por defecto)")
+        ok("nada en vuelo")
     elif len(activas) == 1:
         ok(f"1 unidad en vuelo: {activas[0]}")
     else:
-        warn(f"{len(activas)} unidades en vuelo: {', '.join(activas)} "
-             f"(default 1; en paralelo jamás comparten ficheros)")
+        ok(f"{len(activas)} unidades en vuelo, en paralelo (ADR-036): "
+           f"{', '.join(activas)} — solo se frenan entre sí si comparten ficheros")
     esperando = sorted(n for n, u in unidades.items()
                        if u["fm"].get("estado") == "en_validacion")
     if esperando:
         warn(f"{len(esperando)} unidad(es) esperando a que el usuario pruebe la app: "
-             f"{', '.join(esperando)} — no cuentan para el tope, pero tampoco están cerradas")
+             f"{', '.join(esperando)} — no cuentan como trabajo en vuelo, pero tampoco "
+             f"están cerradas")
     # Mismo criterio que lint_metodo.py sección 5 (bug 003): una unidad archivada con
     # worktree aún en disco no es un huérfano ciego — es un resto que puede necesitar
     # borrado manual si `borrar_worktree` falló, así que avisa en vez de fallar en
@@ -4364,8 +4457,13 @@ def main():
                             help="crea rama y worktree de una unidad ya especificada y aprobada")
     p_desp.add_argument("unidad", help="nombre completo NNN-slug")
     p_desp.add_argument("--paralelo", action="store_true",
-                        help="permite despachar con otras unidades en vuelo — solo si NO "
-                             "comparten ningún fichero")
+                        help="ya no hace falta: desde el ADR-036 despachar en paralelo es el "
+                             "defecto. Se sigue aceptando (vive en runbooks y sesiones "
+                             "abiertas) y solo imprime un aviso")
+    p_desp.add_argument("--serie", action="store_true",
+                        help="la EXCEPCIÓN: pide que esta unidad vaya sola. Bloquea si hay "
+                             "otra unidad en vuelo y deja `paralelo: no` escrito en el "
+                             "registro de despacho")
     p_desp.add_argument(
         "--documental",
         action="store_true",
