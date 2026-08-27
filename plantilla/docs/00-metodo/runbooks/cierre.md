@@ -128,6 +128,13 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    misma escritura que el veredicto** — es el único que sabe quién es; el despacho del revisor
    se lo pide con esas palabras.
 
+   **El QUÉ se revisó no lo escribe nadie a mano.** Al lanzarlo, `ejecucion.py` sella
+   `revisado_patch_id` en esa misma cabecera y en su recibo: es el `git patch-id --stable`
+   del diff de la rama contra la principal, o sea la huella del contenido exacto que el
+   revisor tiene delante. Sobrevive a un rebase limpio (mismo contenido, otro SHA) y muere
+   con cualquier línea nueva. El revisor no lo toca; si al firmar la huella no está, la
+   revisión se lanzó fuera del launcher y hay que repetirla por él.
+
    **Y mira la contraprueba, no la cree.** En normal y completo, el revisor comprueba que la
    sección Contraprueba de `hallazgos.md` está pagada de verdad: que el criterio es el
    portante declarado en la especificación, que el rojo pegado **nombra ese criterio**, que
@@ -194,6 +201,12 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    rebase metió por debajo (el 25-08 hubo que corregir el SHA a mano ocho veces). Es el único
    momento en que se puede: después del ff la rama entera está dentro de la principal y el
    `merge-base` ya no distingue el trabajo de nadie.
+
+   Y es también lo que mantiene viva la puerta del ancla: en el paso 6 `unidad.py cerrar`
+   recalcula el `revisado_patch_id` de la rama y lo compara con el firmado. Si algo cambió
+   entre la firma y el merge —una corrección, un rebase con conflictos resueltos a mano— el
+   cierre se para y manda relanzar al revisor; si nadie tocó una línea, el rebase no cuesta
+   otra revisión. La cabecera no se arregla a mano jamás: eso sería inventarse la firma.
 4. **Tests sobre la rama principal, al nivel que el cambio merece** (ADR-016), con los comandos
    del `AGENTS.md` del repo de código:
 

@@ -8,6 +8,7 @@ sobre la propia especificación— para que esas pruebas sigan comprobando lo su
 """
 import datetime
 import hashlib
+import json
 import re
 import sys
 from pathlib import Path
@@ -15,6 +16,7 @@ from pathlib import Path
 RAIZ = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(RAIZ / "plantilla/docs/00-metodo/scripts"))
 import lint_cierre  # noqa: E402 - se importa tras fijar la ruta de los scripts del método
+import unidad as gestion_unidades  # noqa: E402 - mismo motivo
 
 
 def escribir_parte_honesto(ws, hallazgos):
@@ -58,8 +60,62 @@ def escribir_parte_honesto(ws, hallazgos):
         texto = re.sub(r"```parte-de-cierre.*?```\n", bloque, texto, count=1, flags=re.S)
     else:
         texto += "\n" + bloque
-    hallazgos.write_text(rellenar_aprendizajes(texto), encoding="utf-8")
+    hallazgos.write_text(sellar_ancla(ws, nombre, rellenar_aprendizajes(texto)),
+                         encoding="utf-8")
     return bloque
+
+
+def sellar_ancla(ws, nombre, texto):
+    """Unidad 068: una firma de revisión con fecha lleva pegada la huella del contenido que
+    se revisó (`revisado_patch_id`), y quien la sella es `ejecucion.py` al lanzar al revisor.
+
+    Las unidades de juguete firman su cabecera a mano, así que aquí se sella lo mismo que
+    habría sellado el launcher — el patch-id REAL de la rama, calculado con las mismas
+    funciones que usa la puerta del cierre, para que fixture y guardián no puedan discrepar.
+    Cuando no hay rama medible (repo sin git, rama ya fusionada sin base registrada) se cae a
+    una huella con forma de patch-id: la puerta lo avisa y sigue, que es su comportamiento
+    declarado. El ancla contra un git de verdad la miden los tests de la propia 068.
+    """
+    return re.sub(r"(?m)^revisado_patch_id:.*$",
+                  "revisado_patch_id: " + (patch_id_real(ws, nombre) or "a" * 40),
+                  texto, count=1)
+
+
+def patch_id_real(ws, nombre):
+    """El patch-id que tendría la rama `nombre` del repo de juguete, o "" si no se puede.
+
+    Se mide con las MISMAS funciones y la MISMA base que la puerta del cierre: la registrada
+    en el despacho manda en cuanto la rama ya está dentro de la principal (ahí el merge-base
+    es la propia punta y mediría cero). Reconstruirla de otra forma haría que el fixture y el
+    guardián hablaran de árboles distintos, que es justo el fallo que la 068 persigue.
+    """
+    repo = Path(ws) / "main"
+    if not (repo / ".git").exists():
+        return ""
+    punta = gestion_unidades.punta_a_medir(repo, nombre, "main")
+    base, _ = gestion_unidades.base_de_medida(
+        repo, punta, "main", base_registrada(ws, nombre))
+    return gestion_unidades.patch_id_del_diff(repo, base, punta)
+
+
+def base_registrada(ws, nombre):
+    """El `base_sha` que el despacho anotó para esta unidad en sus peticiones, o None.
+
+    Se lee del JSON a pelo en vez de por `peticion.py` porque ese módulo resuelve su raíz
+    contra el repo de verdad, no contra el workspace de juguete que monta cada test.
+    """
+    carpeta = Path(ws) / "docs/05-trabajo/peticiones"
+    for ruta in sorted(carpeta.glob("P-*/peticion.json")):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        for proceso in datos.get("procesos", []):
+            if proceso.get("ref") == nombre:
+                sha = (proceso.get("metadata") or {}).get("base_sha")
+                if sha:
+                    return sha
+    return None
 
 
 def rellenar_aprendizajes(texto):

@@ -23,6 +23,10 @@ Cuatro formas de mentir, y las cuatro se deniegan:
      `## Aprendizajes` de `hallazgos.md` tiene que traer, de quien construyó y de quien
      revisó, 1-5 frases o un `ninguno` explícito. Un hallazgos.md sin esos bloques es
      anterior a la 071 y no se re-exige.
+  6. La firma del revisor lleva fecha pero no dice QUÉ se revisó: `revisado_patch_id` en
+     blanco junto a un `revisado:` con fecha. Una firma sin el ancla del contenido vale
+     para cualquier cosa, que es lo mismo que no valer para nada (068). Como en el punto 5,
+     ausencia ≠ vacío: sin la clave en la cabecera, la unidad nació antes y no se re-exige.
 
 Ni una comprobación más: juzgar si los tests son BUENOS no es de aquí, y reescribir partes
 antiguos tampoco — la cabecera se exige a partir de la unidad que trajo este script.
@@ -62,6 +66,14 @@ CLAVES = ("veredicto", "tests_cmd", "tests_exit", "tests_output", "tests_sha256"
 # momento. Se comprueba que esté RELLENA, no que sea buena: `ninguno` explícito vale, y una
 # unidad nacida con la plantilla anterior (sin BLOQUES) no se re-exige — ausencia ≠ vacío.
 APRENDIZAJES_QUIENES = ("constructor", "revisor")
+
+# Unidad 068 — el ancla de la firma del revisor. La escribe `ejecucion.py` al lanzarlo, y
+# aquí solo se comprueba que no se haya borrado dejando la fecha.
+ANCLA = "revisado_patch_id"
+RE_FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+COMANDO_REVISION = ("python3 docs/00-metodo/scripts/ejecucion.py lanzar {nombre} "
+                    "--harness claude --rol revisor "
+                    "--prompt \"Revisa el diff contra el contrato y firma hallazgos.md\"")
 
 # Los marcadores con que la plantilla llega: dejarlos tal cual es no haber rellenado nada.
 MARCADORES = {"", "—", "-", "--", "...", "…", "n/a", "na", "pendiente", "tbd", "xxx",
@@ -157,6 +169,63 @@ def revisar_aprendizajes(nombre, texto):
                 f"docs/05-trabajo/{nombre}/hallazgos.md, o `ninguno` explícito si de verdad no "
                 f"hubo — lo que se rellena de memoria al cerrar es inventado"))
     return problemas
+
+
+def frontmatter_de(texto):
+    """Las claves del frontmatter, con el comentario ya recortado. {} si no trae cabecera.
+
+    Parseo mínimo y deliberadamente tonto: aquí solo se leen escalares de una línea, que es
+    todo lo que tiene la cabecera de un `hallazgos.md`. Un `{}` significa «no hay cabecera»,
+    y eso nunca se convierte en un FAIL: es un fichero anterior a que la cabecera existiera.
+    """
+    lineas = texto.splitlines()
+    if not lineas or lineas[0].strip() != "---":
+        return {}
+    datos = {}
+    for linea in lineas[1:]:
+        if linea.strip() == "---":
+            break
+        encontrado = re.match(r"^(\w+):\s*(.*)$", linea)
+        if encontrado:
+            datos[encontrado.group(1)] = encontrado.group(2).split("#", 1)[0].strip()
+    return datos
+
+
+def revisar_ancla_de_revision(nombre, texto, texto_spec=""):
+    """068/R4-R5 — una firma de revisión sin el contenido que revisó no es una firma.
+
+    Tres estados, y solo uno es un fallo:
+
+      · la clave NO está en la cabecera → la unidad nació antes de la 068 y no se re-exige
+        (mismo criterio que los aprendizajes de la 071: ausencia ≠ vacío);
+      · la clave está y `revisado:` todavía no es una fecha → nadie ha firmado; el campo
+        llega así de fábrica y no hay nada que anclar;
+      · la clave está VACÍA (o con el `no` de la plantilla) junto a una fecha real → la
+        huella se borró y quedó la fecha. Eso es exactamente la firma tecleada a mano que
+        cazó ADR-029, y es lo que se deniega.
+
+    Y una excepción con nombre: la unidad `--documental` no tiene rama ni worktree por
+    diseño (regla 2), así que su revisión NO pasa por el launcher y nadie puede sellarle el
+    ancla. Exigírsela sería pedir una evidencia que su propio carril le prohíbe generar —
+    el mismo motivo por el que `unidad.py cerrar` la exime del recibo del control plane
+    (034/R3). La excepción no se calla: vive aquí, con su porqué.
+    """
+    if re.search(r"(?m)^ejecucion:\s*documental\b", texto_spec):
+        return []
+    fm = frontmatter_de(texto)
+    if ANCLA not in fm:
+        return []
+    if not RE_FECHA.match((fm.get("revisado") or "").strip()):
+        return []
+    valor = fm[ANCLA].strip()
+    if valor and valor.lower() != "no" and not sin_rellenar(valor):
+        return []
+    return [(
+        f"{nombre}: la cabecera de hallazgos.md tiene `revisado:` con fecha y "
+        f"`{ANCLA}` sin rellenar — la firma no dice QUÉ contenido se revisó, así que "
+        f"valdría igual para la rama de hoy que para la de dentro de tres commits",
+        f"no la escribas a mano (sería otra firma inventada): vuelve a lanzar la revisión, "
+        f"que sella el ancla sola —  {COMANDO_REVISION.format(nombre=nombre)}")]
 
 
 def validar_parte(nombre, spec, hallazgos, raiz):
@@ -266,6 +335,9 @@ def validar_parte(nombre, spec, hallazgos, raiz):
 
     # (5) 071 — lo aprendido, escrito por quien lo aprendió y en el momento.
     problemas += revisar_aprendizajes(nombre, texto_hallazgos)
+    # (6) 068 — la firma del revisor, pegada al contenido que revisó.
+    problemas += revisar_ancla_de_revision(
+        nombre, texto_hallazgos, spec.read_text(encoding="utf-8", errors="replace"))
     return problemas
 
 
