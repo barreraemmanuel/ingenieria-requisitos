@@ -1306,7 +1306,7 @@ def evidencia_git(worktree):
 
 def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicial,
                    plan=None, worktree_efimero=False, worktree_origen="worktree",
-                   patch_id="", ronda=None, motivo_patch_id=""):
+                   patch_id="", ronda=None, motivo_patch_id="", motivo_ronda=""):
     """El recibo tal y como nace, ANTES de lanzar el harness.
 
     `modelo` se guarda desde la unidad 033: llegaba por argumento, gobernaba qué modelo
@@ -1357,6 +1357,8 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         # `None` en las dos mientras no haya contador (rol revisor, cabecera anterior a la
         # 069): el recibo no inventa una ronda que nadie está contando.
         "ronda": ronda,
+        # Bug 117 (R2): si el revisor no lleva ronda, AQUÍ se dice por qué; con ronda, None.
+        "motivo_ronda": (motivo_ronda or None) if ronda is None else None,
         "ronda_vacia": None,
         "correccion": None,
         "skills_tecnicas": list(args.skill_tecnica),
@@ -1700,14 +1702,17 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             senales=senales_para_el_revisor(worktree, args.rol),
         )
         ficha_bloqueada = None
-        patch_id_revisado = motivo_patch_id = ""
+        patch_id_revisado = motivo_patch_id = motivo_ronda = ""
         ronda_previa = ronda_actual = ronda_revisada = None
-        if ficha.parent == RAIZ / "docs/bugs":
+        es_bug = ficha.parent == RAIZ / "docs/bugs"
+        if es_bug:
             # Los bugs no tienen hallazgos.md aparte: su propia ficha es a la vez contrato y
             # bitácora de casillas (AGENTS.md regla 2), así que R3 no le aplica.
             documentos = [ficha]
+            cabecera = ficha
         else:
             hallazgos = ficha.parent / "hallazgos.md"
+            cabecera = hallazgos
             if args.rol == "constructor":
                 documentos = perfil_constructor(hallazgos)
                 ficha_bloqueada = ficha
@@ -1717,22 +1722,30 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 ronda_previa, ronda_actual = rondas_del_constructor(hallazgos, args.unidad)
             else:
                 documentos = perfil_revisor(hallazgos)
-                # R1 (068): el ancla se calcula y se sella ANTES de que el revisor escriba
-                # nada, y la pone el launcher, no el agente — otra huella tecleada a mano
-                # sería el mismo agujero de ADR-029 con otro nombre. Va aquí, antes de
-                # `huella_previa`, para que el sello del launcher no se confunda con el
-                # trabajo del revisor cuando el recibo decida si hubo trabajo (R5/R6).
-                patch_id_revisado, motivo_patch_id = patch_id_y_motivo(
-                    worktree, base_registrada_de_la_unidad(datos, args.unidad, ficha))
-                # R3 (113): el recibo del revisor lleva la ronda que declara la cabecera
-                # —la que el constructor gastó y este revisor va a juzgar—; `None` solo si
-                # la cabecera no lleva contador. Va en `ronda_revisada`, NO en
-                # `ronda_actual`: el revisor no gasta rondas ni las sella (069), y
-                # `cerrar_la_ronda` solo cuenta las del constructor.
-                try:
-                    ronda_revisada = ronda_declarada(hallazgos.read_text(encoding="utf-8"))
-                except OSError:
-                    ronda_revisada = None
+        if args.rol == "revisor":
+            # R1 (068): el ancla se calcula y se sella ANTES de que el revisor escriba
+            # nada, y la pone el launcher, no el agente — otra huella tecleada a mano
+            # sería el mismo agujero de ADR-029 con otro nombre. Va aquí, antes de
+            # `huella_previa`, para que el sello del launcher no se confunda con el
+            # trabajo del revisor cuando el recibo decida si hubo trabajo (R5/R6).
+            # Bug 117: fuera del `else` de las unidades — para una ficha de `docs/bugs/`
+            # nunca se calculaba y el recibo salía con `revisado_patch_id: null` aunque la
+            # rama tuviera diff.
+            patch_id_revisado, motivo_patch_id = patch_id_y_motivo(
+                worktree, base_registrada_de_la_unidad(datos, args.unidad, ficha))
+            # R3 (113): el recibo del revisor lleva la ronda que declara la cabecera
+            # —la que el constructor gastó y este revisor va a juzgar—; `None` solo si
+            # la cabecera no lleva contador, y entonces el recibo dice por qué (117, R2).
+            # Va en `ronda_revisada`, NO en `ronda_actual`: el revisor no gasta rondas ni
+            # las sella (069), y `cerrar_la_ronda` solo cuenta las del constructor.
+            try:
+                ronda_revisada = ronda_declarada(cabecera.read_text(encoding="utf-8"))
+            except OSError:
+                ronda_revisada = None
+            if ronda_revisada is None:
+                motivo_ronda = (
+                    "la ficha del bug no lleva contador de rondas" if es_bug
+                    else "la cabecera de hallazgos.md no lleva `ronda:` (anterior a la 069)")
         seguros = []
         for documento in documentos:
             try:
@@ -1777,6 +1790,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             patch_id=patch_id_revisado,
             ronda=ronda_actual if args.rol == "constructor" else ronda_revisada,
             motivo_patch_id=motivo_patch_id,
+            motivo_ronda=motivo_ronda,
         )
         checkpoint(
             recibo,

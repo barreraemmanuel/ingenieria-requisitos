@@ -14,6 +14,7 @@ Lo que fija este fichero:
 - NO cambia: rama no fusionada → el mismo patch-id de siempre (merge-base..HEAD).
 """
 
+import json
 import os
 import subprocess
 import sys
@@ -200,6 +201,77 @@ class RamaFusionadaTest(unittest.TestCase):
         patch_id, motivo = ejecucion.patch_id_y_motivo(self.repo, base_registrada=base)
         self.assertEqual(patch_id, patch_id_esperado(self.repo, self.base, "HEAD"))
         self.assertIn("base de despacho registrada", motivo)
+
+
+# ---------------------------------------------------------------------------- bug 117
+TESTS = Path(__file__).resolve().parent
+if str(TESTS) not in sys.path:
+    sys.path.insert(0, str(TESTS))
+from test_ejecucion_control_plane import ControlPlaneE2ETest  # noqa: E402
+
+
+class AnclaDelRevisorEnFichaDeBugTest(ControlPlaneE2ETest):
+    """Bug 117: con la ficha en `docs/bugs/` el lanzador no calculaba el ancla del revisor.
+
+    El cálculo (068/113) vivía en la rama `else` de las unidades de `_lanzar_bajo_lease`;
+    para un bug —que no tiene `hallazgos.md` aparte— nunca se ejecutaba y el recibo salía
+    con `revisado_patch_id: null` aunque la rama tuviera diff (recibos de 113 y 114 del
+    27-08). Aquí se lanza el revisor DE VERDAD (doble de harness) sobre una ficha de bug con
+    trabajo propio en la rama y se mira el recibo.
+    """
+
+    def setUp(self):
+        super().setUp()
+        # La ficha pasa a ser la de un BUG: docs/bugs/001-demo.md, sin hallazgos.md.
+        vieja = self.ws / "docs/05-trabajo" / self.unidad
+        self.ficha = self.ws / "docs/bugs" / f"{self.unidad}.md"
+        self.ficha.parent.mkdir(parents=True, exist_ok=True)
+        self.ficha.write_text(
+            "---\nunidad: 001-demo\ntipo: bug\ncarril: normal\nestado: en_revision\n"
+            "ficheros: [app/demo.py]\n---\n# Bug demo\n",
+            encoding="utf-8",
+        )
+        import shutil as _shutil
+        _shutil.rmtree(vieja)
+        (self.worktree / "app").mkdir(parents=True, exist_ok=True)
+        (self.worktree / "app/demo.py").write_text("print('arreglo')\n", encoding="utf-8")
+        self.git("add", "app/demo.py", cwd=self.worktree)
+        self.git("commit", "-m", "001-demo: el arreglo", cwd=self.worktree)
+
+    def recibo(self):
+        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        self.assertEqual(len(recibos), 1, recibos)
+        return json.loads(recibos[0].read_text(encoding="utf-8"))
+
+    def test_el_recibo_del_revisor_de_un_bug_lleva_el_ancla(self):
+        resultado = self.ejecutar(rol="revisor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        recibo = self.recibo()
+        self.assertEqual(
+            recibo["revisado_patch_id"],
+            patch_id_esperado(self.worktree, "main", "HEAD"),
+            "bug 117: el ancla del revisor no se calculaba para fichas de docs/bugs/ "
+            f"(motivo_patch_id={recibo.get('motivo_patch_id')!r})",
+        )
+        self.assertIsNone(recibo["motivo_patch_id"])
+        # R2: la ficha de bug no lleva contador de rondas → None, y se dice por qué.
+        self.assertIsNone(recibo["ronda"])
+        self.assertIn("no lleva contador", recibo.get("motivo_ronda") or "")
+
+    def test_el_constructor_de_un_bug_sigue_sin_ancla(self):
+        """NO cambia: el ancla es del revisor; el constructor no la lleva ni la sella."""
+        self.ficha.write_text(self.ficha.read_text(encoding="utf-8").replace(
+            "estado: en_revision", "estado: en_obra"), encoding="utf-8")
+        resultado = self.ejecutar(rol="constructor")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertIsNone(self.recibo()["revisado_patch_id"])
+
+
+# Se hereda la INFRAESTRUCTURA (workspace, repo, dobles de harness), no sus tests: los de
+# la clase base ya corren en su propio fichero y aquí solo estorbarían.
+for _nombre in dir(ControlPlaneE2ETest):
+    if _nombre.startswith("test_") and _nombre not in AnclaDelRevisorEnFichaDeBugTest.__dict__:
+        setattr(AnclaDelRevisorEnFichaDeBugTest, _nombre, None)
 
 
 if __name__ == "__main__":
