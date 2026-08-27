@@ -1,0 +1,59 @@
+{
+  "_comentario": [
+    "Los hooks del método para Codex CLI: los MISMOS guardianes que el bootstrap siembra en",
+    ".claude/settings.json (el canario del contexto y el aviso sonoro), traducidos al",
+    "vocabulario de Codex. Unidad 100.",
+    "Dos diferencias con Claude, y ninguna es cosmética:",
+    "1) No existe equivalente a $CLAUDE_PROJECT_DIR, así que cada orden resuelve la raíz por",
+    "   su cuenta con `git rev-parse --show-toplevel`. Funciona desde cualquier subdirectorio.",
+    "2) Codex no tiene el evento `Notification`. Su momento equivalente -el agente necesita a",
+    "   la persona- es `PermissionRequest`.",
+    "Para que estos hooks CORRAN en una sesión interactiva hay que confiarlos UNA vez con el",
+    "comando /hooks: si no, Codex no los ejecuta y NO LO DICE. El lanzador delegado",
+    "(ejecucion.py) resuelve lo mismo con --dangerously-bypass-hook-trust."
+  ],
+  "hooks": {
+    "PermissionRequest": [
+      {
+        "hooks": [
+          {
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 docs/00-metodo/scripts/aviso.py notificacion",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 docs/00-metodo/scripts/canario.py hook",
+            "timeout": 20,
+            "type": "command"
+          }
+        ],
+        "matcher": "auto"
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 docs/00-metodo/scripts/canario.py hook-stop",
+            "type": "command"
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "command": "cd \"$(git rev-parse --show-toplevel)\" && python3 docs/00-metodo/scripts/aviso.py fin-de-turno",
+            "timeout": 5,
+            "type": "command"
+          }
+        ]
+      }
+    ]
+  }
+}

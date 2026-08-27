@@ -140,10 +140,29 @@ destino.write_text(json.dumps({
 }), encoding='utf-8')
 """
 
+    # Desde la unidad 100 la tabla de la regla 10 para codex sale de su propio catálogo,
+    # así que el doble tiene que saber responder `debug models` igual que el binario real.
+    CATALOGO_CODEX = """import json
+if sys.argv[1:3] == ['debug', 'models']:
+    print(json.dumps({'models': [
+        {'slug': 'oai-punta', 'visibility': 'list', 'priority': 1,
+         'default_reasoning_level': 'low',
+         'supported_reasoning_levels': [{'effort': e} for e in ('low', 'medium', 'high')]},
+        {'slug': 'oai-segundo', 'visibility': 'list', 'priority': 2,
+         'default_reasoning_level': 'medium',
+         'supported_reasoning_levels': [{'effort': e} for e in ('low', 'medium', 'high')]},
+        {'slug': 'oai-pequeno', 'visibility': 'list', 'priority': 9,
+         'default_reasoning_level': 'high',
+         'supported_reasoning_levels': [{'effort': e} for e in ('low', 'medium', 'high')]},
+    ]}))
+    raise SystemExit(0)
+"""
+
     def instalar_grabador(self):
         cabecera = f"DESTINO = {str(self.registro)!r}\n"
-        for nombre in ("claude", "codex"):
-            self.instalar_doble(nombre, cabecera + self.CUERPO_GRABADOR)
+        self.instalar_doble("claude", cabecera + self.CUERPO_GRABADOR)
+        self.instalar_doble(
+            "codex", self.CATALOGO_CODEX + cabecera + self.CUERPO_GRABADOR)
 
     def instalar_doble(self, nombre, cuerpo):
         cuerpo = self.PREAMBULO + cuerpo
@@ -273,14 +292,18 @@ class DespachoSinFlagsTest(BaseLanzador):
         self.assertEqual(recibo["modelo_origen"], "excepcion")
         self.assertIn("fable no está disponible", recibo["motivo_modelo"])
 
-    def test_codex_no_recibe_modelo_derivado_de_la_tabla(self):
-        # R5: la tabla son identificadores de Anthropic; codex no los admite y el
-        # launcher no se los inventa. Lo que NO puede pasar es que la tabla lo mate.
+    def test_codex_recibe_el_modelo_de_su_propia_tabla(self):
+        # Unidad 100: hasta aquí, este test exigía lo contrario —«codex no recibe modelo»—
+        # porque la tabla eran identificadores de Anthropic y `roles.md` daba a Codex por
+        # INEJECUTABLE bajo la regla 10. Ya no: la tabla es por harness y la de codex sale
+        # de su propio catálogo, así que el veto desaparece y la exigencia se invierte.
         resultado = self.ejecutar(harness="codex")
 
         self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
-        self.assertNotIn("--model", self.registros()["argv"])
-        self.assertEqual(self.recibo()["modelo"], None)
+        argv = self.registros()["argv"]
+        self.assertEqual(argv[argv.index("-m") + 1], "oai-punta")
+        self.assertIn("model_reasoning_effort=medium", argv)
+        self.assertIsNotNone(self.recibo()["modelo"])
 
 
 # ===================================================== R2 · el recibo guarda lo efectivo
