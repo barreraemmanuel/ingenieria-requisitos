@@ -79,4 +79,3 @@ Límites que el modo D no cruza jamás: no toca `01-constitucion/`,
 archivadas, `bugs/`, `conocimiento/`, `decisiones/`, `repos.yaml`, `.private/`,
 `main/` ni `worktrees/`. Única escritura fuera del método: al adoptar el inbox,
 `05-trabajo/peticiones/LEGACY.json`, derivado del inventario y sin P-IDs.
-

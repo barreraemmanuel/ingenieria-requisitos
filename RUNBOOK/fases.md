@@ -372,4 +372,3 @@ que pedir la ruta del código no es mirar el código):
 > ejemplo concreto que la
 > demuestra, en lenguaje de negocio, citando el identificador (R-n, C-n,
 > Q-n) incumplido. No arregles nada sin encargo aparte.
-

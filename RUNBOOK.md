@@ -72,4 +72,3 @@ Si estás leyendo esto pegado a mano en un chat sin herramientas de
 navegación (el caso residual de quien no puede abrir ficheros del repo):
 dilo, y pide que te pasen también el contenido de `RUNBOOK/comun.md` más el
 módulo de tu modo de la tabla — el trabajo real vive ahí, no aquí.
-

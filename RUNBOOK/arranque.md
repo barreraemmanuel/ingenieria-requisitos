@@ -291,4 +291,3 @@ sesión nueva DENTRO del workspace, donde el agente padre se orienta solo
 el negocio cambia, se vuelve aquí en modo C con CARPETA_PROYECTO =
 `<workspace>/docs/02-flujos/planos/`, se iteran los planos, se recompila y
 se re-vuelca al workspace en un cierre.
-

@@ -173,4 +173,3 @@ scripts del visor, inventar tipos de paso o campos fuera del esquema. La
 paleta está validada para daltonismo y la identidad viaja por triple canal
 (color, forma y texto). Si algo no cabe en el vocabulario, se simplifica o
 se cuenta en texto.
-
