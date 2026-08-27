@@ -97,7 +97,7 @@ PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
 SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py",
            "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
-           "lint_juntas.py", "lint_salidas.py", "lease.py",
+           "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
            "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
