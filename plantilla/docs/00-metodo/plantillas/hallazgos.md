@@ -15,6 +15,14 @@ revisado: no             # `no` | fecha YYYY-MM-DD de esa revisión. `unidad.py 
 > directo). El padre lo cosecha en el cierre:
 > promociones a conocimiento/, ADRs, nuevas unidades, correcciones al método.
 
+## Plan
+
+<Las casillas del plan viven AQUÍ, no en la ficha: `especificacion.md` corre en `0444`
+mientras dura la obra (unidad 028) y el constructor no puede escribirla. `unidad.py despachar`
+copia aquí el `## Plan de trabajo` del contrato al abrir la obra; quien construye marca `[x]`
+EN EL MOMENTO en que termina cada paso, y de aquí lo leen `unidad.py estado` y el tablero.
+La ficha se queda como contrato: sus casillas no se tocan.>
+
 ## Evidencia de verificación (obligatorio)
 
 <La cabecera de abajo la comprueba `lint_cierre.py` y `unidad.py cerrar` la exige: el
@@ -33,7 +41,7 @@ build_exit: —
 build_output: —              # .runtime/NNN-slug/lint.txt
 build_sha256: —
 requisitos: —                # N/M cubiertos: M son los `- **Rn** —` de especificacion.md
-plan: —                      # N/M casillas: contadas sobre el plan de especificacion.md
+plan: —                      # N/M casillas: contadas sobre el `## Plan` de aquí arriba
 bloqueadores: —              # cuántos quedan abiertos (0 si ninguno)
 ```
 

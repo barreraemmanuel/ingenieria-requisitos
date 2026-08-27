@@ -67,8 +67,8 @@ placeholder o vacío: ni lo apliques ni lo menciones; si NO existe, créalo tú 
    un salto de contexto y toda la visibilidad, y no devuelve casi nada. En **normal y completo** lo hace un
    **subagente del propio padre** (ADR-033) en `worktrees/NNN-slug/`, con el encargo, modelo y esfuerzo que imprime `unidad.py despachar`: el padre lo ve, le habla y lo corta — nunca un `claude -p` aparte y mudo. **El revisor es SIEMPRE un agente
    fresco de solo lectura, distinto de quien construyó**, lanzado por `scripts/ejecucion.py` (deja recibo) — eso no lo relaja ningún carril.
-2. **Escritura.** Quien construye escribe en su worktree y en su unidad: `hallazgos.md` +
-   casillas `[x]` del plan (bugs: `docs/bugs/NNN-slug.md`). Los ficheros compartidos —
+2. **Escritura.** Quien construye escribe en su worktree y en su unidad: `hallazgos.md`, y las
+   casillas `[x]` del plan las marca AHÍ, en su `## Plan` (que siembra `unidad.py despachar`): la ficha es el contrato y está en solo lectura mientras dura la obra — en un bug, todo va a `docs/bugs/NNN-slug.md`. Los ficheros compartidos —
    `ESTADO.md`, `INDICE.md`, `ROADMAP.md`, `conocimiento/`, `decisiones/`— los escribe SOLO el
    padre, en el cierre. Una unidad `--documental` no crea worktree: lee `main/` y escribe solo
    en SU carpeta.

@@ -157,6 +157,21 @@ def workspace_sintetico(raiz, con_remoto=True, con_canario=True):
            ficheros="[val/idar.py]", actualizado=_hace(3))
     unidad("105-en-revision", estado="en_revision", aprobado=_hace(5),
            ficheros="[rev/isar.py]", actualizado=_hace(1))
+    # Bug 078: el progreso vive en hallazgos.md, que es lo único que el constructor
+    # puede escribir (la ficha corre en 0444 mientras dura la obra). La bitácora del
+    # cierre lleva sus propias casillas y NO cuenta como plan.
+    (trabajo / "105-en-revision" / "hallazgos.md").write_text(
+        "---\nunidad: 105-en-revision\nrevisor: no\nrevisado: no\n---\n\n"
+        "# 105 · Hallazgos de la obra\n\n"
+        # H1 del revisor de la 078: la prosa CITA la sección antes de que la sección
+        # exista. Anclar en la primera aparición del texto contaba aquí, no en la
+        # cabecera, y el plan volvía a leerse vacío.
+        "> Las casillas van en el `## Plan` de aquí abajo, no en la ficha.\n\n"
+        "## Plan\n\n"
+        "- [x] 1. Test en rojo\n- [x] 2. Implementar\n- [x] 3. Verde\n- [ ] 4. Cerrar\n\n"
+        "## Bitácora del cierre\n\n- [ ] 1 · Evidencia — —\n",
+        encoding="utf-8",
+    )
 
     # --- bugs ---------------------------------------------------------------
     (bugs / "200-bug-abierto.md").write_text(
@@ -482,8 +497,16 @@ class PorHacerTest(ConWorkspace):
     def test_cada_unidad_trae_su_fase(self):
         self.assertEqual("en obra", self.filas["100-en-obra"]["fase"])
         self.assertEqual("en revisión", self.filas["105-en-revision"]["fase"])
+        # R4 del bug 078: sin `## Plan` en hallazgos.md (o sin hallazgos.md), el contador
+        # cae a la ficha — las unidades en vuelo el día del arreglo no se quedan en cero.
         self.assertEqual({"hechos": 2, "total": 4},
                          self.filas["100-en-obra"]["plan"])
+
+    def test_el_plan_se_cuenta_desde_hallazgos_no_desde_la_ficha(self):
+        """R3 del bug 078 — la ficha de 105 dice 2 de 4 y su hallazgos.md dice 3 de 4;
+        manda hallazgos.md, que es donde el constructor SÍ puede marcar."""
+        self.assertEqual({"hechos": 3, "total": 4},
+                         self.filas["105-en-revision"]["plan"])
 
     def test_la_planificada_que_choca_dice_con_cual_y_en_que_ficheros(self):
         bloqueo = self.filas["101-planificada-chocando"]["bloqueo"]

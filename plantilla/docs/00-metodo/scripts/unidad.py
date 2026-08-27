@@ -318,6 +318,123 @@ def pide_tests_cruzados(texto):
     return ""
 
 
+# --------------------------------------------------------- bug 078: dónde vive el progreso
+# El plan es lo ÚNICO que dice por dónde va una obra, y hasta el bug 078 vivía dentro de
+# `especificacion.md`, el único fichero de la unidad que el constructor NO puede escribir:
+# el lanzador la deja en 0444 mientras dura el harness para que nadie se autoapruebe el
+# contrato (unidad 028, seguridad P1). Resultado: la regla 2 mandaba marcar donde el sistema
+# operativo denegaba, y el tablero enseñaba «Plan: 0 de N» con la obra a media mañana.
+# El progreso se muda a `hallazgos.md` —que sí posee— y la ficha se queda como contrato.
+RE_CASILLA = re.compile(r"^\s*-\s*\[([ xX])\]\s", re.M)
+# H1 del revisor de la 078: la sección se localiza por su LÍNEA de cabecera, no por la
+# primera vez que el texto menciona esas palabras. Con un `split("## Plan")` bastaba con que
+# la prosa de más arriba citara la sección —cosa que estas mismas plantillas hacen— para que
+# el conteo y la siembra se anclaran en el párrafo equivocado y el plan volviera a leerse
+# como vacío. Cabecera = línea entera que casa, y nada más.
+RE_PLAN_FICHA = re.compile(r"^#{2,6}[ \t]+[^\n]*Plan de trabajo[^\n]*$", re.M)
+RE_PLAN_HALLAZGOS = re.compile(r"^##[ \t]+Plan[ \t]*$", re.M)
+RE_CORTE_SECCION = re.compile(r"^## ", re.M)
+
+
+def _seccion_por_cabecera(texto, patron):
+    """(cuerpo, inicio, fin) de la sección cuya CABECERA casa con `patron`; None si no está.
+
+    El corte importa: `hallazgos.md` lleva más abajo la «Bitácora del cierre», que también
+    son casillas y NO son el plan. Un `### sub-apartado` no corta (el patrón de corte pide
+    `## ` a principio de línea), que es lo que mantiene intacta la lectura de las fichas de
+    bug, donde el plan cuelga de `### Plan de trabajo del subagente` dentro de
+    `## 5 · Resolución`.
+    """
+    casa = patron.search(texto or "")
+    if casa is None:
+        return None
+    inicio = casa.end()
+    if inicio < len(texto) and texto[inicio] == "\n":
+        inicio += 1
+    corte = RE_CORTE_SECCION.search(texto, inicio)
+    fin = corte.start() if corte else len(texto)
+    return texto[inicio:fin], inicio, fin
+
+
+def casillas_de(texto, patron):
+    """(marcadas, totales) del plan bajo esa cabecera, o None si esa sección no está."""
+    seccion = _seccion_por_cabecera(texto or "", patron)
+    if seccion is None:
+        return None
+    marcas = RE_CASILLA.findall(seccion[0])
+    if not marcas:
+        return None
+    return sum(1 for m in marcas if m.lower() == "x"), len(marcas)
+
+
+def plan_del_contrato(texto):
+    """Las líneas `- [ ] …` del `## Plan de trabajo` del contrato, tal cual están escritas."""
+    seccion = _seccion_por_cabecera(texto or "", RE_PLAN_FICHA)
+    if seccion is None:
+        return []
+    return [l.rstrip() for l in seccion[0].splitlines() if RE_CASILLA.match(l)]
+
+
+def progreso_del_plan(ruta_ficha, texto_ficha, clase="unidad"):
+    """(marcadas, totales, fuente) leyendo de donde ESTÉ el progreso (R3/R4 del bug 078).
+
+    Primero `hallazgos.md`, que es donde el constructor puede marcar desde hoy. Si esa
+    sección no está —una unidad ya en vuelo el día del arreglo, o un bug, cuya ficha sí es
+    su propia bitácora—, se cae a la ficha y se DICE, para que nadie confunda «no ha
+    marcado» con «marca en otro sitio».
+    """
+    if clase != "bug":
+        hallazgos = Path(ruta_ficha).parent / "hallazgos.md"
+        if hallazgos.exists():
+            try:
+                cuenta = casillas_de(
+                    hallazgos.read_text(encoding="utf-8", errors="replace"),
+                    RE_PLAN_HALLAZGOS)
+            except OSError:
+                cuenta = None
+            if cuenta is not None:
+                return cuenta[0], cuenta[1], "hallazgos.md"
+    cuenta = casillas_de(texto_ficha, RE_PLAN_FICHA)
+    if cuenta is None:
+        return None
+    return cuenta[0], cuenta[1], "en la ficha"
+
+
+def sembrar_plan_en_hallazgos(ruta_ficha, texto_ficha):
+    """Copia el plan del contrato al `## Plan` de `hallazgos.md` (R1 del bug 078).
+
+    Se hace al despachar, que es el único momento en que el contrato ya está aprobado y
+    `hallazgos.md` sigue siendo la plantilla recién copiada. No pisa nada: si el `## Plan`
+    ya tiene casillas (redespacho, o una unidad que llegó con las suyas), se deja como está
+    — el progreso escrito no se borra jamás por volver a pasar por aquí.
+    """
+    hallazgos = Path(ruta_ficha).parent / "hallazgos.md"
+    if not hallazgos.exists():
+        return None
+    texto = leer_fichero_unidad(hallazgos)
+    if casillas_de(texto, RE_PLAN_HALLAZGOS) is not None:
+        return None
+    pasos = plan_del_contrato(texto_ficha)
+    if not pasos:
+        return None
+    bloque = "\n".join(pasos) + "\n"
+    seccion = _seccion_por_cabecera(texto, RE_PLAN_HALLAZGOS)
+    if seccion is None:
+        # `hallazgos.md` anterior a esta corrección: se le abre la sección antes de la
+        # evidencia, que es donde la plantilla la coloca.
+        corte = re.search(r"^## Evidencia de verificación", texto, re.M)
+        if corte is None:
+            return None
+        texto = texto[:corte.start()] + f"## Plan\n\n{bloque}\n" + texto[corte.start():]
+    else:
+        # Empalme por POSICIÓN, no por `replace` del cuerpo: un cuerpo que apareciera dos
+        # veces en el fichero se escribiría en el sitio equivocado (H1 del revisor).
+        cuerpo, inicio, fin = seccion
+        texto = texto[:inicio] + cuerpo.rstrip("\n") + f"\n{bloque}" + texto[fin:]
+    escribir_fichero_unidad(hallazgos, texto)
+    return len(pasos)
+
+
 RE_SECCION_PRUEBA = re.compile(r"^#{1,6}[^\n]*(Verificaci[óo]n|Plan de trabajo)[^\n]*$",
                                re.M | re.I)
 
@@ -2063,6 +2180,13 @@ def _cmd_despachar(args, autoridad, snapshot=None):
     marcar_en_obra(ruta)
     ok(f"{rel(ruta)}: estado → en_obra · actualizado → {HOY}")
 
+    # Bug 078 · R1: el constructor va a trabajar con la ficha en 0444, así que el plan se le
+    # deja donde SÍ puede marcarlo. Sin esto, la regla 2 le pide algo que el SO le deniega.
+    sembradas = sembrar_plan_en_hallazgos(ruta, texto_unidad)
+    if sembradas:
+        ok(f"{sembradas} casilla(s) del plan copiadas al `## Plan` de "
+           f"{rel(Path(ruta).parent / 'hallazgos.md')} — es AHÍ donde se marcan")
+
     if (fm.get("carril") or "").strip() == "directo":
         paso_obra = (
             f"    1. Construye el padre en {rel(destino)}, a la vista del usuario "
@@ -3778,6 +3902,19 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
               f"        python3 {rel(__file__)} cerrar {nombre} --ok-usuario {HOY}")
         return 0
 
+    # --- Aviso (no bloquea): el plan sin terminar (bug 078 · R5) ------------------------------
+    # Antes, las casillas se copiaban a mano de `hallazgos.md` a la ficha en el cierre —así
+    # se hizo en la 060— porque el constructor no podía escribir la ficha. Ya no se copia
+    # nada: se MIRA donde se marcó, y si falta algo se dice con el comando que lo enseña.
+    progreso = progreso_del_plan(ruta, leer_fichero_unidad(ruta), clase)
+    if progreso is not None and progreso[0] < progreso[1]:
+        hechas, totales, fuente = progreso
+        sufijo = "" if fuente == "hallazgos.md" else f" (leído {fuente})"
+        warn(f"plan {hechas}/{totales} en {rel(hallazgos)}{sufijo}: quedan "
+             f"{totales - hechas} casilla(s) sin marcar. No bloqueo el cierre —hay pasos que "
+             f"solo puede marcar el padre—, pero míralo antes de firmar: "
+             f"python3 {rel(__file__)} estado")
+
     # --- Aviso (no bloquea): la cosecha de hallazgos ------------------------------------------
     pendientes = sin_cosechar(texto_hallazgos)
     if pendientes:
@@ -3902,6 +4039,28 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
 
 # --------------------------------------------------------------------------- subcomando: estado
 
+def _linea_de_plan(unidad):
+    """`  · plan 3/8` para la línea de una unidad en `estado`, o cadena vacía si no hay plan.
+
+    R3 del bug 078: el progreso del plan es el ÚNICO dato que dice por dónde va una obra, y
+    hasta hoy no salía por ningún sitio salvo el tablero —que además lo leía del fichero
+    equivocado—. Cuando toca leerlo de la ficha (R4) se dice, para no confundir «aún no ha
+    marcado» con «marca en otro sitio».
+    """
+    if unidad["fm"].get("estado") not in EN_VUELO:
+        return ""
+    try:
+        texto = leer_fichero_unidad(unidad["ruta"])
+    except OSError:
+        return ""
+    progreso = progreso_del_plan(unidad["ruta"], texto, unidad.get("clase", "unidad"))
+    if progreso is None:
+        return ""
+    hechas, totales, fuente = progreso
+    sufijo = "" if fuente == "hallazgos.md" else f" ({fuente})"
+    return f"  · plan {hechas}/{totales}{sufijo}"
+
+
 def cmd_estado(args):
     unidades = censo()
     print("== Estado del trabajo ==\n")
@@ -3913,7 +4072,7 @@ def cmd_estado(args):
     for n, u in filas:
         fm = u["fm"]
         print(f"  {n:28} {fm.get('tipo', '?'):14} {fm.get('carril', '?'):9} "
-              f"{fm.get('estado', 'SIN FRONTMATTER')}")
+              f"{fm.get('estado', 'SIN FRONTMATTER')}{_linea_de_plan(u)}")
 
     print("\nBugs (docs/bugs/):")
     bugs = [(n, u) for n, u in sorted(unidades.items()) if u["clase"] == "bug"]
@@ -3922,7 +4081,8 @@ def cmd_estado(args):
         print("  (ninguno)")
     for n, u in bugs:
         estado = u["fm"].get("estado", "SIN FRONTMATTER")
-        print(f"  {n:28} {estado}{'  ← abierto' if (n, u) in abiertos else ''}")
+        print(f"  {n:28} {estado}{_linea_de_plan(u)}"
+              f"{'  ← abierto' if (n, u) in abiertos else ''}")
 
     print("\nWorktrees (worktrees/):")
     wt = sorted(p.name for p in WORKTREES.iterdir() if p.is_dir()) if WORKTREES.is_dir() else []
