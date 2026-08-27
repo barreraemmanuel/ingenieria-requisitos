@@ -258,6 +258,7 @@ nav.pestanas button.activa { background: var(--ink); border-color: var(--ink); c
 .boton-ok { border-color: var(--ok); color: var(--ok); }
 .boton-ok:hover { background: var(--ok-bg); }
 .boton-primario { background: var(--ink); border-color: var(--ink); color: var(--paper); }
+.boton-primario:hover { background: var(--muted); border-color: var(--muted); color: var(--paper); } /* el hover genérico ponía fondo panel y el texto papel se fundía con él (P-20260827-86d44689) */
 .boton[disabled] { opacity: .5; cursor: default; }
 .acciones { display: flex; flex-wrap: wrap; gap: 10px; align-items: center; margin-top: 14px; }
 .acciones .caja-cambios { flex-basis: 100%; display: flex; flex-direction: column; gap: 8px; }
