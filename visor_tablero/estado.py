@@ -18,7 +18,7 @@ Fuentes (investigación P1 de la unidad):
     docs/05-trabajo/peticiones/<P-ID>/peticion.json
     .runtime/ejecuciones/*.json                    recibos `ejecucion/v1`
     .runtime/leases/active/*.json                  cerrojos con PID
-    docs/00-metodo/VERSION vs main/plantilla/.../VERSION
+    docs/00-metodo/VERSION vs la versión declarada por el workspace
     docs/00-metodo/scripts/canario.py --json
     git -C main log / rev-list
 """
@@ -701,12 +701,52 @@ def _version(workspace):
     publicada = raiz / "main" / "plantilla" / "docs" / "00-metodo" / "VERSION"
     try:
         texto_local = local.read_text(encoding="utf-8").strip()
-        texto_publicada = publicada.read_text(encoding="utf-8").strip()
     except OSError as exc:
         return {"estado": NO_COMPROBABLE, "detalle": str(exc)[:200],
                 "local": None, "publicada": None, "al_dia": None}
+    try:
+        texto_publicada = publicada.read_text(encoding="utf-8").strip()
+    except OSError:
+        # Un proyecto ya creado tiene un repo de código normal en `main/`, no
+        # el repositorio fuente de esta herramienta con su `plantilla/`. En
+        # ese caso el manifiesto instalado es la autoridad de qué versión se
+        # repartió al workspace. La ausencia de una ruta que no aplica no es
+        # un error de lectura.
+        try:
+            manifiesto = json.loads((raiz / "METODO.json").read_text(encoding="utf-8"))
+            texto_publicada = str(manifiesto["version"]).strip()
+        except (OSError, ValueError, KeyError, TypeError) as exc:
+            return {"estado": NO_COMPROBABLE, "detalle": str(exc)[:200],
+                    "local": texto_local, "publicada": None, "al_dia": None}
     return {"estado": OK, "local": texto_local, "publicada": texto_publicada,
             "al_dia": texto_local == texto_publicada}
+
+
+def _listeners_windows():
+    """Listeners con PID y comando usando las APIs nativas de PowerShell."""
+    guion = (
+        "$map=@{}; Get-CimInstance Win32_Process | ForEach-Object { "
+        "$map[[int]$_.ProcessId]=$_.CommandLine }; "
+        "@(Get-NetTCPConnection -State Listen | ForEach-Object { "
+        "[pscustomobject]@{pid=[int]$_.OwningProcess; puerto=[int]$_.LocalPort; "
+        "comando=[string]$map[[int]$_.OwningProcess]} }) | ConvertTo-Json -Compress"
+    )
+    salida = subprocess.run(
+        ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", guion],
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15,
+    )
+    if salida.returncode != 0:
+        raise OSError("PowerShell devolvió %d: %s" %
+                      (salida.returncode, salida.stderr.strip()[:120]))
+    try:
+        datos = json.loads(salida.stdout or "[]")
+    except ValueError as exc:
+        raise OSError("PowerShell no devolvió JSON de listeners") from exc
+    if isinstance(datos, dict):
+        datos = [datos]
+    return [{"pid": int(fila["pid"]), "puerto": int(fila["puerto"]),
+             "comando": fila.get("comando") or "", "cwd": None}
+            for fila in datos]
 
 
 def _sin_empujar(repo):
@@ -767,6 +807,9 @@ def _procesos_escuchando():
     Best-effort con `lsof`, como hace `unidad.py` para los worktrees ocupados:
     si no está, la sección lo dice en vez de asegurar que no hay nada levantado.
     """
+    if os.name == "nt":
+        return [p for p in _listeners_windows()
+                if p["puerto"] in PUERTOS_VIGILADOS]
     salida = subprocess.run(
         ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",
@@ -963,6 +1006,8 @@ def _listeners():
     un `servir.py` del método— y con UNA sola llamada a `ps` para todos los
     pids, que si no esto costaría un proceso por conexión abierta de la máquina.
     """
+    if os.name == "nt":
+        return _listeners_windows()
     salida = subprocess.run(
         ["lsof", "-nP", "-iTCP", "-sTCP:LISTEN", "-Fpn"],
         capture_output=True, text=True, encoding="utf-8", errors="replace",

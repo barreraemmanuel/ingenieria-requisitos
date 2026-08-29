@@ -595,7 +595,8 @@ class DocumentacionTest(ConWorkspace):
         codigo, _, cuerpo = self.servidor.pedir("/render.js")
         self.assertEqual(200, codigo)
         self.assertEqual(
-            RENDER_JS_CONTRATOS.read_text(encoding="utf-8"), cuerpo
+            RENDER_JS_CONTRATOS.read_text(encoding="utf-8").splitlines(),
+            cuerpo.splitlines(),
         )
         # 081: lo carga la CÁSCARA, una sola vez para los cuatro apartados; la
         # sección del tablero ni lo lleva dentro ni lo vuelve a pedir.
@@ -626,6 +627,20 @@ class CabeceraTest(ConWorkspace):
         self.assertEqual("1.7.7", version["local"])
         self.assertEqual("1.7.6", version["publicada"])
         self.assertTrue(version["al_dia"] is False)
+
+    def test_en_un_proyecto_ya_creado_la_version_sale_del_manifiesto(self):
+        raiz = Path(tempfile.mkdtemp(prefix="tablero-version-instalada-"))
+        self.addCleanup(shutil.rmtree, raiz, True)
+        (raiz / "docs" / "00-metodo").mkdir(parents=True)
+        (raiz / "docs" / "00-metodo" / "VERSION").write_text(
+            "1.9.3\n", encoding="utf-8")
+        (raiz / "METODO.json").write_text(
+            json.dumps({"version": "1.9.3"}), encoding="utf-8")
+        (raiz / "main").mkdir()
+        version = estado_mod._version(raiz)
+        self.assertEqual("ok", version["estado"], version)
+        self.assertEqual("1.9.3", version["publicada"])
+        self.assertTrue(version["al_dia"])
 
     def test_cuenta_los_commits_sin_empujar_de_main_y_del_meta_repo(self):
         self.assertEqual("ok", self.datos["sin_empujar"]["main"]["estado"])

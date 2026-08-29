@@ -31,6 +31,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
@@ -105,12 +106,16 @@ def docker_falso(carpeta, salida="", codigo=0):
     """Un `docker` ejecutable en una carpeta, para meterlo delante del PATH."""
     carpeta = Path(carpeta)
     carpeta.mkdir(parents=True, exist_ok=True)
-    guion = carpeta / "docker"
+    guion = carpeta / ("docker.cmd" if os.name == "nt" else "docker")
     # `printf` es un builtin del shell: el PATH de la prueba se queda a propósito
     # sin `/bin`, y con `cat` este doble no imprimiría nada.
-    guion.write_text(
-        "#!/bin/sh\nprintf '%%s\\n' '%s'\nexit %d\n" % (salida, codigo),
-        encoding="utf-8")
+    if os.name == "nt":
+        guion.write_text("@echo off\necho %s\nexit /b %d\n" % (salida, codigo),
+                         encoding="utf-8")
+    else:
+        guion.write_text(
+            "#!/bin/sh\nprintf '%%s\\n' '%s'\nexit %d\n" % (salida, codigo),
+            encoding="utf-8")
     guion.chmod(0o755)
     return carpeta
 
@@ -252,12 +257,23 @@ class ServidoresYDockerTest(unittest.TestCase):
         self.assertEqual([], foto["servidores"]["lista"])
         self.assertIn("lsof", foto["servidores"]["detalle"])
 
+    def test_windows_lee_listeners_con_powershell_sin_lsof(self):
+        salida = subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='[{"pid":6148,"puerto":8933,"comando":"python servir.py"}]',
+            stderr="")
+        with mock.patch.object(estado_mod.subprocess, "run", return_value=salida) as run:
+            procesos = estado_mod._listeners_windows()
+        self.assertEqual(8933, procesos[0]["puerto"])
+        self.assertEqual(6148, procesos[0]["pid"])
+        self.assertIn("powershell.exe", run.call_args.args[0][0])
+
     def test_docker_en_marcha_sale_con_nombre_e_imagen(self):
-        carpeta = docker_falso(
-            self.raiz / "bin",
-            salida='{"Names":"prueba","Image":"nginx","Status":"Up 3 minutes"}')
-        ConPath(self, str(carpeta))
-        foto = estado_mod.taller(self.raiz, procesos=self._procesos())
+        ejecutar = lambda: subprocess.CompletedProcess(
+            args=[], returncode=0,
+            stdout='{"Names":"prueba","Image":"nginx","Status":"Up 3 minutes"}\n',
+            stderr="")
+        foto = estado_mod.taller(self.raiz, procesos=self._procesos(), docker=ejecutar)
         docker = foto["docker"]
         self.assertEqual(estado_mod.OK, docker["estado"], docker)
         self.assertEqual([{"nombre": "prueba", "imagen": "nginx",
@@ -374,6 +390,11 @@ class RotulosTest(unittest.TestCase):
         plantilla = _texto(PLANTILLA_TABLERO)
         self.assertIn("pintarTaller", plantilla)
         self.assertIn(">Taller<", plantilla)
+
+    def test_la_senal_de_recibos_no_se_disfraza_de_sesion_principal(self):
+        plantilla = _texto(PLANTILLA_TABLERO)
+        self.assertIn("Ejecución delegada", plantilla)
+        self.assertNotIn('dato("Sesión principal"', plantilla)
 
     def test_contratos_lleva_una_cabecera_de_seis_lineas_como_mucho(self):
         plantilla = _texto(PLANTILLA_CONTRATOS)

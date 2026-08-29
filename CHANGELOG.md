@@ -4,6 +4,15 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.4 — 2026-08-29
+
+**Inicio ya lee un taller real en Windows.** La versión instalada se obtiene de `METODO.json`
+cuando `main/` es el repositorio de la aplicación (y no la fuente de la herramienta), los
+servidores locales se enumeran con PowerShell sin depender de `lsof`/`ps`, y la tarjeta que
+solo observa leases y recibos se llama **Ejecución delegada**: ya no afirma que la sesión
+principal está parada cuando el agente padre sigue trabajando. La suite del tablero también
+normaliza sus dobles de Docker y finales de línea para poder ejecutarse completa en Windows.
+
 ## 1.9.3 — 2026-08-27
 
 Dos cosas que Nate vio en la web la misma noche de la 1.9.2.

@@ -365,13 +365,13 @@
   }
 
   function pintarSesion(s) {
-    if (!s || s.estado !== "ok") return dato("Sesión principal", sinDatos(s), true);
+    if (!s || s.estado !== "ok") return dato("Ejecución delegada", sinDatos(s), true);
     if (s.activa) {
-      return dato("Sesión principal", "trabajando ahora" +
+      return dato("Ejecución delegada", "trabajando ahora" +
                   '<div class="detalle">desde hace ' + esc(duracion(s.minutos)) +
                   "</div>");
     }
-    return dato("Sesión principal", "parada" + '<div class="detalle">desde ' +
+    return dato("Ejecución delegada", "parada" + '<div class="detalle">desde ' +
                 esc(fecha(s.desde)) + "</div>");
   }
 
