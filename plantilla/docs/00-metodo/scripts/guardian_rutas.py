@@ -2,7 +2,7 @@
 """¿Adónde va este comando? La decisión por RUTA RESUELTA, sin hook y sin I/O.
 
 El método ya tiene un filtro que mira comandos: el del canario (`canario.py:614-636`). Mide
-bien la CONDUCTA de una sesión terminada, pero como puerta previa miente: pasado por las 12.023
+bien la CONDUCTA de una sesión terminada, pero como puerta previa miente: pasado por las 12.397
 llamadas reales de este taller, cerca de la mitad de sus disparos son texto que *cita* el
 comando dentro de un heredoc —los propios informes de la investigación—. Ese es el defecto de
 fondo: decide por el símbolo (la palabra `rm -rf main/`) y no por el hecho (qué ruta se toca).
@@ -15,9 +15,11 @@ si cae bajo `<raíz>/main`. Tres consecuencias, todas medidas contra el corpus:
   · **El heredoc que cita un comando deja de disparar.** El cuerpo de un heredoc es DATO
     (`cat > fichero <<EOF`) salvo que lo coma un intérprete (`python3 - <<EOF`), y solo
     entonces se lee como código.
-  · **Lo que no se puede resolver no se bloquea.** `rm -rf $D/x`, `~/x`, `x*`: 50 casos reales,
-    todos legítimos. Fallar cerrado ahí recrea la familia de falsos rojos que ya nos costó 32
-    incidentes, así que sale `aviso` con la salida escrita, nunca `deny`.
+  · **Lo que no se puede resolver no se bloquea.** `rm -rf $D/x`, `~/x`, `x*`: 23 casos reales
+    en el corpus, todos legítimos. Cuando la asignación está a la vista en el mismo comando
+    (`M=$PWD/main; rm -rf $M/x`) la variable se expande y sí se decide; cuando no lo está, sale
+    `aviso` con la salida escrita y **nunca `deny`**: fallar cerrado ahí recrea la familia de
+    falsos rojos que ya costó 32 incidentes.
 
     decidir(herramienta, entrada, cwd, raiz) -> Decision(veredicto, motivo, salida)
 
