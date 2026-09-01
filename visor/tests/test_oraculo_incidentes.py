@@ -49,6 +49,10 @@ CAMPOS = ("id", "bloque", "origen", "fecha", "harness", "so", "version_metodo",
           "familia", "arreglo", "expectativa", "particion", "sintoma", "evidencia",
           "duplicado_de", "contado")
 
+# El mínimo contractual del bloque 2 (`especificacion.md`, R1): 70 incidentes únicos de las cajas
+# negras de los alumnos + 14 issues abiertos + 34 peticiones con autor de soporte.
+MINIMO_BLOQUE_2 = 70 + 14 + 34
+
 # Los 92 del bloque 1, tal y como los nombra la matriz §3.
 IDS_BLOQUE_1 = ([f"IN{n}" for n in range(1, 15)] + [f"IR{n}" for n in range(1, 56)]
                 + [f"MM{n}" for n in range(1, 17)] + [f"WB{n}" for n in range(1, 8)])
@@ -101,14 +105,43 @@ class EsquemaYBloques(unittest.TestCase):
         self.assertNotIn("MM17", [f["id"] for f in self.filas])
 
     def test_el_bloque_2_trae_las_tres_fuentes_y_no_es_menor_que_ellas(self):
+        """R1 · el bloque 2 no puede ser menor que la suma de sus tres fuentes.
+
+        El mínimo contractual es **118 = 70 + 14 + 34** (`especificacion.md`, R1):
+
+        - **70** incidentes únicos de las cajas negras que mandaron los alumnos (55 líneas en los
+          cuatro JSON de envío y 57 en los cinco `incidentes.jsonl`, de las que 70 son ids
+          distintos: la caja de descargas es subconjunto exacto del envío del 24-08 y los dos
+          JSONL más recientes son superset de los anteriores);
+        - **14** issues abiertos del repo del método. El contrato decía 15 por un error de hecho,
+          corregido por el padre el 02-09 con aclaración informativa en la petición: la lista real
+          de `gh issue list --state open` es #51, #52, #53, #55, #56, #57, #58, #59, #88, #89,
+          #91, #113, #114 y #117. Por eso la cifra se fija EXACTA y no como cota: si mañana se
+          abre otro issue, la fila entra al fixture y este número sube con él — que es justo lo
+          que R5 pide, y no algo que el test deba dejar pasar en silencio;
+        - **34** peticiones con autor de soporte en este taller.
+
+        Las tres se comprueban por separado para que el rojo diga QUÉ fuente falta, y el total se
+        compara además contra el mínimo contractual: bajar de 118 es incumplir R1.
+
+        Ojo: 118 es un mínimo de **filas**, no de filas contadas. Un duplicado se enlaza con
+        `duplicado_de`, sale del recuento de únicos y **sigue en el fichero** — enlazar no puede
+        hacer desaparecer la prueba de que ese reporte llegó. Las cuentas de únicos son cosa de
+        `oraculo_cuentas.py`; aquí se vigila que ninguna de las tres fuentes se quede fuera.
+        """
         b2 = [f for f in self.filas if f["bloque"] == "alumnos"]
         por_origen = Counter(f["origen"] for f in b2)
         self.assertEqual(por_origen["caja-negra-alumno"], 70,
                          "los 70 incidentes únicos bajados de la caja de los alumnos")
-        self.assertGreaterEqual(por_origen["issue"], 14, "los issues abiertos del repo")
+        self.assertEqual(por_origen["issue"], 14,
+                         "los 14 issues abiertos del repo del método (lista en el docstring)")
         self.assertEqual(por_origen["soporte"], 34, "las peticiones con autor de soporte")
-        self.assertEqual(len(b2), sum(por_origen.values()))
-        self.assertGreaterEqual(len(b2), 118)
+        self.assertEqual(len(b2), sum(por_origen.values()),
+                         "el bloque 2 no tiene filas de ningún otro origen")
+        self.assertGreaterEqual(
+            len(b2), MINIMO_BLOQUE_2,
+            f"R1 exige al menos {MINIMO_BLOQUE_2} filas en el bloque 2 "
+            f"(70 caja negra de alumnos + 14 issues + 34 peticiones de soporte)")
 
     def test_las_familias_nuevas_del_bloque_2_estan_definidas_en_una_linea(self):
         for clave, definicion in self.familias.items():
