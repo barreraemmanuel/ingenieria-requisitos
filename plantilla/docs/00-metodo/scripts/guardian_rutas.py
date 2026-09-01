@@ -633,9 +633,9 @@ def _revisar_bash(comando, cwd, main, profundidad=0):
             encaje = ASIGNACION_SHELL.match(palabra)
             if encaje and not palabra.startswith("-"):
                 valor = _expandir(encaje.group(2), variables)
-                if cwd_actual and "$PWD" not in valor:
+                if cwd_actual:
                     valor = valor.replace("$PWD", cwd_actual)
-                variables[encaje.group(1)] = valor.replace("$PWD", cwd_actual or "$PWD")
+                variables[encaje.group(1)] = valor
             else:
                 break
         destinos = [_expandir(d, variables) for d in destinos]
