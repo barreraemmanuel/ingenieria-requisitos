@@ -258,6 +258,44 @@ class LintMetodoJsonTest(unittest.TestCase):
             hallazgos_sin_git["guardianes-degradados-modificado"]["severidad"], "FAIL"
         )
 
+    def test_vaciar_registro_versionado_sigue_emitiendo_rojo_no_degradable(self):
+        registro = self.ws / "docs/00-metodo/guardianes-degradados.json"
+        registro.write_text(
+            json.dumps({"version": 1, "ids": ["agents-md-existe"]}), encoding="utf-8"
+        )
+        subprocess.run(["git", "init", "-b", "main"], cwd=self.ws, check=True,
+                       capture_output=True)
+        subprocess.run(["git", "add", "-A"], cwd=self.ws, check=True, capture_output=True)
+        subprocess.run([
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-m", "base con degradado",
+        ], cwd=self.ws, check=True, capture_output=True)
+        base = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=self.ws, check=True,
+            text=True, capture_output=True,
+        ).stdout.strip()
+
+        registro.write_text(json.dumps({"version": 1, "ids": []}), encoding="utf-8")
+        subprocess.run(["git", "add", str(registro)], cwd=self.ws, check=True,
+                       capture_output=True)
+        subprocess.run([
+            "git", "-c", "user.name=Test", "-c", "user.email=test@example.invalid",
+            "commit", "-m", "vacia registro",
+        ], cwd=self.ws, check=True, capture_output=True)
+
+        resultado = subprocess.run(
+            [sys.executable, str(self.ws / "docs/00-metodo/scripts/lint_metodo.py"),
+             "--json", "--base-ref", base],
+            cwd=self.ws, text=True, encoding="utf-8", errors="replace",
+            capture_output=True,
+        )
+
+        datos = json.loads(resultado.stdout)
+        por_id = {item["id"]: item for item in datos["hallazgos"]}
+        self.assertEqual(
+            por_id["guardianes-degradados-modificado"]["severidad"], "FAIL"
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

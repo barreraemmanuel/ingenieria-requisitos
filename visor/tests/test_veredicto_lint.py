@@ -118,10 +118,28 @@ class VeredictoLintTest(unittest.TestCase):
             self.assertTrue(veredicto.bloquea, roto)
             self.assertIn("infraestructura", veredicto.motivo.lower())
 
+    def test_campos_de_identidad_json_no_textuales_fallan_cerrado(self):
+        for campo, valor in (("id", 1), ("sujeto", ["taller"]),
+                             ("ruta", ["a"]), ("instancia", 0)):
+            with self.subTest(campo=campo, valor=valor):
+                roto = h("pkill")
+                roto[campo] = valor
+                # En base y HEAD: si se coerciona, parece preexistente y bloquea=False.
+                veredicto = self.decidir([roto], [roto])
+                self.assertTrue(veredicto.bloquea, roto)
+                self.assertIn("infraestructura", veredicto.motivo.lower())
+
     def test_ruta_absoluta_windows_falla_cerrado(self):
         veredicto = self.decidir([], [h("pkill", ruta="C:/tmp/a.sh")])
         self.assertTrue(veredicto.bloquea)
         self.assertIn("infraestructura", veredicto.motivo.lower())
+
+    def test_rutas_no_canonicas_fallan_cerrado(self):
+        for ruta in ("a//b", "a/./b", "a/"):
+            with self.subTest(ruta=ruta):
+                veredicto = self.decidir([], [h("pkill", ruta=ruta)])
+                self.assertTrue(veredicto.bloquea, ruta)
+                self.assertIn("infraestructura", veredicto.motivo.lower())
 
     def test_registro_de_degradados_no_puede_autoindultar_el_mismo_diff(self):
         # Aunque el pkill haya sido rebajado a WARN, tocar el registro genera antes este

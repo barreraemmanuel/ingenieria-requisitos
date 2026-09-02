@@ -104,6 +104,19 @@ def _sujeto_y_ruta(msg):
     return "taller", "."
 
 
+def _revision_tiene_degradados(repo, revision, relativa):
+    """Lee ids del registro en una revisión sin depender del checkout actual."""
+    codigo, contenido = git(repo, "show", f"{revision}:{relativa}")
+    if codigo:
+        return False
+    try:
+        datos = json.loads(contenido)
+    except json.JSONDecodeError:
+        return False
+    ids = datos.get("ids") if isinstance(datos, dict) and datos.get("version") == 1 else None
+    return isinstance(ids, list) and bool(ids)
+
+
 def _registrar(id_, severidad, msg, sujeto=None, ruta=None, instancia=None):
     sujeto_inferido, ruta_inferida = _sujeto_y_ruta(msg)
     hallazgos.append({
@@ -144,8 +157,6 @@ def fail(msg, *, id_, sujeto=None, ruta=None, instancia=None):
 def _registro_degradados_modificado():
     """Detecta autoindulto en un árbol de trabajo o en una rama aún no integrada."""
     global ERROR_COMPARACION_DEGRADADOS
-    if not DEGRADADOS:
-        return False
     codigo, raiz_git = git(RAIZ, "rev-parse", "--show-toplevel")
     if codigo:
         if BASE_REF:
@@ -160,7 +171,11 @@ def _registro_degradados_modificado():
     except ValueError:
         return False
     if git(raiz_git, "status", "--porcelain", "--", relativa)[1].strip():
-        return True
+        # Modo D puede añadir por primera vez el registro vacío a un taller antiguo.
+        # Eso no rebaja nada. Vaciar uno que HEAD ya tenía con ids sí es autoindulto.
+        return bool(DEGRADADOS) or _revision_tiene_degradados(
+            raiz_git, "HEAD", relativa
+        )
     if BASE_REF:
         if git(raiz_git, "rev-parse", "--verify", "--quiet",
                f"{BASE_REF}^{{commit}}")[0] != 0:
@@ -179,7 +194,10 @@ def _registro_degradados_modificado():
                 f"git diff {BASE_REF}...HEAD no pudo comparar el registro"
             )
             return True
-        return bool(cambiado.strip())
+        return bool(cambiado.strip()) and (
+            bool(DEGRADADOS)
+            or _revision_tiene_degradados(raiz_git, BASE_REF, relativa)
+        )
     rama = git(raiz_git, "branch", "--show-current")[1].strip()
     for principal in ("main", "master"):
         if (rama and rama != principal
@@ -187,7 +205,10 @@ def _registro_degradados_modificado():
             cambiado = git(
                 raiz_git, "diff", "--name-only", f"{principal}...HEAD", "--", relativa
             )[1]
-            return bool(cambiado.strip())
+            return bool(cambiado.strip()) and (
+                bool(DEGRADADOS)
+                or _revision_tiene_degradados(raiz_git, principal, relativa)
+            )
     return False
 
 

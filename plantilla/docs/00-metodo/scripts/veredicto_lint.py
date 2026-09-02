@@ -30,11 +30,15 @@ RE_ID = re.compile(r"[a-z0-9][a-z0-9-]*")
 
 
 def _normalizar_ruta(valor):
-    texto = str(valor or "").replace("\\", "/").strip()
+    if not isinstance(valor, str):
+        raise ValueError("ruta debe ser texto JSON")
+    texto = valor
     ruta = PurePosixPath(texto)
     ruta_windows = PureWindowsPath(texto)
-    if (not texto or ruta.is_absolute() or ruta_windows.drive
-            or ruta_windows.is_absolute() or ".." in ruta.parts):
+    if (not texto or texto != texto.strip() or "\\" in texto
+            or ruta.is_absolute() or ruta_windows.drive
+            or ruta_windows.is_absolute() or ".." in ruta.parts
+            or ruta.as_posix() != texto):
         raise ValueError("ruta debe ser relativa, normalizada y confinada")
     return ruta.as_posix()
 
@@ -72,6 +76,10 @@ def _normalizar(hallazgo):
             "campos de hallazgo distintos del contrato: "
             f"esperados {sorted(CAMPOS_HALLAZGO)}, recibidos {sorted(hallazgo)}"
         )
+    no_textuales = [campo for campo in CAMPOS_IDENTIDAD
+                    if not isinstance(hallazgo.get(campo), str)]
+    if no_textuales:
+        raise ValueError("identidad JSON no textual: " + ", ".join(no_textuales))
     faltan = [campo for campo in (*CAMPOS_IDENTIDAD, "severidad")
               if not str(hallazgo.get(campo, "")).strip()]
     if faltan:
