@@ -17,9 +17,11 @@ Todo se mide aquí sobre talleres sintéticos en `TemporaryDirectory`: ningún t
 cómo esté hoy la máquina de quien corre la suite.
 """
 import json
+import os
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -339,6 +341,166 @@ class LineaBaseTest(InvariantesBase):
         datos = json.loads(viajera.read_text(encoding="utf-8"))
         self.assertEqual(sorted(datos["senales"]), sorted(IDS))
         self.assertRegex(str(datos["base"].get("fecha")), r"^\d{4}-\d{2}-\d{2}$")
+
+
+class TrinqueteDeLaBaseTest(InvariantesBase):
+    """146 · ronda 2 — `--congelar` no puede indultar una subida.
+
+    El adversario lo reprodujo: la base se escribía con el número de HOY sin mirar el de
+    ayer, así que una regresión real (S7 de 13 a 17) se borraba con un solo comando, exit 0
+    y sin una línea de aviso. El texto del script decía «solo pueden bajar» y el código no
+    lo hacía cumplir — que es la forma más cara de mentir, porque el que lo lee se lo cree.
+    """
+
+    def con_dos_rechazos_mudos(self):
+        self.taller.linter("lint_uno.py", LINTER_MIXTO)
+        self.taller.linter("lint_dos.py", LINTER_MIXTO)
+
+    # ------------------------------------------------------------------ el par de dientes
+    def test_dientes_trinquete_base_bloquea(self):
+        """Con el trinquete: la subida se rechaza, nombra su salida y NO toca el fichero."""
+        self.taller.linter("lint_uno.py", LINTER_MIXTO)
+        self.congelar()
+        antes = self.base.read_text(encoding="utf-8")
+
+        self.taller.linter("lint_dos.py", LINTER_MIXTO)      # la regresión: S5 sube
+        salida = self.correr("--congelar")
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("INV-002", salida.stdout)
+        self.assertIn("SALIDA:", salida.stdout)
+        self.assertIn("--motivo", salida.stdout)
+        self.assertEqual(self.base.read_text(encoding="utf-8"), antes,
+                         "un rechazo que ya ha escrito la base no es un rechazo")
+
+    def test_dientes_trinquete_base_abierto_pasa(self):
+        """Sin la comparación, la misma subida entra: es lo que pasaba antes de la ronda 2.
+
+        El interruptor vive aquí: se borra la base ANTES de recongelar, que es exactamente
+        el estado en el que el código viejo se encontraba siempre (no miraba lo anterior).
+        """
+        self.taller.linter("lint_uno.py", LINTER_MIXTO)
+        self.congelar()
+        antes = json.loads(self.base.read_text(encoding="utf-8"))["senales"]["S5"]
+
+        self.taller.linter("lint_dos.py", LINTER_MIXTO)
+        self.base.unlink()                                   # el ejecutor, abierto
+        salida = self.correr("--congelar")
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        ahora = json.loads(self.base.read_text(encoding="utf-8"))["senales"]["S5"]
+        self.assertGreater(ahora, antes,
+                           "sin la comparación la subida debería colarse; si no se cuela, "
+                           "el par no está midiendo el trinquete")
+
+    # ------------------------------------------------------------------ la firma
+    def test_una_subida_firmada_entra_y_queda_en_el_historial(self):
+        self.taller.linter("lint_uno.py", LINTER_MIXTO)
+        self.congelar()
+        antes = json.loads(self.base.read_text(encoding="utf-8"))["senales"]["S5"]
+
+        self.taller.linter("lint_dos.py", LINTER_MIXTO)
+        salida = self.correr("--congelar", "--motivo", "ahora se miden los 22 scripts")
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        datos = json.loads(self.base.read_text(encoding="utf-8"))
+        self.assertGreater(datos["senales"]["S5"], antes)
+        # Suben S5 y S6 a la vez (el linter nuevo trae un `fail()` mudo Y sin id), y las
+        # DOS tienen que quedar escritas: una firma que solo cubre la mitad de lo que subió
+        # deja la otra mitad adoptada en silencio, que es justo lo que se estaba cerrando.
+        historial = {e["senal"]: e for e in datos["historial"]}
+        self.assertIn("S5", historial)
+        self.assertEqual(historial["S5"]["de"], antes)
+        for entrada in historial.values():
+            self.assertIn("22 scripts", entrada["motivo"])
+            self.assertGreater(entrada["a"], entrada["de"])
+
+    def test_el_historial_se_imprime_mientras_exista(self):
+        """Una base que subió con permiso sigue siendo una base que subió."""
+        self.taller.linter("lint_uno.py", LINTER_MIXTO)
+        self.congelar()
+        self.taller.linter("lint_dos.py", LINTER_MIXTO)
+        self.correr("--congelar", "--motivo", "cambió la forma de medir")
+        salida = self.correr()
+        self.assertIn("AVISO", salida.stdout)
+        self.assertIn("cambió la forma de medir", salida.stdout)
+
+    def test_encoger_no_pide_firma_a_nadie(self):
+        self.con_dos_rechazos_mudos()
+        self.congelar()
+        (self.ws / "docs/00-metodo/scripts/lint_dos.py").write_text(
+            LINTER_LIMPIO, encoding="utf-8")
+        salida = self.correr("--congelar")
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertEqual(json.loads(self.base.read_text(encoding="utf-8"))
+                         .get("historial", []), [])
+
+
+class SinFechaNoSeInventaTest(InvariantesBase):
+    """146 · ronda 2 — S2 y S8 no se reparten por la `mtime` del fichero.
+
+    El adversario apagó S2 con un solo comando:
+
+        touch -t 202608200900 recibo.json     # FAIL → ok, sin tocar el recibo
+
+    Y no hace falta mala fe: un `cp -r` del taller o un `git checkout` reescriben mtimes.
+    Un recibo sin fecha propia se cuenta ahora en una tercera columna, «sin fecha», que
+    informa y no bloquea.
+    """
+
+    def recibo_sin_fecha(self, nombre="a"):
+        self.taller.recibo(nombre, unidad="001-x", resultado=None)
+        return self.ws / ".runtime/ejecuciones" / f"{nombre}.json"
+
+    def test_un_recibo_sin_fecha_va_a_la_columna_sin_fecha(self):
+        self.recibo_sin_fecha()
+        _, senales, _ = self.medir()
+        self.assertEqual(senales["S2"]["violaciones"], 1)
+        self.assertEqual(senales["S2"]["posteriores"], 0)
+        self.assertEqual(senales["S2"]["sin_fecha"], 1)
+
+    def test_dientes_sin_fecha_bloquea(self):
+        """Con el mecanismo: mover la mtime a los dos lados del corte no cambia NADA."""
+        ruta = self.recibo_sin_fecha()
+        lecturas = []
+        for cuando in ((2026, 9, 2, 9, 0), (2026, 8, 20, 9, 0)):
+            marca = time.mktime((*cuando, 0, 0, 0, -1))
+            os.utime(ruta, (marca, marca))
+            _, senales, salida = self.medir()
+            lecturas.append((senales["S2"]["posteriores"], salida.returncode))
+        self.assertEqual(lecturas[0], lecturas[1],
+                         "la mtime del fichero sigue moviendo el veredicto de S2")
+        self.assertEqual(lecturas[0][0], 0)
+
+    def test_dientes_sin_fecha_abierto_pasa(self):
+        """Con la mtime puesta a mano como fecha del recibo, el mismo `touch` sí mueve.
+
+        Es la contraprueba: demuestra que el par mide la AUSENCIA de reparto por mtime y no
+        otra cosa. Si esto no cambiara de color, el test de arriba no probaría nada.
+        """
+        ruta = self.recibo_sin_fecha()
+        lecturas = []
+        for fecha in ("2026-09-02T09:00:00", "2026-08-20T09:00:00"):
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+            datos["fecha"] = fecha                    # el ejecutor, abierto: hay fecha
+            ruta.write_text(json.dumps(datos), encoding="utf-8")
+            _, senales, _ = self.medir()
+            lecturas.append(senales["S2"]["posteriores"])
+        self.assertNotEqual(lecturas[0], lecturas[1],
+                            "con fecha propia el corte TIENE que repartir; si no, el par no "
+                            "está midiendo el reparto")
+
+    def test_s8_tambien_cuenta_aparte_lo_que_no_tiene_fecha(self):
+        self.taller.recibo("c1", unidad="001-x", rol="constructor", session_id="AAA")
+        self.taller.recibo("r1", unidad="001-x", rol="revisor", session_id="AAA")
+        _, senales, _ = self.medir()
+        self.assertEqual(senales["S8"]["violaciones"], 1)
+        self.assertEqual(senales["S8"]["posteriores"], 0)
+        self.assertEqual(senales["S8"]["sin_fecha"], 1)
+
+    def test_la_salida_dice_por_que_hay_una_tercera_columna(self):
+        self.recibo_sin_fecha()
+        salida = self.correr()
+        self.assertIn("sin fecha", salida.stdout)
+        self.assertIn("iniciado", salida.stdout,
+                      "hay que decir QUÉ arreglaría la ceguera, no solo que existe")
 
 
 class NoBloqueaElCierreTest(InvariantesBase):

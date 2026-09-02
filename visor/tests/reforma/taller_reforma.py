@@ -98,3 +98,57 @@ def salida_de(mensaje):
         return None
     cola = mensaje.split(SALIDA, 1)[1].strip()
     return cola.splitlines()[0].strip() if cola else None
+
+
+# ---------------------------------------------------------------------------------
+# Ejecutar de verdad el comando que el rechazo nombra (ronda 2, matiz del adversario)
+# ---------------------------------------------------------------------------------
+# La ficha dice «ejecuta el comando de recuperación y reintenta», y hasta la ronda 2 el
+# harness solo comprobaba que el `SALIDA:` traía texto. La diferencia importa: un rechazo
+# puede nombrar un comando que no existe, que peta, o que no arregla nada, y el test seguiría
+# verde. Así que aquí se ejecuta — cuando se puede.
+#
+# No todo se puede ejecutar dentro de un fixture, y fingir que sí sería peor que no hacerlo:
+# `ejecucion.py lanzar --rol constructor` levanta un agente de verdad, con su cupo y su red.
+# Por eso la clasificación es explícita y de vocabulario cerrado, y cada caso que NO se puede
+# ejecutar tiene que decir por qué EN EL PROPIO CASO.
+
+# Lo que sí corre dentro del worktree de juguete: es git, es local y es determinista.
+EJECUTABLES = ("git",)
+
+# Lo que no, con el motivo por el que no. No es una lista de excusas: es la frontera del
+# fixture, y si algo entra aquí sin estar en esta tabla, el test falla en vez de saltárselo.
+NO_EJECUTABLES = {
+    "ejecucion.py": "levantaría un agente real (cupo, red y un harness entero)",
+    "unidad.py": "escribe en el meta-repo, que está fuera del worktree de prueba",
+    "claude": "levantaría un agente real",
+    "codex": "levantaría un agente real",
+}
+
+
+def clasificar_salida(comando):
+    """('ejecutable', None) | ('no-ejecutable', motivo) | ('desconocido', None).
+
+    `desconocido` NO es un tercer permiso: es un fallo. Si aparece un comando que nadie ha
+    clasificado, el caso tiene que pararse y decidir, no seguir en verde por descuido.
+    """
+    if not comando:
+        return "desconocido", None
+    trozos = comando.split()
+    cabeza = trozos[0]
+    for marca, motivo in NO_EJECUTABLES.items():
+        if marca in comando:
+            return "no-ejecutable", motivo
+    if cabeza in EJECUTABLES:
+        return "ejecutable", None
+    return "desconocido", None
+
+
+def ejecutar_salida(comando, cwd):
+    """Ejecuta el comando del `SALIDA:` en el worktree. Devuelve el proceso terminado.
+
+    Un comando de recuperación que falla no es una salida: es otro callejón. Por eso el
+    resultado se devuelve entero y el caso lo comprueba.
+    """
+    return subprocess.run(comando.split(), cwd=str(cwd), capture_output=True,
+                          text=True, encoding="utf-8", errors="replace")

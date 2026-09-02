@@ -67,8 +67,13 @@ SALIDA = "SALIDA:"
 
 PORQUE = ("Línea base de las ocho señales de la reforma (unidad 146). Las señales de código "
           "(S5-S7) no tienen sujeto fechado: su cuenta «posterior al corte» es lo que SUBE "
-          "sobre estos números. Solo pueden bajar. La escribe lint_invariantes.py --congelar, "
-          "con su fecha y su commit; a mano no vale.")
+          "sobre estos números. SOLO PUEDEN ENCOGER: `--congelar` compara contra estos "
+          "valores y RECHAZA cualquier subida; para adoptarla hace falta "
+          "`--congelar --motivo \"<texto>\"`, que queda escrito en `historial` (fecha, señal, "
+          "de→a, motivo) y que el linter imprime como aviso mientras exista. Sin esa "
+          "comparación, la base no es un trinquete: es un `--congelar` de auto-indulto que "
+          "borra la regresión que acaba de aparecer. La escribe lint_invariantes.py, con su "
+          "fecha y su commit; a mano no vale.")
 
 
 # ------------------------------------------------------------------ utilidades
@@ -119,9 +124,18 @@ def sha_corto(raiz):
     return "sin-git"
 
 
-def senal(identificador, titulo, violaciones, universo, posteriores, detalle=None):
+def senal(identificador, titulo, violaciones, universo, posteriores, detalle=None,
+          sin_fecha=0):
+    """Una señal, en TRES cuentas.
+
+    `sin_fecha` es la tercera: las violaciones cuyo sujeto no lleva fecha propia y que por
+    tanto no se pueden repartir a un lado u otro del corte. Informa y no bloquea nunca. Sin
+    ella, esas violaciones tendrían que caer a algún sitio —«históricas» las esconde,
+    «posteriores» las inventa— y las dos opciones mienten.
+    """
     return {"id": identificador, "titulo": titulo, "violaciones": violaciones,
-            "universo": universo, "posteriores": posteriores, "detalle": detalle or []}
+            "universo": universo, "posteriores": posteriores, "sin_fecha": sin_fecha,
+            "detalle": detalle or []}
 
 
 # ------------------------------------------------------------------ S1
@@ -165,39 +179,44 @@ def s1_aprobado_sin_recibo(ws, corte):
 
 # ------------------------------------------------------------------ recibos
 def recibos_de_ejecucion(ws):
-    """Los recibos `ejecucion/v1`, con la fecha que se les pueda sacar.
+    """Los recibos `ejecucion/v1`, con SU fecha o con None. Nunca con la del sistema de ficheros.
 
-    Los recibos reales NO llevan campo de fecha (medido sobre 288 de este taller): se cae a
-    la mtime del fichero, que es el único rastro temporal que existe. Los sintéticos de la
-    suite sí la llevan, y esa manda.
+    Hasta la ronda 2 esto caía a la `mtime` del fichero cuando el recibo no traía fecha, que
+    es el caso normal (288 de 288 en este taller). El adversario lo tumbó con un comando:
+
+        touch -t 202608200900 recibo.json    # S2: FAIL → ok, sin tocar el recibo
+
+    Una señal que se apaga con `touch` no mide nada, y ni siquiera hace falta mala fe: un
+    `cp -r` del taller o un `git checkout` reescriben mtimes y apagan S2/S8 sin dejar rastro
+    de que se apagaron. Así que un recibo sin fecha propia ya NO se reparte: se cuenta aparte,
+    en la columna «sin fecha», que informa y no bloquea. La cuenta posterior al corte de S2 y
+    S8 solo será fiable cuando `ejecucion.py` escriba `iniciado`/`terminado` en el recibo
+    (propuesto a la 147 en `hallazgos.md`); mientras tanto dice la verdad sobre lo poco que
+    puede saber, en vez de una mentira cómoda sobre todo.
     """
     salida = []
     for ruta in sorted((ws / ".runtime/ejecuciones").glob("*.json")):
         datos = leer_json(ruta)
         if not isinstance(datos, dict):
             continue
-        fecha = solo_fecha(datos.get("fecha") or datos.get("iniciado"))
-        if not fecha:
-            try:
-                fecha = date.fromtimestamp(ruta.stat().st_mtime).isoformat()
-            except OSError:
-                fecha = None
-        salida.append((datos, fecha))
+        salida.append((datos, solo_fecha(datos.get("fecha") or datos.get("iniciado"))))
     return salida
 
 
 def s2_recibo_sin_resultado(recibos, corte):
     """El ayudante que se fue y nadie cerró: recibo abierto para siempre."""
-    universo = violaciones = posteriores = 0
+    universo = violaciones = posteriores = sin_fecha = 0
     for datos, fecha in recibos:
         universo += 1
         if "resultado" in datos:
             continue
         violaciones += 1
-        if posterior(fecha, corte):
+        if not fecha:
+            sin_fecha += 1
+        elif posterior(fecha, corte):
             posteriores += 1
     return senal("S2", "recibo de ejecución sin resultado",
-                 violaciones, universo, posteriores)
+                 violaciones, universo, posteriores, sin_fecha=sin_fecha)
 
 
 def s8_revisor_con_sesion_del_constructor(recibos, corte):
@@ -213,7 +232,7 @@ def s8_revisor_con_sesion_del_constructor(recibos, corte):
             if sesion:
                 del_constructor.setdefault(datos.get("unidad"), set()).add(sesion)
 
-    universo = violaciones = posteriores = 0
+    universo = violaciones = posteriores = sin_fecha = 0
     detalle = []
     for datos, fecha in recibos:
         if datos.get("rol") != "revisor":
@@ -223,11 +242,13 @@ def s8_revisor_con_sesion_del_constructor(recibos, corte):
         if not sesion or sesion not in del_constructor.get(datos.get("unidad"), set()):
             continue
         violaciones += 1
-        if posterior(fecha, corte):
+        if not fecha:
+            sin_fecha += 1
+        elif posterior(fecha, corte):
             posteriores += 1
             detalle.append(str(datos.get("unidad")))
     return senal("S8", "revisor firmando con la sesión del constructor",
-                 violaciones, universo, posteriores, detalle)
+                 violaciones, universo, posteriores, detalle, sin_fecha=sin_fecha)
 
 
 # ------------------------------------------------------------------ peticiones
@@ -411,6 +432,64 @@ def aplicar_trinquete(senales, base):
     return senales
 
 
+# ------------------------------------------------------------------ el trinquete
+def subidas(senales, base):
+    """[(id, antes, ahora)] de las señales que EMPEORAN respecto de la base congelada.
+
+    Es la comparación que convierte un fichero de números en un trinquete. Sin ella
+    `--congelar` es un indulto: mide lo que hay hoy —regresión incluida— y lo escribe como
+    si siempre hubiera sido así, dejando exit 0 y a nadie enterado.
+    """
+    previas = (base or {}).get("senales") or {}
+    crecidas = []
+    for una in senales:
+        antes = previas.get(una["id"])
+        if isinstance(antes, int) and una["violaciones"] > antes:
+            crecidas.append((una["id"], antes, una["violaciones"]))
+    return crecidas
+
+
+def congelar(ws, ruta_base, senales, corte, motivo):
+    """Reescribe la base, pero solo si encoge — o si alguien firma por qué no.
+
+    Una subida no se rechaza para siempre: a veces se mide mejor y el número sube con razón
+    (a S5 le pasó al pasar de 3 linters a los 22). Lo que no puede pasar es que suba en
+    SILENCIO. Con `--motivo` entra, y queda escrita en `historial` para que el siguiente
+    lea por qué, en vez de encontrarse un número más alto sin explicación.
+    """
+    anterior = leer_json(ruta_base) if ruta_base.is_file() else None
+    crecidas = subidas(senales, anterior)
+
+    if crecidas and not motivo:
+        detalle = ", ".join(f"{i}: {antes}→{ahora}" for i, antes, ahora in crecidas)
+        print(f"FAIL [INV-002] la línea base SUBIRÍA y eso no se congela solo ({detalle}). "
+              f"Una base que adopta sus propias regresiones no es un trinquete: es un "
+              f"indulto que borra justo lo que acababa de aparecer.\n"
+              f"    SALIDA: si de verdad hay que adoptarla, fírmala con  python3 {YO} "
+              f"--congelar --motivo \"por qué sube\"  ; si no, arregla lo que subió y "
+              f"vuelve a medir con  python3 {YO} --corte {corte}")
+        return 1
+
+    historial = list((anterior or {}).get("historial") or [])
+    for identificador, antes, ahora in crecidas:
+        historial.append({"fecha": date.today().isoformat(), "senal": identificador,
+                          "de": antes, "a": ahora, "motivo": motivo})
+
+    ruta_base.parent.mkdir(parents=True, exist_ok=True)
+    ruta_base.write_text(json.dumps({
+        "_porque": PORQUE,
+        "base": {"fecha": date.today().isoformat(), "sha": sha_corto(ws), "corte": corte},
+        "senales": {una["id"]: una["violaciones"] for una in senales},
+        "historial": historial,
+    }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
+
+    print(f"OK línea base congelada en {ruta_base.name}: "
+          + " · ".join(f"{u['id']}={u['violaciones']}" for u in senales))
+    for identificador, antes, ahora in crecidas:
+        print(f"   AVISO {identificador} SUBIÓ {antes}→{ahora}, adoptada con motivo: {motivo}")
+    return 0
+
+
 # ------------------------------------------------------------------ main
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -423,7 +502,11 @@ def main(argv=None):
                         "invariantes-baseline.json del workspace)")
     p.add_argument("--json", action="store_true", help="la medida entera, en JSON")
     p.add_argument("--congelar", action="store_true",
-                   help="reescribe la línea base de las señales de código con la de hoy")
+                   help="reescribe la línea base de las señales de código con la de hoy "
+                        "(solo si ENCOGE: una subida se rechaza sin --motivo)")
+    p.add_argument("--motivo", default=None,
+                   help="firma por la que se adopta una SUBIDA de la línea base; queda "
+                        "escrita en `historial` y el linter la imprime mientras exista")
     args = p.parse_args(argv)
 
     ws = Path(args.workspace).resolve()
@@ -447,16 +530,7 @@ def main(argv=None):
     senales = medir(ws, args.corte)
 
     if args.congelar:
-        ruta_base.parent.mkdir(parents=True, exist_ok=True)
-        ruta_base.write_text(json.dumps({
-            "_porque": PORQUE,
-            "base": {"fecha": date.today().isoformat(), "sha": sha_corto(ws),
-                     "corte": args.corte},
-            "senales": {una["id"]: una["violaciones"] for una in senales},
-        }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-        print(f"OK línea base congelada en {ruta_base.name}: "
-              + " · ".join(f"{u['id']}={u['violaciones']}" for u in senales))
-        return 0
+        return congelar(ws, ruta_base, senales, args.corte, args.motivo)
 
     base = leer_json(ruta_base) if ruta_base.is_file() else None
     senales = aplicar_trinquete(senales, base)
@@ -471,13 +545,32 @@ def main(argv=None):
 
     print(f"Señales de la reforma · corte {args.corte}"
           f"{'' if base else '  (sin línea base congelada)'}")
-    print(f"{'':4} {'histórica':>12}  {'desde el corte':>14}")
+    print(f"{'':4} {'histórica':>12}  {'desde el corte':>14}  {'sin fecha':>10}")
     for una in senales:
         marca = "FAIL" if una["posteriores"] else "  ok"
         cuenta = f"{una['violaciones']}/{una['universo']}"
-        print(f"{una['id']:4} {cuenta:>12}  {una['posteriores']:>14}  {marca}  {una['titulo']}")
+        ciegas = una.get("sin_fecha") or 0
+        print(f"{una['id']:4} {cuenta:>12}  {una['posteriores']:>14}  {ciegas:>10}  "
+              f"{marca}  {una['titulo']}")
         for linea in una["detalle"][:3]:
             print(f"       · {linea}")
+
+    ciegas_total = sum(una.get("sin_fecha") or 0 for una in senales)
+    if ciegas_total:
+        print(f"\n«sin fecha» son violaciones cuyo sujeto no lleva fecha propia: no se pueden "
+              f"repartir\nrespecto del corte, así que informan y no bloquean. Hoy son todas de "
+              f"S2 y S8, porque\nel recibo de ejecución no escribe `iniciado`/`terminado`: "
+              f"hasta que lo haga, la cuenta\nque bloquea de esas dos señales solo ve lo que "
+              f"sí trae fecha. NO se usa la mtime del\nfichero — un `touch` cambiaría el "
+              f"veredicto sin tocar el recibo.")
+
+    # El historial de subidas adoptadas se imprime SIEMPRE, mientras exista. Una base que
+    # subió con permiso sigue siendo una base que subió: si la firma se escribe y nadie la
+    # vuelve a ver, adoptar una regresión y arreglarla acaban costando lo mismo (nada).
+    for entrada in (base or {}).get("historial") or []:
+        print(f"   AVISO base adoptada al alza el {entrada.get('fecha')}: "
+              f"{entrada.get('senal')} {entrada.get('de')}→{entrada.get('a')} — "
+              f"{entrada.get('motivo')}")
 
     if base is None:
         print(f"\nLas señales de código (S5-S7) informan pero no pueden bloquear: no hay "

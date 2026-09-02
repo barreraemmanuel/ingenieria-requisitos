@@ -1,8 +1,8 @@
 {
- "_porque": "Línea base de las ocho señales de la reforma (unidad 146). Las señales de código (S5-S7) no tienen sujeto fechado: su cuenta «posterior al corte» es lo que SUBE sobre estos números. Solo pueden bajar. La escribe lint_invariantes.py --congelar, con su fecha y su commit; a mano no vale.",
+ "_porque": "Línea base de las ocho señales de la reforma (unidad 146). Las señales de código (S5-S7) no tienen sujeto fechado: su cuenta «posterior al corte» es lo que SUBE sobre estos números. SOLO PUEDEN ENCOGER: `--congelar` compara contra estos valores y RECHAZA cualquier subida; para adoptarla hace falta `--congelar --motivo \"<texto>\"`, que queda escrito en `historial` (fecha, señal, de→a, motivo) y que el linter imprime como aviso mientras exista. Sin esa comparación, la base no es un trinquete: es un `--congelar` de auto-indulto que borra la regresión que acaba de aparecer. La escribe lint_invariantes.py, con su fecha y su commit; a mano no vale.",
  "base": {
   "fecha": "2026-09-02",
-  "sha": "594edd0",
+  "sha": "e2167a3",
   "corte": "2026-09-01"
  },
  "senales": {
@@ -14,5 +14,6 @@
   "S6": 143,
   "S7": 13,
   "S8": 6
- }
+ },
+ "historial": []
 }

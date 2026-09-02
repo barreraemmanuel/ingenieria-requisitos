@@ -1,5 +1,5 @@
 {
- "_porque": "El color que cada transición de la junta ayudante→revisor→prefusión→cierre tiene HOY. Los `rojo` son la línea base de la reforma: la 147 y la 148 los ponen en verde y actualizan este fichero AL CERRAR. Un rojo que pasa a verde sin tocar esto es un FAIL, no una alegría: significa que nadie se enteró de que el método cambió.",
+ "_porque": "El color que cada transición de la junta ayudante→revisor→prefusión→cierre tiene HOY. Los `rojo` son la línea base de la reforma: la 147 y la 148 los ponen en verde y actualizan este fichero AL CERRAR. Un rojo que pasa a verde sin tocar esto es un FAIL, no una alegría: significa que nadie se enteró de que el método cambió. Y al revés todavía menos: el número de VERDES solo puede subir. `--congelar` compara contra el manifiesto anterior y RECHAZA cualquier bajada de verdes; para adoptarla hace falta `--congelar --motivo \"<texto>\"`, que queda en `historial`. Sin esa comparación, congelar sería la forma más rápida de hacer desaparecer una regresión: se vuelve a medir y se llama línea base a lo roto.",
  "tests": {
   "DientesAvisoDelMetodoTest.test_dientes_R_AVI_01_abierto_pasa": "verde",
   "DientesAvisoDelMetodoTest.test_dientes_R_AVI_01_bloquea": "verde",
@@ -29,9 +29,15 @@
   "ReciboDelAyudanteTest.test_recibo_obsoleto_porque_el_worktree_siguio_cambiando": "rojo",
   "ReciboDelAyudanteTest.test_trabajo_parcial_sin_casillas_nuevas_bloquea": "rojo",
   "ReciboDelAyudanteTest.test_worktree_sucio_bloquea_aunque_el_recibo_diga_ok": "rojo",
+  "SalidaSeEjecutaDeVerdadTest.test_lo_que_levantaria_un_agente_se_declara_no_ejecutable_con_motivo": "verde",
+  "SalidaSeEjecutaDeVerdadTest.test_un_comando_de_git_se_ejecuta_y_cambia_el_mundo": "verde",
+  "SalidaSeEjecutaDeVerdadTest.test_un_comando_que_falla_se_ve": "verde",
+  "SalidaSeEjecutaDeVerdadTest.test_un_comando_sin_clasificar_es_un_fallo_y_no_un_permiso": "verde",
+  "SalidaSeEjecutaDeVerdadTest.test_un_salida_vacio_no_cuenta_como_salida": "verde",
   "TresPuntosDeConsumoTest.test_la_junta_es_una_sola_funcion_y_no_tres_copias": "rojo",
   "TresPuntosDeConsumoTest.test_la_junta_no_reejecuta_la_suite": "rojo",
   "TresPuntosDeConsumoTest.test_lanzar_al_revisor_consume_la_junta": "rojo",
   "TresPuntosDeConsumoTest.test_prefusion_y_cierre_consumen_la_junta": "rojo"
- }
+ },
+ "historial": []
 }

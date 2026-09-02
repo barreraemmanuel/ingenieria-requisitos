@@ -480,13 +480,14 @@ def sha_corto(raiz):
     return salida.stdout.strip() or None if salida.returncode == 0 else None
 
 
-def congelar_reglas(raiz, inventario, reglas):
-    anterior = {}
+def congelar_reglas(raiz, inventario, reglas, motivo=None):
+    previo = {}
     if inventario.is_file():
         try:
-            anterior = json.loads(inventario.read_text(encoding="utf-8")).get("reglas", {})
+            previo = json.loads(inventario.read_text(encoding="utf-8"))
         except (OSError, ValueError):
-            anterior = {}
+            previo = {}
+    anterior = previo.get("reglas", {}) if isinstance(previo, dict) else {}
     congeladas = {}
     for regla in reglas:
         clave = clave_de(regla)
@@ -505,14 +506,40 @@ def congelar_reglas(raiz, inventario, reglas):
     sin = sum(1 for e in congeladas.values() if estado_de(e) == "sin_ejecutor")
     sin_dientes = sum(1 for e in congeladas.values()
                       if e.get("ejecutor") and not e.get("dientes"))
+
+    # El trinquete (146, ronda 2). Recongelar SIN comparar contra la base anterior es un
+    # indulto: mide la regresión que acaba de entrar y la escribe como si siempre hubiera
+    # estado ahí, con exit 0 y sin que nadie se entere. Las dos cuentas congeladas
+    # —`sin_ejecutor` y `sin_dientes`— solo pueden encoger; para adoptar una subida hay que
+    # firmarla con `--motivo`, que queda en `historial` y se imprime mientras exista.
+    # Solo `sin_dientes`, que es la cuenta que introduce la 146. `sin_ejecutor` NO lleva
+    # trinquete aquí a propósito: recongelar es el acto con el que se INVENTARÍA una regla
+    # nueva —y una regla nueva nace sin ejecutor, así que esa cuenta sube por diseño—; quien
+    # vigila que no crezca es la junta (d) al MEDIR, que ya falla si `sin > tope`. Meterla
+    # aquí rompería el camino normal de declarar una regla, que no es lo que se estaba
+    # arreglando.
+    base_previa = (previo or {}).get("base") or {}
+    crecidas = []
+    antes = base_previa.get("sin_dientes")
+    if isinstance(antes, int) and sin_dientes > antes:
+        crecidas.append(("sin_dientes", antes, sin_dientes))
+    if crecidas and not motivo:
+        return None, sin, crecidas
+
+    historial = list((previo or {}).get("historial") or [])
+    for nombre, antes, ahora in crecidas:
+        historial.append({"fecha": date.today().isoformat(), "cuenta": nombre,
+                          "de": antes, "a": ahora, "motivo": motivo})
+
     inventario.parent.mkdir(parents=True, exist_ok=True)
     inventario.write_text(json.dumps({
         "_porque": PORQUE_REGLAS,
         "base": {"sin_ejecutor": sin, "fecha": date.today().isoformat(),
                  "sha": sha_corto(raiz), "sin_dientes": sin_dientes},
+        "historial": historial,
         "reglas": dict(sorted(congeladas.items())),
     }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
-    return congeladas, sin
+    return congeladas, sin, crecidas
 
 
 def junta_reglas(raiz, inventario):
@@ -694,6 +721,9 @@ def main(argv=None):
     p.add_argument("--congelar-reglas", action="store_true",
                    help="reescribe la base de reglas sin ejecutor con la de hoy, con su fecha "
                         "y su commit (solo debe bajar)")
+    p.add_argument("--motivo", default=None,
+                   help="firma por la que se adopta una SUBIDA de la base de reglas; queda "
+                        "escrita en `historial` y se imprime mientras exista")
     p.add_argument("--dientes", action="store_true",
                    help="además, la junta (e): qué ejecutores no tienen par de dientes que "
                         "demuestre que hacen algo (unidad 146)")
@@ -705,9 +735,22 @@ def main(argv=None):
     print("== Guardián de juntas ==")
 
     if args.congelar_reglas:
-        _, sin = congelar_reglas(raiz, inventario_reglas, reglas_en_prosa(raiz))
+        congeladas, sin, crecidas = congelar_reglas(
+            raiz, inventario_reglas, reglas_en_prosa(raiz), args.motivo)
+        if congeladas is None:
+            detalle = ", ".join(f"{n}: {a}→{b}" for n, a, b in crecidas)
+            print(f"  FAIL [JUN-002] la base de reglas SUBIRÍA y eso no se recongela solo "
+                  f"({detalle}). Recongelar sin mirar el número anterior adopta la regresión "
+                  f"que acaba de entrar y la deja escrita como si fuera lo normal.\n"
+                  f"       salida: si de verdad hay que adoptarla, fírmala con  python3 {YO} "
+                  f"--congelar-reglas --motivo \"por qué sube\"  ; si no, arregla lo que "
+                  f"subió y vuelve a medir con  python3 {YO} --dientes")
+            return 1
         print(f"   (d) base de reglas congelada en {sin} sin ejecutor, con fecha y commit, en "
               f"{args.reglas}")
+        for nombre, antes, ahora in crecidas:
+            print(f"       AVISO {nombre} SUBIÓ {antes}→{ahora}, adoptada con motivo: "
+                  f"{args.motivo}")
         return 0
 
     if args.congelar_puertas:

@@ -24,6 +24,7 @@ import sys
 import unittest
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from unittest import mock
 
 RAIZ = Path(__file__).resolve().parents[2]
 METODO = RAIZ / "plantilla/docs/00-metodo"
@@ -797,3 +798,163 @@ class SobreElMetodoRealTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class TrinqueteDeLaBaseDeDientesTest(unittest.TestCase):
+    """146 · ronda 2 — recongelar NO puede indultar una subida de `sin_dientes`.
+
+    El adversario lo reprodujo: `--congelar-reglas` escribía el número de HOY sin mirar el
+    de ayer, así que un constructor que acababa de perder cuatro pares de dientes los
+    borraba del mapa con un solo comando, exit 0 y sin una línea de aviso. Una base que
+    adopta sus propias regresiones no es un trinquete: es un indulto.
+
+    El par de dientes de este mecanismo:
+      · `_bloquea`      — con el trinquete puesto, la subida se RECHAZA y nombra su salida;
+      · `_abierto_pasa` — con la comparación abierta solo dentro del test, la misma subida
+                          entra sin rechistar (que es lo que pasaba antes de la ronda 2).
+    """
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory(prefix="juntas-trinquete-")
+        self.addCleanup(self.tmp.cleanup)
+        self.raiz = Path(self.tmp.name).resolve()
+        self.modulo = cargar_modulo()
+        self.inventario = self.raiz / "docs/00-metodo/reglas.json"
+        self.inventario.parent.mkdir(parents=True, exist_ok=True)
+
+    def sembrar_base(self, sin_dientes):
+        """Una base ya congelada: dos ejecutores, y `sin_dientes` en el número que se diga."""
+        self.inventario.write_text(json.dumps({
+            "base": {"sin_ejecutor": 0, "fecha": "2026-09-01", "sha": "abc1234",
+                     "sin_dientes": sin_dientes},
+            "reglas": {},
+        }, ensure_ascii=False), encoding="utf-8")
+
+    def reglas_en_prosa_falsas(self, cuantas):
+        return [{"fichero": "AGENTS.md", "texto": f"regla {i}"} for i in range(cuantas)]
+
+    def congelar(self, motivo=None):
+        return self.modulo.congelar_reglas(
+            self.raiz, self.inventario, self.reglas_en_prosa_falsas(0), motivo)
+
+    # ------------------------------------------------------------------ el par
+    def test_dientes_trinquete_reglas_bloquea(self):
+        """Con el mecanismo: la subida se rechaza y no toca el fichero."""
+        self.sembrar_base(1)
+        # Sin reglas en prosa, `sin_dientes` recalculado es 0: eso ENCOGE y debe entrar.
+        congeladas, _, crecidas = self.congelar()
+        self.assertIsNotNone(congeladas, "encoger nunca se bloquea")
+        self.assertEqual(crecidas, [])
+
+        # Ahora al revés: la base dice 0 y la realidad son 2 ejecutores sin par.
+        self.inventario.write_text(json.dumps({
+            "base": {"sin_ejecutor": 0, "fecha": "2026-09-01", "sha": "abc1234",
+                     "sin_dientes": 0},
+            "reglas": {"AGENTS.md::regla 0": {
+                           "fichero": "AGENTS.md", "texto": "regla 0",
+                           "ejecutor": "unidad.py:puerta", "dientes": None},
+                       "AGENTS.md::regla 1": {
+                           "fichero": "AGENTS.md", "texto": "regla 1",
+                           "ejecutor": "unidad.py:otra", "dientes": None}},
+        }, ensure_ascii=False), encoding="utf-8")
+        antes = self.inventario.read_text(encoding="utf-8")
+        congeladas, _, crecidas = self.modulo.congelar_reglas(
+            self.raiz, self.inventario, self.reglas_en_prosa_falsas(2), None)
+        self.assertIsNone(congeladas, "la subida de `sin_dientes` se coló sin firma")
+        self.assertEqual(crecidas, [("sin_dientes", 0, 2)])
+        self.assertEqual(self.inventario.read_text(encoding="utf-8"), antes,
+                         "un rechazo que ya ha escrito el fichero no es un rechazo")
+
+    def test_dientes_trinquete_reglas_abierto_pasa(self):
+        """Con la comparación abierta solo aquí, la misma subida entra: el par mide ESTO."""
+        self.inventario.write_text(json.dumps({
+            "base": {"sin_ejecutor": 0, "fecha": "2026-09-01", "sha": "abc1234",
+                     "sin_dientes": 0},
+            "reglas": {"AGENTS.md::regla 0": {
+                           "fichero": "AGENTS.md", "texto": "regla 0",
+                           "ejecutor": "unidad.py:puerta", "dientes": None},
+                       "AGENTS.md::regla 1": {
+                           "fichero": "AGENTS.md", "texto": "regla 1",
+                           "ejecutor": "unidad.py:otra", "dientes": None}},
+        }, ensure_ascii=False), encoding="utf-8")
+        # El interruptor vive en el test: la base anterior se lee como si no existiera, que
+        # es exactamente lo que hacía el código antes de la ronda 2.
+        real = self.modulo.json.loads
+
+        def sin_memoria(texto):
+            datos = real(texto)
+            if isinstance(datos, dict) and "base" in datos:
+                datos = dict(datos, base={})
+            return datos
+
+        with mock.patch.object(self.modulo.json, "loads", sin_memoria):
+            congeladas, _, crecidas = self.modulo.congelar_reglas(
+                self.raiz, self.inventario, self.reglas_en_prosa_falsas(2), None)
+        self.assertIsNotNone(congeladas,
+                             "sin la comparación la subida debería colarse; si no se cuela, "
+                             "el par no está midiendo el trinquete")
+        self.assertEqual(crecidas, [])
+
+    # ------------------------------------------------------------------ la firma
+    def test_con_motivo_la_subida_entra_y_queda_escrita_en_el_historial(self):
+        self.inventario.write_text(json.dumps({
+            "base": {"sin_ejecutor": 0, "fecha": "2026-09-01", "sha": "abc1234",
+                     "sin_dientes": 0},
+            "reglas": {"AGENTS.md::regla 0": {
+                           "fichero": "AGENTS.md", "texto": "regla 0",
+                           "ejecutor": "unidad.py:puerta", "dientes": None}},
+        }, ensure_ascii=False), encoding="utf-8")
+        congeladas, _, crecidas = self.modulo.congelar_reglas(
+            self.raiz, self.inventario, self.reglas_en_prosa_falsas(1),
+            "los pares se mudan de suite en la 147")
+        self.assertIsNotNone(congeladas)
+        datos = json.loads(self.inventario.read_text(encoding="utf-8"))
+        self.assertEqual(datos["base"]["sin_dientes"], 1)
+        self.assertEqual(len(datos["historial"]), 1)
+        entrada = datos["historial"][0]
+        self.assertEqual((entrada["cuenta"], entrada["de"], entrada["a"]),
+                         ("sin_dientes", 0, 1))
+        self.assertIn("147", entrada["motivo"])
+
+    def test_el_rechazo_por_la_linea_de_comandos_nombra_su_salida(self):
+        """Regla 13: un bloqueo que no dice cómo salir es un defecto, no un mensaje.
+
+        Se monta el taller de verdad y se recorre el camino real (`--congelar-reglas` por la
+        línea de comandos), no la función suelta: el rechazo tiene que llegar hasta la
+        pantalla del agente con su salida nombrada.
+        """
+        escribir_workspace(self.raiz, agents=AGENTS_MINIMO)
+        ruta = self.raiz / "docs/00-metodo/reglas.json"
+
+        # 1. Inventariar lo que hay, que es el camino normal, y dejar la base honrada en 0
+        #    diciendo que TODOS los ejecutores tienen su par.
+        self.assertEqual(correr(self.raiz, "--congelar-reglas").returncode, 0)
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        for entrada in datos["reglas"].values():
+            entrada["ejecutor"] = "unidad.py:puerta"
+            entrada["dientes"] = "test_dientes_R_X_01"
+        datos["base"]["sin_dientes"] = 0
+        ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+
+        # 2. La regresión: se pierden los pares (nadie los borra, se quedan sin declarar).
+        datos = json.loads(ruta.read_text(encoding="utf-8"))
+        for entrada in datos["reglas"].values():
+            entrada["dientes"] = None
+        ruta.write_text(json.dumps(datos, ensure_ascii=False), encoding="utf-8")
+        antes = ruta.read_text(encoding="utf-8")
+
+        # 3. El auto-indulto tiene que morir en la puerta.
+        salida = correr(self.raiz, "--congelar-reglas")
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("JUN-002", salida.stdout)
+        self.assertIn("--motivo", salida.stdout)
+        self.assertIn("sin_dientes", salida.stdout)
+        self.assertEqual(ruta.read_text(encoding="utf-8"), antes,
+                         "el rechazo escribió el fichero igualmente")
+
+        # 4. Y con la firma entra, dejando el porqué por escrito.
+        firmado = correr(self.raiz, "--congelar-reglas", "--motivo", "medido de otra forma")
+        self.assertEqual(firmado.returncode, 0, firmado.stdout + firmado.stderr)
+        self.assertIn("AVISO", firmado.stdout)
+        historial = json.loads(ruta.read_text(encoding="utf-8"))["historial"]
+        self.assertEqual(historial[-1]["motivo"], "medido de otra forma")

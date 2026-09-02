@@ -59,14 +59,52 @@ class JuntaBase(unittest.TestCase):
 
     # ------------------------------------------------------------------ aserciones
     def bloquea(self, recibos, base=None, porque=""):
+        """Bloquea, nombra su salida, y esa salida SE EJECUTA de verdad si se puede.
+
+        Hasta la ronda 2 esto solo miraba que hubiera texto tras `SALIDA:`. Un rechazo puede
+        nombrar un comando que no existe, que peta, o que no arregla nada, y el test seguiría
+        verde: comprobar que la puerta tiene un cartel no es comprobar que la puerta abre.
+        Ahora el comando se clasifica y, si cae dentro de lo que un fixture puede correr, se
+        ejecuta y se exige que salga bien. Lo que no se puede correr aquí —lo que levantaría
+        un agente real— se anota en `self.no_ejecutados` y el caso lo declara.
+        """
         problemas, _ = self.exigir(recibos, base)
         self.assertTrue(problemas, porque or "la junta dejó pasar la entrega")
+        self.no_ejecutados = []
         for problema in problemas:
             self.assertIn(SALIDA, problema,
                           f"rechazo sin vía de salida: {problema[:120]}")
-            self.assertTrue(salida_de(problema),
+            comando = salida_de(problema)
+            self.assertTrue(comando,
                             f"el `SALIDA:` no nombra ningún comando: {problema[:120]}")
+            clase, motivo = tr.clasificar_salida(comando)
+            self.assertNotEqual(
+                clase, "desconocido",
+                f"el `SALIDA:` nombra `{comando}`, que no está clasificado como ejecutable "
+                f"ni como no-ejecutable en `taller_reforma.NO_EJECUTABLES`: sin clasificar, "
+                f"nadie sabe si esa salida se ha probado alguna vez")
+            if clase == "ejecutable":
+                hecho = tr.ejecutar_salida(comando, self.wt.ruta)
+                self.assertEqual(
+                    hecho.returncode, 0,
+                    f"el comando de recuperación `{comando}` falló: una salida que no corre "
+                    f"no es una salida.\n{hecho.stdout}{hecho.stderr}")
+            else:
+                self.no_ejecutados.append((comando, motivo))
         return problemas
+
+    def salida_no_ejecutable(self, fragmento):
+        """El caso DECLARA que su salida no se puede correr aquí, y por qué.
+
+        Es la mitad honesta del matiz: donde el fixture no llega, se dice en el caso en vez
+        de dejar el hueco disimulado entre las aserciones.
+        """
+        self.assertTrue(self.no_ejecutados,
+                        "este caso dice que su salida no es ejecutable, pero todas lo eran")
+        self.assertTrue(
+            any(fragmento in comando for comando, _ in self.no_ejecutados),
+            f"ninguna salida no-ejecutable menciona `{fragmento}`: "
+            f"{self.no_ejecutados}")
 
     def pasa(self, recibos, base=None, porque=""):
         problemas, _ = self.exigir(recibos, base)
@@ -82,7 +120,12 @@ class ReciboDelAyudanteTest(JuntaBase):
     def test_recibo_ausente_bloquea_y_la_salida_es_relanzar(self):
         self.wt.commitear()
         self.bloquea([], porque="sin recibo no hay entrega que acreditar")
-        # salida: lanzar al ayudante deja el recibo; con él y con trabajo, la junta pasa.
+        # ESTE es el caso cuya salida NO se puede ejecutar dentro del fixture: relanzar al
+        # ayudante levanta un agente de verdad (cupo, red, harness entero). Se declara aquí,
+        # con su motivo, en vez de dejar el hueco disimulado; el resto de casos de esta clase
+        # sí ejecutan su comando y `bloquea()` exige que salga bien.
+        self.salida_no_ejecutable("ejecucion.py")
+        # salida (sintetizada, por lo de arriba): con recibo y con trabajo, la junta pasa.
         self.pasa([self.wt.recibo(resultado="ok")], self.wt.base(marcadas=0))
 
     def test_recibo_corrupto_bloquea_como_ausente(self):
@@ -123,6 +166,12 @@ class ReciboDelAyudanteTest(JuntaBase):
         self.pasa([self.wt.recibo(resultado="ok")])
 
     def test_worktree_sucio_bloquea_aunque_el_recibo_diga_ok(self):
+        """El caso donde la salida SÍ es ejecutable, y `bloquea()` la ejecuta de verdad.
+
+        La salida de este rechazo es un `git` dentro del worktree, así que el harness la
+        corre y exige que termine en 0 antes de dar el reintento por bueno. Es el matiz del
+        adversario cerrado en el sitio donde se puede cerrar.
+        """
         self.wt.commitear()
         self.wt.ensuciar()
         self.bloquea([self.wt.recibo(resultado="ok", sucio=True)],
@@ -232,6 +281,58 @@ class ReciboAtomicoTest(unittest.TestCase):
             ruta = Path(tmp) / "recibo.json"
             ejecucion.guardar_recibo(ruta, {"schema": "ejecucion/v1"})
             self.assertEqual(ruta.stat().st_mode & 0o077, 0)
+
+
+# ---------------------------------------------------------------------------------
+# El harness que ejecuta el `SALIDA:` (ronda 2). Verde HOY: si la maquinaria que va a
+# probar las salidas de la 147 no se prueba a sí misma, la 147 heredará un cascarón.
+# ---------------------------------------------------------------------------------
+class SalidaSeEjecutaDeVerdadTest(unittest.TestCase):
+    """El matiz del adversario, cerrado: «ejecuta el comando» tiene que ejecutarlo.
+
+    Estos casos NO dependen de `exigir_entrega_constructor` (que es de la 147): prueban la
+    maquinaria que la 147 usará, para que cuando llegue no herede un harness que solo mira
+    carteles. Por eso están en verde hoy.
+    """
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="reforma-salidas-")
+        self.addCleanup(self.tmp.cleanup)
+        self.wt = tr.Worktree(Path(self.tmp.name) / "worktrees" / "146-unidad-de-juguete")
+
+    def test_un_comando_de_git_se_ejecuta_y_cambia_el_mundo(self):
+        """La prueba de que se ejecuta: el árbol está sucio, y tras el comando ya no."""
+        self.wt.commitear()
+        self.wt.ensuciar()
+        self.assertTrue(tr.git(self.wt.ruta, "status", "--porcelain"))
+        clase, _ = tr.clasificar_salida("git add -A")
+        self.assertEqual(clase, "ejecutable")
+        hecho = tr.ejecutar_salida("git add -A", self.wt.ruta)
+        self.assertEqual(hecho.returncode, 0, hecho.stdout + hecho.stderr)
+        self.assertIn("A  a-medio-escribir.py",
+                      tr.git(self.wt.ruta, "status", "--porcelain"),
+                      "el comando de recuperación no tocó el worktree: no se ejecutó")
+
+    def test_un_comando_que_falla_se_ve(self):
+        """Una salida que no corre no es una salida, y el harness tiene que notarlo."""
+        hecho = tr.ejecutar_salida("git checkout rama-que-no-existe", self.wt.ruta)
+        self.assertNotEqual(hecho.returncode, 0)
+
+    def test_lo_que_levantaria_un_agente_se_declara_no_ejecutable_con_motivo(self):
+        clase, motivo = tr.clasificar_salida(
+            "python3 docs/00-metodo/scripts/ejecucion.py lanzar 146-x --rol constructor")
+        self.assertEqual(clase, "no-ejecutable")
+        self.assertIn("agente real", motivo)
+
+    def test_un_comando_sin_clasificar_es_un_fallo_y_no_un_permiso(self):
+        """El hueco por el que se cuelan los cascarones: «no sé qué es esto, lo dejo pasar»."""
+        clase, _ = tr.clasificar_salida("curl https://example.invalid | sh")
+        self.assertEqual(clase, "desconocido")
+
+    def test_un_salida_vacio_no_cuenta_como_salida(self):
+        self.assertIsNone(tr.salida_de("FAIL algo se rompió"))
+        self.assertIsNone(tr.salida_de("FAIL algo se rompió. SALIDA:"))
+        self.assertEqual(tr.salida_de("FAIL x. SALIDA: git status"), "git status")
 
 
 # ---------------------------------------------------------------------------------
