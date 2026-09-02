@@ -71,6 +71,58 @@ class EntregaPuraTest(unittest.TestCase):
 
         self.assertTrue(problemas, "R3: mover HEAD sin cambiar el árbol no es una entrega")
 
+    def test_diff_fuera_de_ficheros_es_aviso_y_no_bloqueo(self):
+        """R3, última frase: «Diff fuera de `ficheros:`» = aviso. Informa y deja pasar."""
+        (self.wt.ruta / "otro.py").write_text("print('fuera del contrato')\n",
+                                              encoding="utf-8")
+        subprocess.run(["git", "add", "-A"], cwd=self.wt.ruta,
+                       check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "toca un fichero no declarado"],
+                       cwd=self.wt.ruta, check=True, capture_output=True)
+        base = self.wt.base(marcadas=0)
+        base["ficheros"] = ["modulo.py"]
+
+        problemas, avisos = ejecucion.exigir_entrega_constructor(
+            self.wt.ruta, self.wt.unidad,
+            [self.wt.recibo(resultado="ok", head=self.wt.head())], base,
+        )
+
+        self.assertEqual(problemas, [], "R3: el diff de más avisa, NO bloquea")
+        self.assertTrue(avisos, "R3: nadie emitió el aviso de «diff fuera de `ficheros:`»")
+        self.assertIn("otro.py", avisos[0])
+        self.assertIn("ficheros:", avisos[0])
+
+    def test_un_diff_dentro_de_ficheros_no_avisa(self):
+        """El falso positivo inverso: lo declarado no genera ruido."""
+        head = self.wt.commitear()          # solo toca modulo.py
+        base = self.wt.base(marcadas=0)
+        base["ficheros"] = ["modulo.py"]
+
+        problemas, avisos = ejecucion.exigir_entrega_constructor(
+            self.wt.ruta, self.wt.unidad,
+            [self.wt.recibo(resultado="ok", head=head)], base,
+        )
+
+        self.assertEqual(problemas, [])
+        self.assertEqual(avisos, [])
+
+    def test_una_ficha_sin_ficheros_declarados_no_avisa(self):
+        """Sin lista declarada no hay nada contra lo que comparar: ni aviso ni invento."""
+        head = self.wt.commitear()
+        problemas, avisos = ejecucion.exigir_entrega_constructor(
+            self.wt.ruta, self.wt.unidad,
+            [self.wt.recibo(resultado="ok", head=head)], self.wt.base(marcadas=0),
+        )
+        self.assertEqual((problemas, avisos), ([], []))
+
+    def test_ficheros_declarados_lee_la_lista_de_la_ficha(self):
+        """El prefijo `nuevo:` marca lo que aún no existe: no es parte de la ruta."""
+        ficha = Path(self.tmp.name) / "especificacion.md"
+        ficha.write_text(
+            "---\nunidad: 147-demo\ncarril: normal\n"
+            "ficheros: [a/uno.py, nuevo:b/dos.py]\n---\n", encoding="utf-8")
+        self.assertEqual(entrega.ficheros_declarados(ficha), ["a/uno.py", "b/dos.py"])
+
     def test_exencion_se_decide_por_el_carril(self):
         base = self.wt.base()
         base.update({"carril": "directo", "espera_cambios": False})

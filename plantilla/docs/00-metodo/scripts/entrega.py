@@ -121,6 +121,55 @@ def recibos_de(unidad, ejecuciones=None):
     return recibos
 
 
+def ficheros_declarados(ficha):
+    """La lista `ficheros:` de la ficha, sin el prefijo `nuevo:` de los que aún no existen."""
+    try:
+        texto = Path(ficha).read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return []
+    encontrado = re.search(r"(?ms)^ficheros:\s*\[(.*?)\]", texto)
+    if not encontrado:
+        return []
+    declarados = []
+    for pieza in encontrado.group(1).split(","):
+        pieza = pieza.strip().strip("'\"")
+        pieza = re.sub(r"^(nuevo|nueva|new)\s*:\s*", "", pieza)
+        if pieza:
+            declarados.append(pieza)
+    return declarados
+
+
+def ficheros_del_diff(repo, desde, hasta):
+    """Los ficheros que cambiaron entre dos commits. Sin ellos no hay aviso, nunca bloqueo."""
+    if not (desde and hasta) or desde == hasta:
+        return []
+    try:
+        salida = _git(repo, "diff", "--name-only", desde, hasta)
+    except (ErrorEntrega, OSError):
+        return []
+    return [linea.strip() for linea in salida.splitlines() if linea.strip()]
+
+
+def aviso_diff_fuera_de_ficheros(repo, unidad, declarados, desde, hasta):
+    """R3: «diff fuera de `ficheros:`» es AVISO, no bloqueo.
+
+    32 de los 92 incidentes de guardianes eran marcar de más, así que esto informa y sigue:
+    lo que decida endurecerlo será el replay, no esta puerta.
+    """
+    if not declarados:
+        return []
+    fuera = sorted(f for f in ficheros_del_diff(repo, desde, hasta) if f not in declarados)
+    if not fuera:
+        return []
+    muestra = ", ".join(fuera[:8])
+    resto = "" if len(fuera) <= 8 else f" (+{len(fuera) - 8} más)"
+    return [
+        f"la entrega de {unidad} toca {len(fuera)} fichero(s) fuera de `ficheros:` de la "
+        f"ficha: {muestra}{resto}. Es un aviso, no un bloqueo: decláralos en hallazgos.md "
+        f"para que el padre los apruebe, o añádelos a `ficheros:` al reabrir el contrato"
+    ]
+
+
 def _problema(texto, comando="git status --porcelain"):
     return f"{texto}. {SALIDA} {comando}"
 
@@ -156,6 +205,7 @@ def validar_entrega(worktree, unidad, recibos, base):
         )], []
 
     final = (recibo.get("git") or {}).get("final") or {}
+    repo = Path(worktree) if Path(worktree).is_dir() else Path(worktree).parent.parent / "main"
     try:
         if Path(worktree).is_dir():
             actual = hechos_git(worktree)
@@ -163,7 +213,6 @@ def validar_entrega(worktree, unidad, recibos, base):
             # Un cierre reanudado puede llegar después de que el worktree se retirase. La
             # evidencia sigue en el commit inmutable y en main; ausencia no se convierte en
             # exención: sin `final.head` válido este camino también bloquea.
-            repo = Path(worktree).parent.parent / "main"
             head_final = str(final.get("head") or "")
             tree_final = _git(repo, "rev-parse", f"{head_final}^{{tree}}")
             actual = {"head": head_final, "tree": tree_final, "status_porcelain": []}
@@ -200,7 +249,12 @@ def validar_entrega(worktree, unidad, recibos, base):
         return [_problema(f"{unidad} no tiene ninguna casilla nueva del plan")], []
     if not plan_final and (recibo.get("trabajo") or {}).get("acreditado") is not True:
         return [_problema(f"{unidad} no acredita progreso del plan")], []
-    return [], []
+    # La entrega es buena. Lo único que queda es lo que R3 declara AVISO: si el diff se salió
+    # de los ficheros que la ficha declaró, se dice y se sigue.
+    return [], aviso_diff_fuera_de_ficheros(
+        repo, unidad, base.get("ficheros") or [],
+        inicial.get("head"), actual.get("head"),
+    )
 
 
 def _frontmatter(ruta):
@@ -239,5 +293,6 @@ def exigir_entrega_constructor(unidad, encargo=None):
         "carril": "documental" if ejecucion.lower() == "documental" else carril,
         "espera_cambios": espera,
         "plan": inicial.get("plan") or {},
+        "ficheros": ficheros_declarados(ficha),
     }
     return validar_entrega(WORKTREES / unidad, unidad, recibos, base)
