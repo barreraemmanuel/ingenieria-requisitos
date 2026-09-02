@@ -1408,6 +1408,27 @@ def imprimir_resultado(ruta, resultado, avisos=()):
     print(f"RESULTADO {ruta} · {resultado}", flush=True)
 
 
+def hay_arbol_que_revisar(unidad):
+    """¿Tiene esta revisión un árbol del que derivar la entrega?
+
+    La puerta de la entrega deriva de git, así que solo habla cuando hay algo que mirar:
+    un worktree registrado, o uno de los dos caminos efímeros del revisor (065: unidad ya
+    entregada con `fusion:`; 090: `ejecucion: documental`). Sin ninguno, el rechazo que
+    manda es el específico del lanzador —«no figura en git worktree list»— que trae la
+    salida útil; adelantarlo con un motivo genérico dejaba al usuario sin ese comando.
+    """
+    destino = (WORKTREES / unidad).resolve()
+    if _real(destino) in inventario_worktrees():
+        return True
+    try:
+        _, datos = ficha_unidad(unidad, rol="revisor")
+    except ErrorEjecucion:
+        return False
+    estado = (datos.get("estado") or "").strip()
+    documental = (datos.get("ejecucion") or "").strip().lower() == "documental"
+    return documental or estado in ESTADOS_ENTREGADOS
+
+
 def puerta_entrega_para_revisor(unidad):
     """Único adaptador del lanzador a la puerta común de la entrega."""
     return entrega.exigir_entrega_constructor(unidad)
@@ -1984,12 +2005,19 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             if recibo["resultado"] == "ok_sin_trabajo":
                 avisos.append("AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"])
             imprimir_resultado(ruta_recibo, recibo["resultado"], avisos)
-            espera_cambios = (
-                args.rol == "revisor"
-                or (datos.get("carril") or "normal").strip().lower()
-                not in {"expres", "exprés", "directo", "documental"}
-            )
-            return exit_de_resultado(recibo["resultado"], args.rol, espera_cambios)
+            # R1: una unidad `ejecucion: documental` (y una investigación «sin cambio»)
+            # sigue saliendo 0 aunque no acredite trabajo — la exención es por carril
+            # escrito en la ficha, y manda también sobre el rol revisor.
+            documental = (datos.get("ejecucion") or "").strip().lower() == "documental"
+            carril_exento = (datos.get("carril") or "normal").strip().lower() in {
+                "expres", "exprés", "directo", "documental"}
+            if documental or carril_exento:
+                espera_cambios = False
+                rol_efectivo = "constructor"
+            else:
+                espera_cambios = True
+                rol_efectivo = args.rol
+            return exit_de_resultado(recibo["resultado"], rol_efectivo, espera_cambios)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2069,7 +2097,7 @@ def avisar_de_lanzamiento_interrumpido(manager, unidad):
 def lanzar(args):
     if not RE_NOMBRE.fullmatch(args.unidad):
         raise ErrorEjecucion("unidad inválida: se esperaba NNN-slug")
-    if args.rol == "revisor":
+    if args.rol == "revisor" and hay_arbol_que_revisar(args.unidad):
         problemas, avisos = puerta_entrega_para_revisor(args.unidad)
         for aviso in avisos:
             print(f"AVISO {aviso}")

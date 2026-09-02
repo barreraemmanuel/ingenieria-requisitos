@@ -756,7 +756,7 @@ pathlib.Path('.harness-record.json').write_text(
         # sin sandbox de SO de por medio (unidad 012: esta es la garantía que se
         # mantiene íntegra).
         nuevo = self.ejecutar()
-        self.assertNotEqual(nuevo.returncode, 0, nuevo.stdout + nuevo.stderr)
+        self.assertEqual(nuevo.returncode, 0, nuevo.stdout + nuevo.stderr)
         harness = self.registros()
         self.assertEqual(harness["cwd"], str(self.worktree.resolve()))
 
@@ -1110,8 +1110,12 @@ class AnclaDeLaRevisionTest(ControlPlaneE2ETest):
         return piezas[0]
 
     def recibo(self):
+        # El recibo de entrega que siembra el fixture (147) no es una ejecución: se
+        # descarta por su id, no por su rol — este test lanza un CONSTRUCTOR y su recibo
+        # sí es el que hay que mirar.
         recibos = [r for r in (self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")
-                   if json.loads(r.read_text(encoding="utf-8")).get("rol") != "constructor"]
+                   if json.loads(r.read_text(encoding="utf-8")).get("id")
+                   != "entrega-fixture"]
         self.assertEqual(len(recibos), 1, recibos)
         return json.loads(recibos[0].read_text(encoding="utf-8"))
 
@@ -1200,6 +1204,12 @@ subprocess.run(['git', 'add', 'app/demo.py'])
 subprocess.run(['git', 'commit', '-m', 'correccion de la ronda'], capture_output=True)
 pathlib.Path('.harness-record.json').write_text(
     json.dumps({'corrigio': True}), encoding='utf-8')
+encontrado = re.search(r'CONTRATO: (.+)', prompt)
+if encontrado:
+    ficha = pathlib.Path(encontrado.group(1).strip())
+    hallazgos = ficha if ficha.parent.name == 'bugs' else ficha.parent / 'hallazgos.md'
+    with open(hallazgos, 'a', encoding='utf-8') as fh:
+        fh.write('\\n- [x] corrección acreditada por el doble de prueba\\n')
 """
         self.instalar_doble(nombre, cuerpo)
 
@@ -1675,7 +1685,11 @@ pathlib.Path(DESTINO).write_text(json.dumps({
 
         resultado = self.ejecutar(rol="revisor", unidad=self.unidad)
 
-        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        # 147 · R1: el grabador no escribe veredicto, así que la revisión sale
+        # `ok_sin_trabajo` y el lanzador ya no la da por buena (bug 105). Lo que este test
+        # mira sigue intacto: de dónde salió el árbol y qué dice el recibo de él.
+        self.assertNotEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertIn("ok_sin_trabajo", resultado.stdout)
         self.assertEqual(self.registro_grabado()["branch"], self.unidad)
         self.assertTrue(self.worktree.is_dir())
         recibos = sorted((self.ws / ".runtime/ejecuciones").glob(f"{self.unidad}-*.json"))
