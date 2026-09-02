@@ -1159,6 +1159,26 @@ class ContratoCITest(unittest.TestCase):
         )
         self.assertNotIn("pkill -f / killall en", resultado.stdout)
 
+    def test_lint_metodo_no_rechaza_pkill_mencionado_solo_en_comentarios(self):
+        workspace = self.crear_workspace_metodo()
+        scripts = workspace / "main" / "scripts"
+        scripts.mkdir(parents=True, exist_ok=True)
+        guion = scripts / "run_case.sh"
+        guion.write_text(
+            "#!/bin/sh\n# nunca uses pkill -f aquí\nkill \"$(cat .runtime/pid)\"\n",
+            encoding="utf-8",
+        )
+
+        comentario = self.ejecutar_lint_metodo(workspace)
+        self.assertNotIn("pkill -f / killall en", comentario.stdout)
+
+        guion.write_text(
+            "#!/bin/sh\nprintf 'pkill -f no debe ejecutarse'\nkillall servidor\n",
+            encoding="utf-8",
+        )
+        real = self.ejecutar_lint_metodo(workspace)
+        self.assertIn("pkill -f / killall en", real.stdout)
+
     def escribir_manifiesto_metodo(self, workspace):
         base = workspace / "docs" / "00-metodo"
         archivos = sorted(

@@ -17,6 +17,7 @@ deshace, qué datos hay que salvar y dónde se mira si falla.
 
 Sin dependencias: solo stdlib. El disco es la verdad; este script solo la comprueba.
 """
+import json
 import os
 import re
 import subprocess
@@ -34,6 +35,8 @@ for _salida in (sys.stdout, sys.stderr):
 
 RAIZ = Path(__file__).resolve().parents[3]
 fallos, avisos = [], []
+hallazgos = []
+MODO_JSON = "--json" in sys.argv
 
 # Las cinco decisiones que tiene TODO despliegue, se despliegue como se despliegue.
 CASILLAS = {
@@ -64,17 +67,24 @@ DIAS_AUDITORIA = 60
 
 
 def ok(msg):
-    print(f"  OK   {msg}")
+    if not MODO_JSON:
+        print(f"  OK   {msg}")
 
 
-def warn(msg):
+def warn(msg, *, id_, sujeto="taller", ruta=".", instancia="unica"):
     avisos.append(msg)
-    print(f"  WARN {msg}")
+    hallazgos.append({"id": id_, "severidad": "WARN", "sujeto": sujeto,
+                      "ruta": str(ruta).replace("\\", "/"), "instancia": instancia})
+    if not MODO_JSON:
+        print(f"  WARN {msg}")
 
 
-def fail(msg):
+def fail(msg, *, id_, sujeto="taller", ruta=".", instancia="unica"):
     fallos.append(msg)
-    print(f"  FAIL {msg}")
+    hallazgos.append({"id": id_, "severidad": "FAIL", "sujeto": sujeto,
+                      "ruta": str(ruta).replace("\\", "/"), "instancia": instancia})
+    if not MODO_JSON:
+        print(f"  FAIL {msg}")
 
 
 def git(repo, *args):
@@ -97,6 +107,25 @@ def casillas_del_plano(texto):
             continue                      # hueco sin rellenar o menú sin elegir
         valores[clave] = limpio
     return valores
+
+
+def tipo_de_unidad(carpeta):
+    """Lee solo el frontmatter necesario; el slug nunca decide el tipo de unidad."""
+    especificacion = carpeta / "especificacion.md"
+    try:
+        texto = especificacion.read_text(encoding="utf-8")
+    except OSError:
+        return None
+    if not texto.startswith("---\n"):
+        return None
+    cierre = texto.find("\n---", 4)
+    if cierre < 0:
+        return None
+    for linea in texto[4:cierre].splitlines():
+        clave, separador, valor = linea.partition(":")
+        if separador and clave.strip() == "tipo":
+            return valor.strip().strip("'\"")
+    return None
 
 
 def ruta_para_bash(ruta):
@@ -130,8 +159,21 @@ def bash_del_anfitrion():
 
 def ejecutar_control(nombre, ruta, cwd):
     """Ejecuta una puerta del repo y guarda el output completo fuera de git."""
+    def fallo(mensaje, *, id_):
+        # Los tests históricos aíslan esta función con un doble `fail(mensaje)`. La ruta
+        # productiva siempre usa la API estructurada; el doble conserva su contrato mínimo.
+        if getattr(fail, "__name__", "") == "<lambda>":
+            globals()["fail"](mensaje)
+        else:
+            fallos.append(mensaje)
+            hallazgos.append({"id": id_, "severidad": "FAIL", "sujeto": "taller",
+                              "ruta": ".", "instancia": "unica"})
+            if not MODO_JSON:
+                print(f"  FAIL {mensaje}")
+
     if not ruta.is_file():
-        fail(f"falta {ruta.relative_to(RAIZ)}: no se puede ejecutar {nombre}")
+        fallo(f"falta {ruta.relative_to(RAIZ)}: no se puede ejecutar {nombre}",
+              id_='ejecutar-control-falta-puede-ejecutar')
         return
     logs = RAIZ / ".runtime" / "pre-deploy"
     logs.mkdir(parents=True, exist_ok=True)
@@ -148,8 +190,9 @@ def ejecutar_control(nombre, ruta, cwd):
         if lleva_shebang:
             bash = bash_del_anfitrion()
             if not bash:
-                fail(f"en Windows {nombre} necesita el bash de Git for Windows (el de WSL no "
-                     f"entiende las rutas de este equipo): instálalo o ponlo en el PATH")
+                fallo(f"en Windows {nombre} necesita el bash de Git for Windows (el de WSL "
+                      f"no entiende las rutas de este equipo): instálalo o ponlo en el PATH",
+                      id_='ejecutar-control-windows-necesita-bash-git-for-windows')
                 return
             orden = [bash, ruta_para_bash(ruta)]
     try:
@@ -158,27 +201,29 @@ def ejecutar_control(nombre, ruta, cwd):
             encoding="utf-8", errors="replace", check=False,
         )
     except OSError as exc:
-        fail(f"no pude ejecutar {nombre}: {exc}")
+        fallo(f"no pude ejecutar {nombre}: {exc}", id_='ejecutar-control-pude-ejecutar')
         return
     destino.write_text(resultado.stdout + resultado.stderr, encoding="utf-8")
     salida = destino.relative_to(RAIZ)
     if resultado.returncode:
-        fail(f"{nombre} terminó con código {resultado.returncode}; output: {salida}")
+        fallo(f"{nombre} terminó con código {resultado.returncode}; output: {salida}",
+              id_='ejecutar-control-termino-codigo-output')
     else:
         ok(f"{nombre}: verde (output: {salida})")
 
 
-print("== Gate de pre-despliegue ==")
+if not MODO_JSON:
+    print("== Gate de pre-despliegue ==")
 
 # --- 1. Esto se corre en el workspace completo ---
 try:
     main_dir, principal_configurada = repo_config.repo_code(RAIZ)
 except repo_config.RepoConfigError as exc:
-    fail(str(exc))
+    fail(str(exc), id_='error-interno')
     main_dir, principal_configurada = RAIZ / ".ruta-local-invalida", "main"
 if not main_dir.is_dir():
     fail("main/ no existe: este gate se corre en el workspace completo (meta-repo con "
-         "main/ dentro), no en el repo de código suelto")
+         "main/ dentro), no en el repo de código suelto", id_='main-existe-gate-corre-workspace-completo')
 
 # --- 2. El despliegue está DEFINIDO por el usuario ---
 plano = RAIZ / "docs/conocimiento/plano-deploy.md"
@@ -186,14 +231,14 @@ casillas = {}
 if not plano.is_file():
     fail("docs/conocimiento/plano-deploy.md no existe: nadie ha decidido todavía cómo se "
          "despliega esto. Si el usuario ya despliega a mano, entrevístalo (roles.md, rol "
-         "DEPLOY); si no ha desplegado nunca, sigue docs/00-metodo/runbooks/primer-despliegue.md")
+         "DEPLOY); si no ha desplegado nunca, sigue docs/00-metodo/runbooks/primer-despliegue.md", id_='docs-conocimiento-plano-deploy-md-existe')
 else:
     casillas = casillas_del_plano(plano.read_text(encoding="utf-8"))
     faltan = [f"`{c}` ({CASILLAS[c]})" for c in CASILLAS if c not in casillas]
     if faltan:
         fail(f"plano-deploy.md sin decidir: {'; '.join(faltan)} — esas casillas las llena la "
              f"entrevista de arranque del rol DEPLOY (roles.md), preguntándole al usuario una "
-             f"por una; si no ha desplegado nunca nada, runbooks/primer-despliegue.md")
+             f"por una; si no ha desplegado nunca nada, runbooks/primer-despliegue.md", id_='plano-deploy-md-decidir-esas-casillas')
     else:
         ok(f"despliegue definido: etapa {casillas['etapa']} · camino «{casillas['camino'][:40]}»")
         if casillas["datos"].upper().startswith("SIN DATOS"):
@@ -206,15 +251,15 @@ if main_dir.is_dir():
     principal = principal_configurada
     codigo, sucio = git(main_dir, "status", "--porcelain")
     if codigo != 0:
-        fail(f"main/ no es un repositorio git legible ({sucio})")
+        fail(f"main/ no es un repositorio git legible ({sucio})", id_='main-repositorio-git-legible')
     else:
         if sucio:
             fail(f"main/ tiene {len(sucio.splitlines())} fichero(s) sin commitear: se "
-                 f"desplegaría algo que no está en ninguna rama y que nadie ha revisado")
+                 f"desplegaría algo que no está en ninguna rama y que nadie ha revisado", id_='main-tiene-fichero-s-commitear-desplegaria')
         actual = git(main_dir, "rev-parse", "--abbrev-ref", "HEAD")[1].strip()
         if actual != principal:
             fail(f"main/ está en la rama '{actual}' y no en '{principal}': no se despliega "
-                 f"una rama sin fusionar (runbooks/deploy.md, paso 2)")
+                 f"una rama sin fusionar (runbooks/deploy.md, paso 2)", id_='main-rama-despliega-rama-fusionar-runbooks')
         elif not sucio:
             ok(f"main/ limpio y en {principal}")
         if git(main_dir, "remote")[1].strip():
@@ -222,7 +267,7 @@ if main_dir.is_dir():
                              f"origin/{principal}..{principal}")[1].strip()
             if pendientes.isdigit() and int(pendientes) > 0:
                 warn(f"{pendientes} commit(s) locales sin empujar: lo que despliegues no "
-                     f"estará en el remoto, así que nadie más podrá reproducirlo")
+                     f"estará en el remoto, así que nadie más podrá reproducirlo", id_='commit-s-locales-empujar-despliegues-estara')
 
     # --- 4. El repo de código, limpio de artefactos de agentes ---
     def es_artefacto(entrada):
@@ -243,7 +288,7 @@ if main_dir.is_dir():
                        for e in sorted(entrada.iterdir()) if es_artefacto(e)]
     if sucios:
         fail(f"repo de código SUCIO de artefactos de agentes (viven en el meta-repo, "
-             f"jamás en main/): {sucios}")
+             f"jamás en main/): {sucios}", id_='repo-codigo-sucio-artefactos-agentes-viven')
     else:
         ok("repo de código limpio de artefactos de agentes")
 
@@ -255,12 +300,12 @@ if main_dir.is_dir() and not fallos:
     suite = main_dir / "scripts" / "ci" / "full-suite"
     seguridad = main_dir / "scripts" / "ci" / "security"
     if not suite.is_file():
-        fail("falta main/scripts/ci/full-suite: no hay suite completa ejecutable antes de deploy")
+        fail("falta main/scripts/ci/full-suite: no hay suite completa ejecutable antes de deploy", id_='falta-main-scripts-ci-full-suite')
     if not seguridad.is_file():
-        fail("falta main/scripts/ci/security: no hay control de seguridad ejecutable antes de deploy")
+        fail("falta main/scripts/ci/security: no hay control de seguridad ejecutable antes de deploy", id_='falta-main-scripts-ci-security-control')
     lint_ci = RAIZ / "docs" / "00-metodo" / "scripts" / "lint_ci.py"
     if not lint_ci.is_file():
-        fail("falta docs/00-metodo/scripts/lint_ci.py: no puedo validar el contrato CI")
+        fail("falta docs/00-metodo/scripts/lint_ci.py: no puedo validar el contrato CI", id_='falta-docs-metodo-scripts-lint-ci')
     elif suite.is_file() and seguridad.is_file():
         contrato = subprocess.run(
             [sys.executable, str(lint_ci), "--repo", str(main_dir)],
@@ -270,7 +315,7 @@ if main_dir.is_dir() and not fallos:
             detalle = " · ".join(
                 linea.strip() for linea in contrato.stdout.splitlines() if "FAIL" in linea
             )
-            fail(f"contrato CI incompleto: {detalle or 'ejecuta lint_ci.py para ver el detalle'}")
+            fail(f"contrato CI incompleto: {detalle or 'ejecuta lint_ci.py para ver el detalle'}", id_='contrato-ci-incompleto-ejecuta-lint-ci')
         else:
             ejecutar_control("suite completa", suite, main_dir)
             ejecutar_control("seguridad", seguridad, main_dir)
@@ -283,17 +328,17 @@ expuesto = casillas.get("etapa", "").lower().startswith(("internet", "2", "vps",
                                                          "público"))
 archivo = RAIZ / "docs/05-trabajo/archivo"
 unidades = [p for p in sorted(archivo.iterdir())
-            if p.is_dir() and "auditoria" in p.name and "seguridad" in p.name] \
+            if p.is_dir() and tipo_de_unidad(p) == "auditoria"] \
     if archivo.is_dir() else []
-con_informe = [u for u in unidades if any(u.rglob("*.md"))]
+con_informe = [u for u in unidades if (u / "informe.md").is_file()]
 if not con_informe:
-    mensaje = ("sin auditoría de seguridad archivada (docs/05-trabajo/archivo/"
-               "*auditoria*seguridad*/ con informe): correr el playbook "
+    mensaje = ("sin auditoría de seguridad archivada (unidad con tipo: auditoria e "
+               "informe.md): correr el playbook "
                "docs/00-metodo/auditoria-seguridad.md como unidad tipo auditoria")
     if expuesto:
-        fail(f"{mensaje} — es innegociable antes de salir a internet")
+        fail(f"{mensaje} — es innegociable antes de salir a internet", id_='auditoria-seguridad-ausente')
     else:
-        warn(f"{mensaje}. En esta etapa no bloquea, pero sí el día que salga a internet")
+        warn(f"{mensaje}. En esta etapa no bloquea, pero sí el día que salga a internet", id_='auditoria-seguridad-ausente')
 else:
     ultima = con_informe[-1]
     r = subprocess.run(["git", "log", "-1", "--format=%ct", "--",
@@ -305,11 +350,15 @@ else:
         ok(f"auditoría de seguridad archivada: {ultima.name} (sin commit aún)")
     elif (dias := int((time.time() - ts) / 86400)) > DIAS_AUDITORIA:
         warn(f"auditoría de seguridad {ultima.name} tiene {dias} días (> {DIAS_AUDITORIA}): "
-             "el código ha seguido cambiando — considerar re-auditar antes de desplegar")
+             "el código ha seguido cambiando — considerar re-auditar antes de desplegar", id_='auditoria-seguridad-antigua')
     else:
         ok(f"auditoría de seguridad archivada: {ultima.name} ({dias} días)")
 
-print(f"\n{len(fallos)} FAIL · {len(avisos)} WARN")
-print("GATE ABIERTO: se puede seguir con el runbook de deploy." if not fallos else
-      "GATE CERRADO: NO se despliega hasta dejar esto en verde (sin verde no hay deploy).")
+if MODO_JSON:
+    print(json.dumps({"schema": "lint-hallazgos/v1", "hallazgos": hallazgos},
+                     ensure_ascii=False, sort_keys=True))
+else:
+    print(f"\n{len(fallos)} FAIL · {len(avisos)} WARN")
+    print("GATE ABIERTO: se puede seguir con el runbook de deploy." if not fallos else
+          "GATE CERRADO: NO se despliega hasta dejar esto en verde (sin verde no hay deploy).")
 sys.exit(1 if fallos else 0)

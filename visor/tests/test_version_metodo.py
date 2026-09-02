@@ -286,7 +286,7 @@ class VersionMetodoTest(unittest.TestCase):
             'if _expres.is_file() and "MARCADOR_ROJO" in _expres.read_text('
             'encoding="utf-8"):\n'
             '    fail("expres.md trae MARCADOR_ROJO: rojo introducido por la '
-            'actualización (inducido por el test)")\n'
+            'actualización (inducido por el test)", id_="test-actualizacion-marcador-rojo")\n'
         )
         contenido = linter.read_text(encoding="utf-8")
         self.assertIn(ancla, contenido)

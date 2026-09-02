@@ -97,7 +97,8 @@ PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
 SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py",
            "ejecucion.py", "guardian_rutas.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
-           "lint_invariantes.py", "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
+           "lint_invariantes.py", "veredicto_lint.py",
+           "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
            "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
@@ -150,6 +151,9 @@ METODO_RAIZ = (
     # Y el inventario de puertas duras (unidad 050), por el mismo motivo: es la memoria del
     # trinquete. Sin él, `lint_juntas.py` llega al workspace sin saber qué está congelado.
     "puertas.json",
+    # Y la base de guardianes degradados (unidad 148), mismo patrón «solo encoge»: es la
+    # memoria de `veredicto_lint.py`; sin ella el veredicto por sujeto llega sin línea base.
+    "guardianes-degradados.json",
     "reglas.json",
     # Y la línea base de las ocho señales de la reforma (unidad 146): `lint_invariantes.py` la
     # usa como trinquete de las señales sin sujeto fechado (S5-S7); sin ella llega al workspace

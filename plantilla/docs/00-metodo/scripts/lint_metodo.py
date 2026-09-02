@@ -34,22 +34,161 @@ if "--raiz" in sys.argv:
     if _indice + 1 >= len(sys.argv):
         sys.exit("uso: lint_metodo.py [--raiz RUTA_DEL_META_REPO]")
     RAIZ = Path(sys.argv[_indice + 1]).resolve()
+BASE_REF = None
+if "--base-ref" in sys.argv:
+    _indice_base = sys.argv.index("--base-ref")
+    if _indice_base + 1 >= len(sys.argv):
+        sys.exit("uso: lint_metodo.py [--raiz RUTA_DEL_META_REPO] [--base-ref COMMIT]")
+    BASE_REF = sys.argv[_indice_base + 1].strip()
 fallos, avisos = [], []
+hallazgos = []
 HOY = datetime.date.today()
+MODO_JSON = "--json" in sys.argv
+
+REGISTRO_DEGRADADOS = RAIZ / "docs/00-metodo/guardianes-degradados.json"
+IDS_NO_DEGRADABLES = {
+    "guardianes-degradados-invalido",
+    "guardianes-degradados-modificado",
+    "pkill",
+    "dockerignore-ausente",
+    "dockerignore-incompleto",
+    "rechazos-sin-salida",
+}
+
+
+def _cargar_degradados():
+    try:
+        datos = json.loads(REGISTRO_DEGRADADOS.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        return set(), None
+    except (OSError, json.JSONDecodeError) as exc:
+        return set(), str(exc)
+    ids = datos.get("ids") if isinstance(datos, dict) and datos.get("version") == 1 else None
+    if not isinstance(ids, list) or any(not isinstance(item, str) or not item for item in ids):
+        return set(), "exige {\"version\": 1, \"ids\": [<id>, ...]}"
+    return set(ids), None
+
+
+DEGRADADOS, ERROR_DEGRADADOS = _cargar_degradados()
+ERROR_COMPARACION_DEGRADADOS = None
+
+
+def _sujeto_y_ruta(msg):
+    """Atribución conservadora para los checks antiguos migrados a identidad estable."""
+    texto = str(msg)
+    match = re.match(r"bugs/(\d{3}-[a-z0-9-]+)", texto)
+    if match:
+        slug = match.group(1)
+        return f"bug:{slug}", f"docs/bugs/{slug}.md"
+    match = re.match(r"(?:archivo/)?(\d{3}-[a-z0-9-]+)", texto)
+    if match:
+        slug = match.group(1)
+        activa = RAIZ / "docs/05-trabajo" / slug / "especificacion.md"
+        prefijo = "docs/05-trabajo" if activa.is_file() else "docs/05-trabajo/archivo"
+        return f"unidad:{slug}", f"{prefijo}/{slug}/especificacion.md"
+    match = re.match(r"(P-\d{8}-[a-f0-9]{8})(?:@(\d+))?", texto)
+    if match:
+        pid = match.group(1)
+        revision = match.group(2)
+        if revision is None:
+            try:
+                datos = json.loads(
+                    (RAIZ / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+                    .read_text(encoding="utf-8")
+                )
+                revision = str(datos.get("revision") or "")
+            except (OSError, json.JSONDecodeError):
+                revision = ""
+        revision = f"@{revision}" if revision else ""
+        return f"peticion:{pid}{revision}", f"docs/05-trabajo/peticiones/{pid}/peticion.json"
+    return "taller", "."
+
+
+def _registrar(id_, severidad, msg, sujeto=None, ruta=None, instancia=None):
+    sujeto_inferido, ruta_inferida = _sujeto_y_ruta(msg)
+    hallazgos.append({
+        "id": str(id_),
+        "severidad": severidad,
+        "sujeto": sujeto or sujeto_inferido,
+        "ruta": str(ruta or ruta_inferida).replace("\\", "/"),
+        "instancia": str(instancia or "unica"),
+    })
 
 
 def ok(msg):
-    print(f"  OK   {msg}")
+    if not MODO_JSON:
+        print(f"  OK   {msg}")
 
 
-def warn(msg):
+def warn(msg, *, id_, sujeto=None, ruta=None, instancia=None):
     avisos.append(msg)
-    print(f"  WARN {msg}")
+    _registrar(id_, "WARN", msg, sujeto, ruta, instancia)
+    if not MODO_JSON:
+        print(f"  WARN {msg}")
 
 
-def fail(msg):
+def fail(msg, *, id_, sujeto=None, ruta=None, instancia=None):
+    if id_ in DEGRADADOS and id_ not in IDS_NO_DEGRADABLES:
+        avisos.append(msg)
+        _registrar(id_, "WARN", msg, sujeto, ruta, instancia)
+        if not MODO_JSON:
+            severidad = "WARN"
+            print(f"  {severidad:<4} {msg}")
+        return
     fallos.append(msg)
-    print(f"  FAIL {msg}")
+    _registrar(id_, "FAIL", msg, sujeto, ruta, instancia)
+    if not MODO_JSON:
+        print(f"  FAIL {msg}")
+
+
+def _registro_degradados_modificado():
+    """Detecta autoindulto en un árbol de trabajo o en una rama aún no integrada."""
+    global ERROR_COMPARACION_DEGRADADOS
+    if not DEGRADADOS:
+        return False
+    codigo, raiz_git = git(RAIZ, "rev-parse", "--show-toplevel")
+    if codigo:
+        if BASE_REF:
+            ERROR_COMPARACION_DEGRADADOS = (
+                f"no hay repositorio git para comparar --base-ref {BASE_REF} con HEAD"
+            )
+            return True
+        return False
+    raiz_git = Path(raiz_git)
+    try:
+        relativa = REGISTRO_DEGRADADOS.resolve().relative_to(raiz_git.resolve()).as_posix()
+    except ValueError:
+        return False
+    if git(raiz_git, "status", "--porcelain", "--", relativa)[1].strip():
+        return True
+    if BASE_REF:
+        if git(raiz_git, "rev-parse", "--verify", "--quiet",
+               f"{BASE_REF}^{{commit}}")[0] != 0:
+            ERROR_COMPARACION_DEGRADADOS = (
+                f"--base-ref {BASE_REF} no identifica un commit en {raiz_git}"
+            )
+            return True
+        if git(raiz_git, "rev-parse", "--verify", "--quiet", "HEAD^{commit}")[0] != 0:
+            ERROR_COMPARACION_DEGRADADOS = "HEAD no identifica un commit comparable"
+            return True
+        codigo, cambiado = git(
+            raiz_git, "diff", "--name-only", f"{BASE_REF}...HEAD", "--", relativa
+        )
+        if codigo:
+            ERROR_COMPARACION_DEGRADADOS = (
+                f"git diff {BASE_REF}...HEAD no pudo comparar el registro"
+            )
+            return True
+        return bool(cambiado.strip())
+    rama = git(raiz_git, "branch", "--show-current")[1].strip()
+    for principal in ("main", "master"):
+        if (rama and rama != principal
+                and git(raiz_git, "rev-parse", "--verify", principal)[0] == 0):
+            cambiado = git(
+                raiz_git, "diff", "--name-only", f"{principal}...HEAD", "--", relativa
+            )[1]
+            return bool(cambiado.strip())
+    return False
 
 
 # El vocabulario cerrado de la unidad vive en `repo_config.py` (unidad 050): estaba escrito
@@ -199,22 +338,22 @@ def revisar_deuda_hotfix(nombre, ruta, fm):
         return
     if fm.get("estado") == "mergeada":
         fail(f"{nombre}: mergeada con la DEUDA DE SPEC del hotfix sin pagar "
-             f"(hotfix.md: se paga ANTES de cerrar; borra la marca al completar la ficha)")
+             f"(hotfix.md: se paga ANTES de cerrar; borra la marca al completar la ficha)", id_='revisar-deuda-hotfix-mergeada-deuda-spec-hotfix-pagar-hotfix')
         return
     actualizado = (fm.get("actualizado") or "").strip()
     try:
         dias = (HOY - datetime.date.fromisoformat(actualizado)).days
     except ValueError:
         fail(f"{nombre}: deuda de hotfix con 'actualizado: {actualizado or 'ausente'}' "
-             f"ilegible — sin fecha no hay plazo que valga")
+             f"ilegible — sin fecha no hay plazo que valga", id_='revisar-deuda-hotfix-deuda-hotfix-actualizado-ilegible-fecha-plazo')
         return
     if dias > 1:
         fail(f"{nombre}: DEUDA DE SPEC del hotfix sin pagar {dias} días después de "
              f"'actualizado: {actualizado}' (plazo: 24 h, hotfix.md). No se abre trabajo "
-             f"nuevo que no sea otro hotfix hasta pagarla")
+             f"nuevo que no sea otro hotfix hasta pagarla", id_='revisar-deuda-hotfix-deuda-spec-hotfix-pagar-dias-despues')
     else:
         warn(f"{nombre}: DEUDA DE SPEC del hotfix sin pagar (dentro del plazo de 24 h desde "
-             f"{actualizado}): completa la ficha y borra la marca")
+             f"{actualizado}): completa la ficha y borra la marca", id_='revisar-deuda-hotfix-deuda-spec-hotfix-pagar-dentro-plazo')
 
 
 RE_MERGE_EXTERNO_PR = re.compile(r"#\d+|https?://\S+/(?:pull|merge_requests)/\d+/?")
@@ -244,7 +383,7 @@ def avisar_titulo_de_plantilla(nombre, texto, prefijo=""):
             if any(m in linea for m in TITULOS_DE_PLANTILLA):
                 warn(f"{prefijo}{nombre}: el título sigue siendo el de la plantilla ({linea.strip()}). "
                      f"SALIDA: escribe ahí el síntoma o el cambio en una frase; hasta entonces "
-                     f"`python3 docs/00-metodo/scripts/unidad.py despachar {nombre}` la rechaza")
+                     f"`python3 docs/00-metodo/scripts/unidad.py despachar {nombre}` la rechaza", id_='avisar-titulo-de-plantilla-titulo-sigue-siendo-plantilla-salida-escribe')
             return
 
 
@@ -253,7 +392,8 @@ def repo_codigo():
     try:
         return repo_config.repo_code(RAIZ)
     except repo_config.RepoConfigError as exc:
-        fail(str(exc))
+        fail(str(exc), id_='repo-codigo-error-interno', sujeto="taller", ruta="repos.yaml",
+             instancia="configuracion-repo-codigo")
         return RAIZ / ".ruta-local-invalida", "main"
 
 
@@ -486,14 +626,14 @@ def cargar_legacy():
     try:
         datos = json.loads(ruta.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError) as exc:
-        fail(f"peticiones/LEGACY.json ilegible: {exc}")
+        fail(f"peticiones/LEGACY.json ilegible: {exc}", id_='cargar-legacy-peticiones-legacy-json-ilegible')
         return {"formato": 1, "modo": "estricto", "unidades": [], "bugs": [], "ramas": []}
     if datos.get("formato") != 1 or datos.get("modo") not in {"observacion", "estricto"}:
-        fail("peticiones/LEGACY.json exige formato 1 y modo observacion|estricto")
+        fail("peticiones/LEGACY.json exige formato 1 y modo observacion|estricto", id_='cargar-legacy-peticiones-legacy-json-exige-formato-modo')
         datos["modo"] = "estricto"
     for clave in ("unidades", "bugs", "ramas"):
         if not isinstance(datos.get(clave), list):
-            fail(f"peticiones/LEGACY.json: {clave} debe ser una lista exacta")
+            fail(f"peticiones/LEGACY.json: {clave} debe ser una lista exacta", id_='cargar-legacy-peticiones-legacy-json-debe-ser-lista')
             datos[clave] = []
     return datos
 
@@ -513,10 +653,11 @@ def huerfano(nombre, clase, detalle="sin petición de origen"):
     if nombre in set(LEGACY.get(lista, [])):
         return
     mensaje = f"{nombre}: {detalle}"
-    (warn if LEGACY.get("modo") == "observacion" else fail)(mensaje)
+    reporter = warn if LEGACY.get("modo") == "observacion" else fail
+    reporter(mensaje, id_="origen-huerfano")
 
 
-def validar_origen_peticion(nombre, fm, clase="unidad"):
+def validar_origen_peticion(nombre, fm, clase="unidad", archivada=False):
     referencias = referencias_peticion(fm)
     if not referencias:
         huerfano(nombre, clase)
@@ -524,21 +665,26 @@ def validar_origen_peticion(nombre, fm, clase="unidad"):
     for referencia in referencias:
         encontrada = RE_PETICION_REVISION.fullmatch(referencia)
         if not encontrada:
-            fail(f"{nombre}: referencia de petición inválida '{referencia}' (usa P-ID@revision)")
+            fail(f"{nombre}: referencia de petición inválida '{referencia}' (usa P-ID@revision)", id_='referencia-peticion-invalida-usa-p-id')
             continue
         pid, revision = encontrada.groups()
         ruta = PETICIONES / pid / "peticion.json"
         try:
             datos = json.loads(ruta.read_text(encoding="utf-8"))
         except FileNotFoundError:
-            fail(f"{nombre}: petición inexistente {pid}")
+            fail(f"{nombre}: petición inexistente {pid}", id_='peticion-inexistente')
             continue
         except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{nombre}: no se puede leer {pid}: {exc}")
+            fail(f"{nombre}: no se puede leer {pid}: {exc}", id_='puede-leer')
             continue
         if datos.get("revision") != int(revision):
-            fail(f"{nombre}: {pid} está en revisión {datos.get('revision')}; "
-                 f"la orden referencia revisión {revision}")
+            if archivada:
+                warn(f"{nombre}: historia: satisfizo la revisión {revision} de {pid}; "
+                     f"la petición viva está en revisión {datos.get('revision')}", id_="revision-desfasada-historica")
+            else:
+                fail(f"{nombre}: {pid} está en revisión {datos.get('revision')}; "
+                     f"la orden referencia revisión {revision} · SALIDA: python3 "
+                     f"docs/00-metodo/scripts/peticion.py reencuadrar-orden {pid}", id_='revision-desfasada')
         tipo_proceso = "bug" if clase == "bug" else "unidad"
         enlazada = any(
             proceso.get("tipo") == tipo_proceso
@@ -547,27 +693,28 @@ def validar_origen_peticion(nombre, fm, clase="unidad"):
             for proceso in datos.get("procesos", [])
         )
         if not enlazada:
-            fail(f"{nombre}: {pid}@{revision} no enlaza de vuelta este proceso")
+            fail(f"{nombre}: {pid}@{revision} no enlaza de vuelta este proceso", id_='enlaza-vuelta-proceso')
 
 
 def revisar_cola_peticiones():
     if not PETICIONES.is_dir():
-        fail("docs/05-trabajo/peticiones/ no existe")
+        fail("docs/05-trabajo/peticiones/ no existe", id_='docs-trabajo-peticiones-existe')
         return
+    sin_siguiente = []
     for ruta in sorted(PETICIONES.glob("P-*/peticion.json")):
         try:
             datos = json.loads(ruta.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError) as exc:
-            fail(f"{ruta.parent.name}: peticion.json ilegible: {exc}")
+            fail(f"{ruta.parent.name}: peticion.json ilegible: {exc}", id_='peticion-json-ilegible')
             continue
         pid = datos.get("id") or ruta.parent.name
         if pid != ruta.parent.name:
-            fail(f"{ruta.parent.name}: peticion.json declara id {pid}")
+            fail(f"{ruta.parent.name}: peticion.json declara id {pid}", id_='peticion-json-declara-id')
         for proceso in datos.get("procesos", []):
             tipo, ref = proceso.get("tipo"), proceso.get("ref", "?")
             esperado = CONTRATOS_PETICION.get(tipo)
             if not esperado or proceso.get("contrato_terminal") != esperado:
-                fail(f"{pid}: proceso {tipo} {ref} sin contrato terminal canónico")
+                fail(f"{pid}: proceso {tipo} {ref} sin contrato terminal canónico", id_='proceso-contrato-terminal-canonico')
             canonica = None
             if tipo == "unidad":
                 candidatos = (
@@ -594,7 +741,7 @@ def revisar_cola_peticiones():
                     fail(f"{pid}: merge externo {ref} no existe en el repo de código · "
                          f"SALIDA: trae el commit (git -C main fetch origin) y vuelve a "
                          f"pasar el lint, o cita el PR con `peticion.py enlazar {pid} "
-                         f"--tipo merge-externo --ref '#N'`")
+                         f"--tipo merge-externo --ref '#N'`", id_='merge-externo-existe-repo-codigo-salida')
                     continue
                 canonica = True
             elif tipo not in {"expres"}:
@@ -619,18 +766,17 @@ def revisar_cola_peticiones():
                 if tipo == "investigacion" and ref != "docs/03-investigacion/SINTESIS.md":
                     canonica = None
             if tipo != "expres" and canonica is None:
-                fail(f"{pid}: proceso {tipo} inexistente: {ref}")
+                fail(f"{pid}: proceso {tipo} inexistente: {ref}", id_='proceso-inexistente')
                 continue
             if proceso.get("estado") == "terminal" and tipo in {"unidad", "bug", "auditoria"}:
                 fm = frontmatter(canonica) or {}
                 if fm.get("estado") != "mergeada":
-                    fail(
-                        f"{pid}: proceso terminal {tipo} {ref}, pero su artefacto está "
-                        f"{fm.get('estado') or 'sin estado'}"
+                    fail(f"{pid}: proceso terminal {tipo} {ref}, pero su artefacto está "
+                        f"{fm.get('estado') or 'sin estado'}", id_='proceso-terminal-pero-artefacto-estado-estado'
                     )
             if proceso.get("estado") == "terminal" and tipo == "deploy" and canonica:
                 if not ficha_deploy_terminal_valida(canonica):
-                    fail(f"{pid}: deploy {ref} terminal sin ficha desplegada y completa")
+                    fail(f"{pid}: deploy {ref} terminal sin ficha desplegada y completa", id_='deploy-terminal-ficha-desplegada-completa')
             if proceso.get("estado") == "terminal" and tipo == "flujos" and canonica:
                 try:
                     recibo = json.loads(canonica.read_text(encoding="utf-8"))
@@ -641,7 +787,7 @@ def revisar_cola_peticiones():
                         or not fecha_iso_valida(recibo.get("fecha")) \
                         or not isinstance(recibo.get("por"), str) \
                         or not recibo.get("por").strip():
-                    fail(f"{pid}: flujos terminal sin recibo aprobado")
+                    fail(f"{pid}: flujos terminal sin recibo aprobado", id_='flujos-terminal-recibo-aprobado')
             if proceso.get("estado") == "terminal" and tipo == "investigacion" and canonica:
                 informes = list(canonica.parent.glob("informe-[0-9][0-9]-*.md"))
                 indices = {informe.name.split("-", 2)[1] for informe in informes}
@@ -667,15 +813,14 @@ def revisar_cola_peticiones():
                 if not informes_validos or len(sintesis.strip()) < 200 or re.search(
                     r"<[^>]+>|YYYY-MM-DD", sintesis
                 ):
-                    fail(
-                        f"{pid}: investigación terminal sin al menos 10 informes "
-                        "y síntesis completa"
+                    fail(f"{pid}: investigación terminal sin al menos 10 informes "
+                        "y síntesis completa", id_='investigacion-terminal-menos-informes-sintesis-completa'
                     )
             if proceso.get("estado") == "terminal" and tipo == "expres":
                 repo, principal = repo_codigo()
                 metadata = proceso.get("metadata") or {}
                 if not rama_fusionada(repo, ref, principal, metadata):
-                    fail(f"{pid}: exprés terminal sin cambio fusionado en {principal}")
+                    fail(f"{pid}: exprés terminal sin cambio fusionado en {principal}", id_='expres-terminal-cambio-fusionado')
         abiertos = [
             proceso.get("ref", "?")
             for proceso in datos.get("procesos", [])
@@ -684,7 +829,7 @@ def revisar_cola_peticiones():
             and proceso.get("estado") not in {"terminal", "sustituido", "cancelado"}
         ]
         if datos.get("estado") in {"cerrada", "cancelada"} and abiertos:
-            fail(f"{pid}: {datos.get('estado')} con proceso abierto: {', '.join(abiertos)}")
+            fail(f"{pid}: {datos.get('estado')} con proceso abierto: {', '.join(abiertos)}", id_='proceso-abierto-estado')
         satisface = [
             proceso for proceso in datos.get("procesos", [])
             if proceso.get("relacion") == "satisface"
@@ -692,25 +837,51 @@ def revisar_cola_peticiones():
             and proceso.get("estado") != "sustituido"
         ]
         if datos.get("resultado") == "entregada" and not satisface:
-            fail(f"{pid}: entregada sin ningún proceso que la satisfaga")
+            fail(f"{pid}: entregada sin ningún proceso que la satisfaga", id_='entregada-ningun-proceso-satisfaga')
         if datos.get("resultado") == "entregada" and any(
             proceso.get("estado") != "terminal" for proceso in satisface
         ):
-            fail(f"{pid}: entregada con procesos no terminales")
+            fail(f"{pid}: entregada con procesos no terminales", id_='entregada-procesos-terminales')
         if datos.get("estado") in {"capturada", "evaluando"}:
-            warn(f"{pid}: {datos.get('estado')} sin siguiente proceso; evaluar o aparcar")
+            sin_siguiente.append(pid)
         if datos.get("estado") == "aparcada":
             revisar_el = (datos.get("aparcada") or {}).get("revisar_el")
             try:
                 vencida = bool(revisar_el) and datetime.date.fromisoformat(revisar_el) <= HOY
             except ValueError:
-                fail(f"{pid}: fecha de revisión aparcada ilegible: {revisar_el}")
+                fail(f"{pid}: fecha de revisión aparcada ilegible: {revisar_el}", id_='fecha-revision-aparcada-ilegible')
                 vencida = False
             if vencida:
-                warn(f"{pid}: aparcada vencida desde {revisar_el}; reanudar, cancelar o reprogramar")
+                warn(f"{pid}: aparcada vencida desde {revisar_el}; reanudar, cancelar o reprogramar", id_='aparcada-vencida-desde-reanudar-cancelar-reprogramar')
+    if sin_siguiente:
+        warn(f"{len(sin_siguiente)} peticiones sin siguiente proceso "
+             f"({', '.join(sin_siguiente)}); evaluar o aparcar · "
+             "SALIDA: python3 docs/00-metodo/scripts/peticion.py listar", id_="peticiones-sin-siguiente-proceso",
+             sujeto="taller", ruta="docs/05-trabajo/peticiones", instancia="cola")
 
 
-print("== Linter del método ==")
+if not MODO_JSON:
+    print("== Linter del método ==")
+
+if ERROR_DEGRADADOS:
+    fail(f"guardianes-degradados.json ilegible: {ERROR_DEGRADADOS} · SALIDA: "
+         "git checkout -- docs/00-metodo/guardianes-degradados.json", id_="guardianes-degradados-invalido",
+         ruta="docs/00-metodo/guardianes-degradados.json")
+elif IDS_NO_DEGRADABLES & DEGRADADOS:
+    fail("guardianes-degradados.json intenta rebajar guardianes no degradables · "
+         "SALIDA: git checkout -- docs/00-metodo/guardianes-degradados.json", id_="guardianes-degradados-invalido",
+         ruta="docs/00-metodo/guardianes-degradados.json")
+elif _registro_degradados_modificado():
+    detalle_comparacion = (
+        f" ({ERROR_COMPARACION_DEGRADADOS})" if ERROR_COMPARACION_DEGRADADOS else ""
+    )
+    # salida:por-diseño autoridad-humana: solo el autor del método decide la degradación
+    # mediante una petición y una unidad aprobadas que nombren el id y el motivo.
+    fail("guardianes-degradados.json cambia en el mismo trabajo que pretende usarlo"
+         f"{detalle_comparacion} · "
+         "solo el autor del método puede separarlo mediante una petición y una unidad "
+         "aprobadas que nombren el id y el motivo", id_="guardianes-degradados-modificado",
+         ruta="docs/00-metodo/guardianes-degradados.json", instancia="contenido-no-vacio")
 
 # --- 0. El arsenal del método: los guardianes existen y no están vacíos ---
 # Se demostró (auditoría adversaria 2026-08-03, hallazgo 3) que se podían borrar los
@@ -722,20 +893,20 @@ print("== Linter del método ==")
 metodo_json = RAIZ / "METODO.json"
 if not metodo_json.is_file():
     warn("METODO.json no existe: no puedo comprobar que el arsenal del método esté completo "
-         "(lo escribe el bootstrap; recupéralo con `git checkout -- METODO.json`)")
+         "(lo escribe el bootstrap; recupéralo con `git checkout -- METODO.json`)", id_='metodo-json-existe-puedo-comprobar-arsenal')
 else:
     try:
         datos_metodo = json.loads(metodo_json.read_text(encoding="utf-8"))
         if not isinstance(datos_metodo, dict):
             raise ValueError("no es un objeto JSON")
     except (OSError, ValueError) as exc:
-        fail(f"METODO.json ilegible ({exc}): sin él no se puede verificar el arsenal del método")
+        fail(f"METODO.json ilegible ({exc}): sin él no se puede verificar el arsenal del método", id_='metodo-json-ilegible-puede-verificar-arsenal')
         datos_metodo = None
     if datos_metodo is not None:
         archivos_metodo = datos_metodo.get("archivos") or []
         if not archivos_metodo:
             warn("METODO.json sin la lista `archivos`: el arsenal del método queda sin "
-                 "vigilar hasta repartir el método actualizado (Modo D de la herramienta)")
+                 "vigilar hasta repartir el método actualizado (Modo D de la herramienta)", id_='metodo-json-lista-archivos-arsenal-metodo')
         else:
             rotos = []
             for relativo in archivos_metodo:
@@ -752,7 +923,7 @@ else:
                 fail("arsenal del método incompleto — sin estos guardianes el resto del "
                      "linter no protege nada: " + "; ".join(rotos[:12]) + extra +
                      ". Recupéralos con `git checkout -- docs/00-metodo METODO.json` o con "
-                     "el Modo D de la herramienta")
+                     "el Modo D de la herramienta", id_='recuperalos-git-checkout-docs-metodo-metodo')
             else:
                 ok(f"arsenal del método completo ({len(archivos_metodo)} ficheros presentes "
                    f"y con contenido)")
@@ -760,11 +931,11 @@ else:
 # --- 1. Raíz: ficheros y tope de tamaño del router ---
 agents = RAIZ / "AGENTS.md"
 if not agents.exists():
-    fail("AGENTS.md no existe")
+    fail("AGENTS.md no existe", id_='agents-md-existe')
 else:
     n = len(agents.read_text(encoding="utf-8").splitlines())
     if n > 160:
-        fail(f"AGENTS.md tiene {n} líneas (tope 160): el router está engordando")
+        fail(f"AGENTS.md tiene {n} líneas (tope 160): el router está engordando", id_='agents-md-tiene-lineas-tope-router')
     else:
         ok(f"AGENTS.md existe ({n} líneas ≤ 160)")
 
@@ -773,27 +944,31 @@ for puente in ("CLAUDE.md", "GEMINI.md"):
     contenido_puente = ruta_puente.read_text(encoding="utf-8") if ruta_puente.exists() else ""
     lineas_esperadas = ("@AGENTS.md\n", "@AGENTS.md\n@.claude/personalidad.md\n")
     if contenido_puente not in lineas_esperadas:
-        fail(f"{puente} debe redirigir a AGENTS.md (y opcionalmente a .claude/personalidad.md)")
+        fail(f"{puente} debe redirigir a AGENTS.md (y opcionalmente a .claude/personalidad.md)", id_='debe-redirigir-agents-md-opcionalmente-claude')
     else:
         ok(f"{puente} redirige directamente a AGENTS.md")
 
 # --- 2. El árbol congelado ---
 for d in sorted(DOCS_PERMITIDOS):
     if not (RAIZ / "docs" / d).is_dir():
-        fail(f"falta docs/{d}/ (árbol congelado, ver ADR/estructura)")
+        fail(f"falta docs/{d}/ (árbol congelado, ver ADR/estructura)", id_='falta-docs-arbol-congelado-ver-adr')
 extras = {p.name for p in (RAIZ / "docs").iterdir() if p.is_dir()} - DOCS_PERMITIDOS
 if extras:
-    fail(f"directorios NO permitidos en docs/ (cambiar la estructura exige ADR): {sorted(extras)}")
+    fail(f"directorios NO permitidos en docs/ (cambiar la estructura exige ADR): {sorted(extras)}", id_='directorios-permitidos-docs-cambiar-estructura-exige')
 else:
     ok("docs/ contiene exactamente el árbol congelado")
 
 # --- 3. ESTADO.md: existe y no engorda ---
 estado_md = RAIZ / "docs/05-trabajo/ESTADO.md"
 if not estado_md.exists():
-    fail("docs/05-trabajo/ESTADO.md no existe")
+    fail("docs/05-trabajo/ESTADO.md no existe", id_='docs-trabajo-estado-md-existe')
 else:
     n = len(estado_md.read_text(encoding="utf-8").splitlines())
-    (ok if n <= 100 else fail)(f"ESTADO.md: {n} líneas {'≤ 100' if n <= 100 else '> 100 (es un digest, no un archivo)'}")
+    mensaje_estado = f"ESTADO.md: {n} líneas {'≤ 100' if n <= 100 else '> 100 (es un digest, no un archivo)'}"
+    if n <= 100:
+        ok(mensaje_estado)
+    else:
+        fail(mensaje_estado, id_="estado-demasiado-largo")
 
 # --- 4. Unidades: nombre, frontmatter, vocabulario, coherencia ---
 trabajo = RAIZ / "docs/05-trabajo"
@@ -802,43 +977,43 @@ for carpeta in sorted(trabajo.iterdir()):
     if not carpeta.is_dir() or carpeta.name in {"archivo", "peticiones"}:
         continue
     if not re.match(r"^\d{3}-[a-z0-9-]+$", carpeta.name):
-        fail(f"unidad con nombre fuera de convención NNN-slug: {carpeta.name}")
+        fail(f"unidad con nombre fuera de convención NNN-slug: {carpeta.name}", id_='unidad-nombre-fuera-convencion-nnn-slug')
         continue
     nnn = carpeta.name[:3]
     if nnn in numeros:
-        fail(f"NNN duplicado: {carpeta.name} y {numeros[nnn]}")
+        fail(f"NNN duplicado: {carpeta.name} y {numeros[nnn]}", id_='nnn-duplicado')
     numeros[nnn] = carpeta.name
     spec = carpeta / "especificacion.md"
     fm = frontmatter(spec)
     if fm is None:
-        fail(f"{carpeta.name}: especificacion.md sin frontmatter válido")
+        fail(f"{carpeta.name}: especificacion.md sin frontmatter válido", id_='especificacion-md-frontmatter-valido')
         continue
     faltan = CLAVES_FRONTMATTER - set(fm)
     if faltan:
-        fail(f"{carpeta.name}: frontmatter sin claves {sorted(faltan)}")
+        fail(f"{carpeta.name}: frontmatter sin claves {sorted(faltan)}", id_='frontmatter-claves')
     if fm.get("estado") not in ESTADOS_UNIDAD:
-        fail(f"{carpeta.name}: estado '{fm.get('estado')}' fuera del vocabulario {sorted(ESTADOS_UNIDAD)}")
+        fail(f"{carpeta.name}: estado '{fm.get('estado')}' fuera del vocabulario {sorted(ESTADOS_UNIDAD)}", id_='estado-fuera-vocabulario-estado')
     if fm.get("tipo") not in TIPOS:
-        fail(f"{carpeta.name}: tipo '{fm.get('tipo')}' fuera del vocabulario")
+        fail(f"{carpeta.name}: tipo '{fm.get('tipo')}' fuera del vocabulario", id_='tipo-fuera-vocabulario-tipo')
     if fm.get("carril") not in CARRILES:
-        fail(f"{carpeta.name}: carril '{fm.get('carril')}' fuera del vocabulario")
+        fail(f"{carpeta.name}: carril '{fm.get('carril')}' fuera del vocabulario", id_='carril-fuera-vocabulario-carril')
     if fm.get("estado") in EN_VUELO:
         spec_txt = spec.read_text(encoding="utf-8") if spec.exists() else ""
         if "## Plan de trabajo" not in spec_txt:
-            fail(f"{carpeta.name}: en obra sin 'Plan de trabajo' en su especificacion (ADR-005)")
+            fail(f"{carpeta.name}: en obra sin 'Plan de trabajo' en su especificacion (ADR-005)", id_='obra-plan-trabajo-especificacion-adr')
         # El contrato lo aprueba el usuario: estar en obra con 'aprobado: no' significa que
         # alguien se despachó a sí mismo. La única excepción es el hotfix P0, que deja marca
         # de deuda (y esa deuda la vigila revisar_deuda_hotfix con su propio reloj).
         if not aprobado_por_el_usuario(fm) and MARCA_DEUDA not in spec_txt:
             fail(f"{carpeta.name}: {fm.get('estado')} con 'aprobado: "
                  f"{fm.get('aprobado') or 'ausente'}' — se despachó SIN aprobación del usuario "
-                 f"(el contrato lo aprueba él, no el agente)")
+                 f"(el contrato lo aprueba él, no el agente)", id_='aprobado-despacho-aprobacion-usuario-contrato-aprueba')
     revisar_deuda_hotfix(carpeta.name, spec, fm)
     if fm.get("estado") == "mergeada":
-        fail(f"{carpeta.name}: mergeada pero sin archivar (el cierre quedó a medias — re-ejecutar)")
+        fail(f"{carpeta.name}: mergeada pero sin archivar (el cierre quedó a medias — re-ejecutar)", id_='mergeada-pero-archivar-cierre-quedo-medias')
     if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(carpeta.name):
         warn(f"{carpeta.name}: contrato pendiente de aprobar y sin rastro del visor de "
-             f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
+             f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}", id_='contrato-pendiente-aprobar-rastro-visor-contratos')
     avisar_titulo_de_plantilla(carpeta.name, spec.read_text(encoding="utf-8") if spec.exists() else "")
     unidades[carpeta.name] = fm
     validar_origen_peticion(carpeta.name, fm)
@@ -853,30 +1028,30 @@ if bugs_dir.is_dir():
         if not re.match(r"^\d{3}", nombre):
             continue  # INDICE.md y ficheros de soporte: no son fichas de bug
         if not re.match(r"^\d{3}-[a-z0-9-]+$", nombre):
-            fail(f"bug con nombre fuera de convención NNN-slug.md: bugs/{fichero.name}")
+            fail(f"bug con nombre fuera de convención NNN-slug.md: bugs/{fichero.name}", id_='bug-nombre-fuera-convencion-nnn-slug')
             continue
         nnn = nombre[:3]
         if nnn in numeros:
-            fail(f"NNN duplicado: bugs/{nombre} y {numeros[nnn]}")
+            fail(f"NNN duplicado: bugs/{nombre} y {numeros[nnn]}", id_='nnn-duplicado-bugs')
         numeros[nnn] = f"bugs/{nombre}"
         fm = frontmatter(fichero)
         if fm is None:
-            fail(f"bugs/{nombre}: sin frontmatter válido")
+            fail(f"bugs/{nombre}: sin frontmatter válido", id_='bugs-frontmatter-valido')
             continue
         if fm.get("tipo") != "bug":
-            fail(f"bugs/{nombre}: tipo '{fm.get('tipo')}' (en docs/bugs/ solo tipo bug)")
+            fail(f"bugs/{nombre}: tipo '{fm.get('tipo')}' (en docs/bugs/ solo tipo bug)", id_='bugs-tipo-docs-bugs-solo-tipo')
         if fm.get("estado") not in ESTADOS_UNIDAD:
-            fail(f"bugs/{nombre}: estado '{fm.get('estado')}' fuera del vocabulario {sorted(ESTADOS_UNIDAD)}")
+            fail(f"bugs/{nombre}: estado '{fm.get('estado')}' fuera del vocabulario {sorted(ESTADOS_UNIDAD)}", id_='bugs-estado-fuera-vocabulario-estado')
         texto_bug = fichero.read_text(encoding="utf-8")
         if fm.get("estado") in EN_VUELO and not aprobado_por_el_usuario(fm) \
                 and MARCA_DEUDA not in texto_bug:
             fail(f"bugs/{nombre}: {fm.get('estado')} con 'aprobado: "
                  f"{fm.get('aprobado') or 'ausente'}' — se despachó SIN aprobación del usuario "
-                 f"(o, si fue producción caída, sin la marca de deuda del hotfix)")
+                 f"(o, si fue producción caída, sin la marca de deuda del hotfix)", id_='bugs-aprobado-despacho-aprobacion-usuario-fue')
         revisar_deuda_hotfix(f"bugs/{nombre}", fichero, fm)
         if not aprobado_por_el_usuario(fm) and not visto_por_visor_contratos(nombre):
             warn(f"bugs/{nombre}: contrato pendiente de aprobar y sin rastro del visor de "
-                 f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}")
+                 f"contratos — enséñaselo al usuario: {COMANDO_VISOR_CONTRATOS}", id_='bugs-contrato-pendiente-aprobar-rastro-visor')
         avisar_titulo_de_plantilla(nombre, texto_bug, prefijo="bugs/")
         # Un bug NO se archiva (ADR-006): `mergeada` es su estado final, así que nadie vuelve a
         # mirarlo después. Las dos puertas del paso 9 de runbooks/bug.md —evidencia rojo→verde
@@ -888,19 +1063,19 @@ if bugs_dir.is_dir():
                                     if not hay)
                 fail(f"bugs/{nombre}: {fm.get('estado')} sin el output {falta} pegado en la "
                      f"ficha — el par ROJO→VERDE del MISMO test es la única prueba de que se "
-                     f"arregló ESTE bug (bug.md paso 9: evidencia, no afirmación)")
+                     f"arregló ESTE bug (bug.md paso 9: evidencia, no afirmación)", id_='bugs-output-pegado-ficha-par-rojoverde')
         if fm.get("estado") == "mergeada" and not validado_por_el_usuario(texto_bug):
             fail(f"bugs/{nombre}: mergeada sin 'Validación del usuario: OK' en la sección de "
                  f"cierre — un bug no está cerrado hasta que el USUARIO lo valida sobre una "
                  f"instancia corriendo; sin ese OK el bug sigue ABIERTO (bug.md, hard-gate "
-                 f"del paso 9)")
+                 f"del paso 9)", id_='mergeada-sin-ok')
         # El alta en el índice la hace el padre al reportar el bug: una ficha fuera del índice
         # es un bug invisible para quien solo mira docs/bugs/INDICE.md. WARN, no FAIL: el bug
         # existe y está bien escrito; lo que falta es su línea en el índice.
         if nombre not in texto_indice:
             warn(f"bugs/{nombre}: no aparece en docs/bugs/INDICE.md (el padre da de alta el "
                  f"bug en el índice al reportarlo: una línea con NNN, ficha, severidad, "
-                 f"triaje y estado)")
+                 f"triaje y estado)", id_='bugs-aparece-docs-bugs-indice-md')
         unidades[nombre] = fm  # mismo censo: tope en vuelo, ficheros disjuntos y worktrees
         validar_origen_peticion(nombre, fm, clase="bug")
 
@@ -917,7 +1092,7 @@ activas = {n: fm for n, fm in unidades.items() if fm.get("estado") in {"en_obra"
 # (comprobado justo debajo); el número de unidades en vuelo solo se informa.
 if len(activas) > 1:
     warn(f"{len(activas)} unidades en vuelo (default 1; en paralelo solo sin ficheros compartidos "
-         f"y pedido por el usuario, ADR-027): {sorted(activas)}")
+         f"y pedido por el usuario, ADR-027): {sorted(activas)}", id_='unidades-vuelo-default-paralelo-solo-ficheros')
 
 
 def ficheros_de(fm):
@@ -943,7 +1118,7 @@ esperando = sorted(n for n, fm in unidades.items() if fm.get("estado") == "en_va
 if esperando:
     warn(f"{len(esperando)} unidad(es) en_validacion (fusionadas, esperando a que el usuario "
          f"pruebe la app): {esperando} — termínalas con `unidad.py cerrar NNN-slug "
-         f"--ok-usuario FECHA` en cuanto dé el OK")
+         f"--ok-usuario FECHA` en cuanto dé el OK", id_='unidad-validacion-fusionadas-esperando-usuario-pruebe')
 
 
 nombres_activas = sorted(activas)
@@ -951,7 +1126,9 @@ for i, a in enumerate(nombres_activas):
     for b in nombres_activas[i + 1:]:
         comunes = ficheros_de(activas[a]) & ficheros_de(activas[b])
         if comunes:
-            fail(f"{a} y {b} comparten ficheros declarados: {sorted(comunes)} (paralelas jamás comparten)")
+            fail(f"{a} y {b} comparten ficheros declarados: {sorted(comunes)} "
+                 "(paralelas jamás comparten)", id_='unidades-paralelas-comparten-ficheros', sujeto="taller",
+                 ruta="docs/05-trabajo", instancia="+".join(sorted((a, b))))
 
 # --- 5. Worktrees ↔ unidades (huérfanos y zombis) ---
 worktrees = RAIZ / "worktrees"
@@ -975,12 +1152,12 @@ archivadas = {p.name for p in archivo.iterdir() if p.is_dir()} if archivo.is_dir
 huerfanos_reales = wt - set(unidades) - archivadas
 huerfanos_archivados = (wt - set(unidades)) & archivadas
 for h in sorted(huerfanos_reales):
-    fail(f"worktree huérfano sin unidad: worktrees/{h} (¿cierre a medias?)")
+    fail(f"worktree huérfano sin unidad: worktrees/{h} (¿cierre a medias?)", id_='worktree-huerfano-unidad-worktrees-cierre-medias')
 for h in sorted(huerfanos_archivados):
     warn(f"worktrees/{h}: su unidad ya está archivada pero el worktree sigue en disco — "
-         f"bórralo a mano si el cierre no pudo hacerlo (o es la ventana normal de un cierre en curso)")
+         f"bórralo a mano si el cierre no pudo hacerlo (o es la ventana normal de un cierre en curso)", id_='worktrees-unidad-ya-archivada-pero-worktree')
 for z in sorted(en_obra - wt):
-    warn(f"unidad {z} en obra sin worktree (¿aún no despachada de verdad?)")
+    warn(f"unidad {z} en obra sin worktree (¿aún no despachada de verdad?)", id_='unidad-obra-worktree-aun-despachada-verdad')
 if wt and not huerfanos_reales and not huerfanos_archivados:
     ok(f"worktrees coherentes con unidades: {sorted(wt)}")
 elif not wt:
@@ -1004,9 +1181,9 @@ for nombre in sorted(en_obra):
                      f"un worktree es lo ÚNICO que no respalda nadie")
             if estado_unidad == "en_revision":
                 fail(f"{aviso}. Una unidad que se declara terminada y no ha commiteado nada "
-                     f"no ha terminado: recupera el trabajo antes de cerrar")
+                     f"no ha terminado: recupera el trabajo antes de cerrar", id_='unidad-declara-terminada-ha-commiteado-nada')
             else:
-                warn(f"{aviso}: pide commits al constructor")
+                warn(f"{aviso}: pide commits al constructor", id_='pide-commits-constructor')
     if estado_unidad == "en_revision" and hay_repo:
         # Una unidad en_revision se declara TERMINADA y esperando merge. Lo primero es que su
         # trabajo exista en algún sitio: la rama local es lo normal, `origin/<unidad>` es lo
@@ -1024,7 +1201,7 @@ for nombre in sorted(en_obra):
                  f"{nombre}, ni origin/{nombre}, ni un 'fusion:' anotado en su ficha. Una "
                  f"rama que no existe no prueba que se fusionara: prueba que alguien la "
                  f"borró. Búscala con `git -C {repo_cod.name} reflog` antes de tocar nada; si "
-                 f"aparece, recupérala con `git -C {repo_cod.name} branch {nombre} <sha>`")
+                 f"aparece, recupérala con `git -C {repo_cod.name} branch {nombre} <sha>`", id_='revision-queda-rastro-trabajo-rama-origin')
         elif tiene_local:
             codigo, salida = git(repo_cod, "rev-list", "--count", f"{rama_principal}..{nombre}")
             if codigo == 0 and salida.strip() == "0":
@@ -1040,7 +1217,7 @@ for nombre in sorted(en_obra):
                     fail(f"{nombre}: en_revision y su rama no tiene NI UN commit por encima "
                          f"de {rama_principal} — no hay nada que revisar ni que mergear (¿el "
                          f"constructor murió a mitad?). Si en realidad ya se fusionó, la "
-                         f"ficha debe acreditarlo con su 'fusion: <sha>'")
+                         f"ficha debe acreditarlo con su 'fusion: <sha>'", id_='revision-rama-tiene-commit-encima-nada')
 
 # --- 6. Archivo: lo archivado debe estar mergeada/descartada ---
 archivo = trabajo / "archivo"
@@ -1048,10 +1225,10 @@ for carpeta in sorted(p for p in archivo.iterdir() if p.is_dir()) if archivo.is_
     spec_archivada = carpeta / "especificacion.md"
     fm = frontmatter(spec_archivada)
     if fm and fm.get("estado") not in {"mergeada", "descartada"}:
-        fail(f"archivo/{carpeta.name}: archivada con estado '{fm.get('estado')}' (solo mergeada/descartada)")
+        fail(f"archivo/{carpeta.name}: archivada con estado '{fm.get('estado')}' (solo mergeada/descartada)", id_='archivo-archivada-estado-solo-mergeada-descartada')
     if fm and spec_archivada.exists():
         revisar_deuda_hotfix(f"archivo/{carpeta.name}", spec_archivada, fm)
-        validar_origen_peticion(carpeta.name, fm)
+        validar_origen_peticion(carpeta.name, fm, archivada=True)
 
 # --- 6b. Cosecha de hallazgos en unidades archivadas ---
 # Convención: en el cierre, el padre marca CADA viñeta de "Descubrimientos" y "Trabajo
@@ -1121,15 +1298,15 @@ def promociones_sin_peticion(texto):
 
 
 for carpeta in sorted(p for p in archivo.iterdir() if p.is_dir()) if archivo.is_dir() else []:
-    hallazgos = carpeta / "hallazgos.md"
-    if not hallazgos.exists():
+    ruta_hallazgos = carpeta / "hallazgos.md"
+    if not ruta_hallazgos.exists():
         continue
-    pendientes = hallazgos_sin_cosechar(hallazgos.read_text(encoding="utf-8"))
+    pendientes = hallazgos_sin_cosechar(ruta_hallazgos.read_text(encoding="utf-8"))
     if pendientes:
         warn(f"archivo/{carpeta.name}: {pendientes} hallazgo(s) sin cosechar. Formato exacto: "
              f"'→ promovido a <destino>' o '→ descartado (motivo)', en cualquier punto de la "
-             f"viñeta (admite negrita). El ejemplo está en plantillas/hallazgos.md")
-    sin_pid = promociones_sin_peticion(hallazgos.read_text(encoding="utf-8"))
+             f"viñeta (admite negrita). El ejemplo está en plantillas/hallazgos.md", id_='archivo-hallazgo-s-cosechar-formato-exacto')
+    sin_pid = promociones_sin_peticion(ruta_hallazgos.read_text(encoding="utf-8"))
     if sin_pid:
         huerfano(
             carpeta.name,
@@ -1154,13 +1331,13 @@ for etiqueta, carpeta in ([("main", RAIZ / "main")]
     if not ignore.is_file():
         fail(f"{etiqueta}/ tiene Dockerfile y NO tiene .dockerignore: el primer build hornea "
              f"el .env (y .git, y la base de datos local) dentro de la imagen. Créalo antes "
-             f"de construir nada, con .env, la carpeta del entorno, .git/ y los datos locales")
+             f"de construir nada, con .env, la carpeta del entorno, .git/ y los datos locales", id_='dockerignore-ausente')
     else:
         contenido = ignore.read_text(encoding="utf-8")
         faltan = [p for p in IGNORAR_IMAGEN if p not in contenido]
         if faltan:
             fail(f"{etiqueta}/.dockerignore no menciona {faltan}: los secretos acabarían "
-                 f"dentro de la imagen")
+                 f"dentro de la imagen", id_='dockerignore-incompleto')
         else:
             ok(f"{etiqueta}/: Dockerfile con .dockerignore que excluye el .env")
 
@@ -1177,14 +1354,20 @@ if repo_cod.is_dir():
             artefactos_kill += [p for p in base.rglob("*") if p.is_file()]
     artefactos_kill += [repo_cod / n for n in ("Makefile", "makefile", "package.json")
                         if (repo_cod / n).is_file()]
-culpables_kill = sorted(
-    p.relative_to(RAIZ).as_posix()
-    for p in artefactos_kill
-    if any(pat in p.read_text(encoding="utf-8", errors="ignore") for pat in PATRONES_KILL))
+culpables_kill = []
+for artefacto in artefactos_kill:
+    relativa = artefacto.relative_to(RAIZ).as_posix()
+    for numero, linea in enumerate(
+        artefacto.read_text(encoding="utf-8", errors="ignore").splitlines(), start=1
+    ):
+        ejecutable = linea.split("#", 1)[0]
+        if any(patron in ejecutable for patron in PATRONES_KILL):
+            culpables_kill.append((relativa, numero))
 if culpables_kill:
-    fail(f"pkill -f / killall en {', '.join(culpables_kill)}: eso mata procesos de otros "
-         f"agentes o proyectos que compartan la máquina. Guarda el PID al lanzar y mata ese "
-         f"PID exacto")
+    for relativa, numero in sorted(culpables_kill):
+        fail(f"pkill -f / killall en {relativa}: eso mata procesos de otros "
+             f"agentes o proyectos que compartan la máquina. Guarda el PID al lanzar y mata "
+             f"ese PID exacto", id_='pkill', ruta=relativa, instancia=f"linea:{numero}")
 else:
     ok("sin pkill -f ni killall en scripts, workflows ni Makefile del repo de código")
 
@@ -1201,10 +1384,10 @@ presentes_ci = [ruta for ruta in PIEZAS_CI if (repo_cod / ruta).is_file()]
 lint_ci = RAIZ / "docs/00-metodo/scripts/lint_ci.py"
 if not lint_ci.is_file():
     warn("no se pudo comprobar el contrato de CI: falta "
-         "docs/00-metodo/scripts/lint_ci.py")
+         "docs/00-metodo/scripts/lint_ci.py", id_='pudo-comprobar-contrato-ci-falta-docs')
 elif not hay_repo:
     warn(f"no se pudo comprobar el contrato de CI: el repo de código ({repo_cod}) "
-         "no existe o no es un repositorio git")
+         "no existe o no es un repositorio git", id_='pudo-comprobar-contrato-ci-repo-codigo')
 else:
     requiere_e2e = planos_declaran_e2e()
     opciones_ci = [sys.executable, str(lint_ci), "--repo", str(repo_cod)]
@@ -1221,12 +1404,12 @@ else:
     if (presentes_ci or requiere_e2e) and resultado_ci.returncode:
         warn("la materialización del CI está incompleta; ejecuta "
              "`python3 docs/00-metodo/scripts/lint_ci.py --repo main"
-             f"{' --require-e2e' if requiere_e2e else ''}` para ver el detalle")
+             f"{' --require-e2e' if requiere_e2e else ''}` para ver el detalle", id_='materializacion-ci-incompleta-ejecuta-python3-docs')
     elif presentes_ci:
         ok("contrato CI materializado y completo")
     elif resultado_ci.returncode or deuda_sin_materializar:
         warn("CI real aún sin materializar: en brownfield debe ser la primera unidad técnica "
-             "tras la adopción; en proyectos nuevos nace con el esqueleto")
+             "tras la adopción; en proyectos nuevos nace con el esqueleto", id_='ci-real-aun-materializar-brownfield-debe')
     else:
         ok("repo de código todavía vacío: el CI nacerá cuando se conozca el stack")
 
@@ -1243,13 +1426,13 @@ if git(RAIZ, "rev-parse", "--is-inside-work-tree")[0] == 0:
         fail(f"git no tiene {' ni '.join(identidad)} en esta máquina: ningún commit puede "
              f"completarse y cada intento falla por su cuenta, en silencio. Arréglalo antes "
              f'de trabajar: git config --global user.name "Tu Nombre" · '
-             f'git config --global user.email "tu@correo"')
+             f'git config --global user.email "tu@correo"', id_='git-tiene-maquina-ningun-commit-puede')
     else:
         ok("git tiene identidad configurada (user.name y user.email)")
     if git(RAIZ, "rev-parse", "--verify", "--quiet", "HEAD")[0] != 0:
         fail("el meta-repo no tiene NI UN commit: el bootstrap no pudo cerrar el inicial y "
              "todo lo escrito desde entonces —planos, decisiones, unidades— vive sin respaldo "
-             "de git. Configura la identidad y haz el commit inicial antes de seguir")
+             "de git. Configura la identidad y haz el commit inicial antes de seguir", id_='meta-repo-tiene-commit-bootstrap-pudo')
     else:
         ok("el meta-repo tiene historia (al menos un commit)")
 
@@ -1266,10 +1449,10 @@ if git(RAIZ, "rev-parse", "--is-inside-work-tree")[0] == 0 and sin_remoto(RAIZ):
     warn("el meta-repo no tiene remoto: los planos, las decisiones y todo el trabajo de "
          "documentación existen SOLO en este ordenador. Si el usuario creía que esto estaba "
          "en GitHub, díselo; para publicarlo: visor/finalizar.py --github <cuenta> desde la "
-         "herramienta de ingeniería de requisitos")
+         "herramienta de ingeniería de requisitos", id_='meta-repo-tiene-remoto-planos-decisiones')
 if hay_repo and sin_remoto(repo_cod):
     warn(f"el repo de código ({repo_cod.name}/) no tiene remoto: el código existe SOLO en "
-         f"este ordenador y ningún push lo respalda")
+         f"este ordenador y ningún push lo respalda", id_='repo-codigo-tiene-remoto-codigo-existe')
 
 # --- 8b. Política de publicación: `push: usuario` (unidad 018) ---
 # Cuando el workspace declara que publicar es cosa de la persona, la principal local por
@@ -1281,7 +1464,8 @@ if hay_repo and not sin_remoto(repo_cod):
         modo_push = repo_config.modo_push(RAIZ)
     except repo_config.RepoConfigError as exc:
         modo_push = "agente"
-        fail(str(exc))
+        fail(str(exc), id_='repo-codigo-error-interno', sujeto="taller", ruta="repos.yaml",
+             instancia="repositorios-no-disponibles")
     if modo_push == "usuario":
         codigo, salida = git(repo_cod, "rev-list", "--count",
                              f"origin/{rama_principal}..{rama_principal}")
@@ -1309,7 +1493,7 @@ if not lint_salidas.is_file() or not baseline_salidas.is_file():
     warn("no se pudo comprobar que los rechazos nombren su salida: falta "
          "docs/00-metodo/scripts/lint_salidas.py o docs/00-metodo/salidas-baseline.json; "
          "actualiza el método con `python3 visor/actualizar.py revisar --todos` desde la "
-         "herramienta de ingeniería de requisitos")
+         "herramienta de ingeniería de requisitos", id_='pudo-comprobar-rechazos-nombren-salida-falta')
 else:
     resultado_salidas = subprocess.run(
         [sys.executable, str(lint_salidas), "--scripts", str(carpeta_scripts),
@@ -1321,7 +1505,7 @@ else:
         # Las dos cosas las decide quien acaba de editar el script, y las dos tienen comando.
         fail("hay rechazos que no nombran su salida y no estaban congelados; el detalle y las "
              "dos formas de arreglarlo salen en "
-             "`python3 docs/00-metodo/scripts/lint_salidas.py`")
+             "`python3 docs/00-metodo/scripts/lint_salidas.py`", id_='rechazos-sin-salida')
     else:
         ok("todo rechazo nuevo de los scripts nombra su salida (línea base sin crecer)")
 
@@ -1342,7 +1526,7 @@ if not lint_juntas.is_file() or not inventario_puertas.is_file():
     warn("no se pudieron comprobar las juntas del método: falta "
          "docs/00-metodo/scripts/lint_juntas.py o docs/00-metodo/puertas.json; actualiza el "
          "método con `python3 visor/actualizar.py revisar --todos` desde la herramienta de "
-         "ingeniería de requisitos")
+         "ingeniería de requisitos", id_='pudieron-comprobar-juntas-metodo-falta-docs')
 else:
     resultado_juntas = subprocess.run(
         [sys.executable, str(lint_juntas), "--raiz", str(RAIZ)],
@@ -1351,7 +1535,7 @@ else:
     if resultado_juntas.returncode:
         fail("hay juntas del método que no cuadran (vocabulario, tope del carril directo o "
              "puertas duras sin dueño); el detalle y la salida de cada una salen en "
-             "`python3 docs/00-metodo/scripts/lint_juntas.py`")
+             "`python3 docs/00-metodo/scripts/lint_juntas.py`", id_='juntas-metodo-cuadran-vocabulario-tope-carril')
     else:
         ok("las tres juntas del método cuadran (vocabulario, tope directo, puertas con dueño)")
 
@@ -1368,7 +1552,7 @@ if not sanidad_py.is_file():
     warn("no se pudo comprobar si la sanidad del workspace está atrasada: falta "
          "docs/00-metodo/scripts/sanidad.py; actualiza el método con "
          "`python3 visor/actualizar.py revisar --todos` desde la herramienta de ingeniería "
-         f"de requisitos, o pásala a mano: {COMO_PASAR_SANIDAD}")
+         f"de requisitos, o pásala a mano: {COMO_PASAR_SANIDAD}", id_='pudo-comprobar-sanidad-workspace-atrasada-falta')
 else:
     resultado_sanidad = subprocess.run(
         [sys.executable, str(sanidad_py), "atraso"], cwd=str(RAIZ),
@@ -1382,17 +1566,21 @@ else:
         detalle = ((resultado_sanidad.stderr or "").strip().splitlines()
                    or (resultado_sanidad.stdout or "").strip().splitlines() or ["sin salida"])[-1]
         warn(f"no se pudo comprobar si la sanidad del workspace está atrasada: {detalle} · "
-             f"pásala a mano: {COMO_PASAR_SANIDAD}")
+             f"pásala a mano: {COMO_PASAR_SANIDAD}", id_='pudo-comprobar-sanidad-workspace-atrasada-pasala')
     elif veredicto.startswith("WARN"):
         # Ya viene con cierres, días y `SALIDA:`; se reenvía sin reescribir la cuenta.
-        warn(veredicto[len("WARN"):].strip())
+        warn(veredicto[len("WARN"):].strip(), id_='warn')
     else:
         ok(veredicto[len("OK"):].strip())
 
 # --- 9. Higiene ---
 if (RAIZ / "codebase").exists():
-    fail("codebase/ existe (estructura vieja: debe ser main/ + worktrees/)")
+    fail("codebase/ existe (estructura vieja: debe ser main/ + worktrees/)", id_='codebase-existe-estructura-vieja-debe-ser')
 
 # --- Resultado ---
-print(f"\n{len(fallos)} FAIL · {len(avisos)} WARN")
+if MODO_JSON:
+    print(json.dumps({"schema": "lint-hallazgos/v1", "hallazgos": hallazgos},
+                     ensure_ascii=False, sort_keys=True))
+else:
+    print(f"\n{len(fallos)} FAIL · {len(avisos)} WARN")
 sys.exit(1 if fallos else 0)
