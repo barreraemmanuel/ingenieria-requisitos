@@ -97,7 +97,7 @@ PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
 SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py",
            "ejecucion.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
-           "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
+           "lint_invariantes.py", "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
            "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
@@ -151,6 +151,10 @@ METODO_RAIZ = (
     # trinquete. Sin él, `lint_juntas.py` llega al workspace sin saber qué está congelado.
     "puertas.json",
     "reglas.json",
+    # Y la línea base de las ocho señales de la reforma (unidad 146): `lint_invariantes.py` la
+    # usa como trinquete de las señales sin sujeto fechado (S5-S7); sin ella llega al workspace
+    # sin memoria y esas señales informan pero no pueden bloquear nunca.
+    "invariantes-baseline.json",
     # Y la tabla de señales de riesgo (unidad 070), por el mismo motivo que las dos de
     # arriba: `unidad.py despachar` y `ejecucion.py` la LEEN, así que sin ella el workspace
     # nace con la puerta del carril directo sin nada contra lo que comparar.
