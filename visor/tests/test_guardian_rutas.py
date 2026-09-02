@@ -29,7 +29,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 GUARDIAN = RAIZ / "plantilla/docs/00-metodo/scripts/guardian_rutas.py"
 FIXTURE = Path(__file__).parent / "fixtures" / "reforma" / "comandos-adjudicados.jsonl"
 
-CATEGORIAS = ("escritura_real", "rodeo", "legitimo", "irresoluble")
+CATEGORIAS = ("escritura_real", "rodeo", "legitimo", "irresoluble", "rodeo_adversario")
 CAMPOS = ("id", "herramienta", "entrada", "cwd", "raiz", "esperado", "categoria",
           "motivo", "origen")
 
@@ -139,6 +139,8 @@ class UmbralesSobreLaFixture(unittest.TestCase):
         self.assertEqual(32, cuenta["rodeo"])
         self.assertGreaterEqual(cuenta["legitimo"], 60)
         self.assertEqual(24, cuenta["irresoluble"])
+        # Ronda 2: los huecos que encontró el adversario fresco. Solo puede CRECER.
+        self.assertGreaterEqual(cuenta["rodeo_adversario"], 19)
 
     def test_recall_sobre_las_escrituras_reales(self):
         pares = self._veredictos("escritura_real")
@@ -151,6 +153,12 @@ class UmbralesSobreLaFixture(unittest.TestCase):
         escapes = [c["id"] for c, d in pares if d.veredicto != "deny"]
         self.assertEqual([], escapes, f"rodeos que se escapan: {escapes}")
         self.assertEqual(32, len(pares))
+
+    def test_recall_sobre_los_rodeos_del_adversario(self):
+        """Ronda 2: los 12 escapes por construcción, y ninguno vuelve a `allow` mudo."""
+        pares = self._veredictos("rodeo_adversario")
+        mudos = [(c["id"], c["entrada"][:70]) for c, d in pares if d.veredicto == "allow"]
+        self.assertEqual([], mudos, f"rodeos del adversario que pasan callando: {mudos}")
 
     def test_falsos_sobre_lo_legitimo(self):
         pares = self._veredictos("legitimo")
@@ -185,6 +193,69 @@ class UmbralesSobreLaFixture(unittest.TestCase):
                 if not (decision.motivo or "").strip() or not (decision.salida or "").strip():
                     mudos.append(caso["id"])
         self.assertEqual([], mudos, f"rechazos sin salida: {mudos}")
+
+
+class ListaBlancaDeGit(unittest.TestCase):
+    """R1 dice «lista blanca explícita de git». Estos tests comprueban que EXISTE.
+
+    En la ronda 1 `GIT_LECTURAS` era una constante muerta: estaba escrita, se leía como
+    documentación, y `_revisar_git` decidía en realidad por lista negra. Un adversario la
+    vació entera y no se cayó ni un test — el comportamiento observable era correcto, pero
+    nada protegía la lista de un borrado accidental. Aquí se le ponen dientes.
+    """
+
+    def setUp(self):
+        self.mod = _cargar("guardian_rutas", GUARDIAN)
+        self.taller = "/Users/agente/Proyecto/taller"
+
+    def decidir(self, comando):
+        return self.mod.decidir("Bash", comando, self.taller, self.taller)
+
+    def test_los_subcomandos_de_la_lista_blanca_pasan(self):
+        for sub in sorted(self.mod.GIT_LECTURAS):
+            if sub == "config":
+                continue          # tiene su propio test: lee o escribe según se le llame
+            self.assertEqual("allow", self.decidir(f"git -C main {sub}").veredicto,
+                             f"git {sub} está en la lista blanca y debería pasar")
+
+    def test_vaciar_la_lista_blanca_rompe_la_decision(self):
+        """El mutante que sobrevivió a la ronda 1. Ahora tiene que matar algo."""
+        antes = self.decidir("git -C main log --oneline -5").veredicto
+        self.assertEqual("allow", antes)
+        guardadas = set(self.mod.GIT_LECTURAS)
+        try:
+            self.mod.GIT_LECTURAS.clear()
+            despues = self.decidir("git -C main log --oneline -5").veredicto
+        finally:
+            self.mod.GIT_LECTURAS.update(guardadas)
+        self.assertNotEqual("allow", despues,
+                            "con la lista blanca vacía, `git -C main log` no puede seguir "
+                            "pasando: significaría que la lista no decide nada")
+        self.assertEqual("allow", self.decidir("git -C main log --oneline -5").veredicto,
+                         "la lista blanca no se restauró")
+
+    def test_un_subcomando_que_no_esta_en_ninguna_lista_avisa(self):
+        decision = self.decidir("git -C main frobnicate --wat")
+        self.assertEqual("aviso", decision.veredicto)
+        self.assertTrue(decision.salida.strip())
+
+    def test_config_lee_o_escribe_segun_como_se_llame(self):
+        self.assertEqual("allow", self.decidir("git -C main config --get user.name").veredicto)
+        self.assertEqual("allow", self.decidir("git -C main config user.name").veredicto)
+        self.assertEqual("deny", self.decidir(
+            "git -C main config core.hooksPath main/.hooks").veredicto)
+        self.assertEqual("deny", self.decidir(
+            "git -C main config --unset core.hooksPath").veredicto)
+
+    def test_el_enlace_no_se_confunde_con_lo_que_crea(self):
+        """`ln`: un escape y un falso rojo por el mismo mecanismo (ronda 2)."""
+        self.assertEqual("deny", self.decidir("ln -sf x main/y").veredicto,
+                         "crear un enlace DENTRO de main/ es escribir en main/")
+        self.assertEqual("allow", self.decidir("ln -s main/x atajo").veredicto,
+                         "un enlace FUERA que apunta a main/ es como copiar desde main/")
+        self.assertEqual("deny", self.decidir(
+            "ln -sf main/visor enlace && rm -rf enlace/.runtime").veredicto,
+            "el enlace creado ANTES sí se sigue en la orden siguiente")
 
 
 class Anonimizacion(unittest.TestCase):

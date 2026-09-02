@@ -56,10 +56,20 @@ DESTINO_ULTIMO = {"cp", "mv", "rsync", "install", "ln"}
 # Borrar de verdad: lo único por lo que merece la pena avisar cuando la ruta no se resuelve.
 BORRA = {"rm", "rmdir", "unlink", "shred"}
 # Prefijos que no son el comando: se saltan y se vuelve a mirar.
-PREFIJOS = {"sudo", "time", "env", "nohup", "command", "stdbuf", "xargs", "exec", "nice",
+# Prefijos TRANSPARENTES: delante de un comando y sin cambiar de qué va. `xargs` NO es uno
+# de ellos —sus argumentos llegan por la entrada estándar, que es justo lo que no se ve—, y
+# tratarlo como transparente dejaba `xargs -0 rm` en `allow` mudo.
+PREFIJOS = {"sudo", "time", "env", "nohup", "command", "stdbuf", "exec", "nice",
             "then", "do", "else", "!"}
 INTERPRETES = {"python", "python3", "python2", "perl", "ruby", "node", "php"}
 CONCHAS = {"bash", "sh", "zsh", "dash", "ksh"}
+# `eval` no es una concha aparte: se come su argumento como codigo del mismo shell.
+EVALUADORES = {"eval", "source", "."}
+# Descargar es escribir: el fichero lo pone la herramienta, no una redireccion.
+BANDERA_DE_SALIDA = {"curl": ("-o", "--output"), "wget": ("-O", "--output-document"),
+                     "http": ("-o", "--output"), "aria2c": ("-o", "--out")}
+# Editar en el sitio: el fichero que se nombra despues es el que se reescribe.
+EDITA_EN_SITIO = {"sed", "perl", "ruby", "gawk"}
 
 # Un git que MUTA el repositorio al que apunta.
 GIT_MUTADORES = {"commit", "add", "rm", "mv", "clean", "reset", "stash", "apply", "am",
@@ -71,7 +81,16 @@ GIT_LECTURAS = {"log", "rev-parse", "status", "diff", "show", "merge-base", "rem
                 "branch", "worktree", "pull", "push", "fetch", "ls-files", "ls-tree",
                 "describe", "config", "cat-file", "blame", "shortlog", "for-each-ref",
                 "rev-list", "tag", "grep", "help", "version", "count-objects", "notes",
-                "check-ignore", "symbolic-ref", "whatchanged", "bisect", "difftool"}
+                "check-ignore", "symbolic-ref", "whatchanged", "bisect", "difftool",
+                # medidos contra el corpus: salen en `git -C main …` y solo leen
+                "ls-remote", "patch-id", "merge-tree", "show-ref", "reflog", "name-rev",
+                "var", "check-attr", "verify-commit", "verify-tag", "stripspace"}
+
+# `git config` lee o escribe segun como se le llame, y estaba en la lista blanca sin mirar:
+# `git -C main config core.hooksPath main/.hooks` pasaba entero. Lee cuando pregunta.
+CONFIG_LEE = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l"}
+CONFIG_ESCRIBE = {"--unset", "--unset-all", "--add", "--replace-all", "--edit", "-e",
+                  "--rename-section", "--remove-section"}
 
 # Verbos de Python/Perl que ESCRIBEN. Sin uno de estos, mencionar `main/` es leer.
 #
@@ -219,6 +238,25 @@ def _tokenizar(texto):
             siguiente = texto[indice + 1] if indice + 1 < largo else " "
             if not actual and not tenia and siguiente.isspace():
                 operador = caracter
+        if operador is None and caracter in "<>" and texto.startswith(caracter + "(", indice):
+            # Sustitucion de procesos `<(cmd)` / `>(cmd)`: es UN argumento (un /dev/fd/N),
+            # no una redireccion. Sin esto el parentesis rompia el troceo y
+            # `cp <(echo hola) main/x.txt` perdia su destino y se escapaba.
+            nivel, fin = 0, indice + 1
+            while fin < largo:
+                if texto[fin] == "(":
+                    nivel += 1
+                elif texto[fin] == ")":
+                    nivel -= 1
+                    if nivel == 0:
+                        break
+                fin += 1
+            if actual or tenia:
+                tokens.append(actual)
+                actual, tenia = "", False
+            tokens.append("/dev/fd/63")
+            indice = fin + 1
+            continue
         if operador is None and caracter == "<":
             # `<` y `<<` son ENTRADA: no tocan nada. Se comen con su argumento.
             salto = 2 if texto.startswith("<<", indice) else 1
@@ -260,14 +298,44 @@ def _segmentar(tokens):
     return segmentos
 
 
+def _cwd_de_prefijo(palabras, cwd, variables):
+    """El cwd que impone un prefijo antes del comando de verdad: `env -C main rm -rf x`.
+
+    `env` ya estaba en PREFIJOS —se saltaba para llegar al comando— pero su `-C` no se leia,
+    asi que el borrado se juzgaba desde el cwd de fuera y se escapaba entero. Lo mismo vale
+    para `--chdir`.
+    """
+    for indice, palabra in enumerate(palabras):
+        if palabra in ("-C", "--chdir") and indice + 1 < len(palabras):
+            destino = _resolver(_expandir(palabras[indice + 1], variables), cwd)
+            if destino:
+                return destino
+        if palabra.startswith("--chdir="):
+            destino = _resolver(_expandir(palabra.split("=", 1)[1], variables), cwd)
+            if destino:
+                return destino
+    return cwd
+
+
+PREFIJOS_CON_ARGUMENTO = {"-C", "--chdir", "-u", "--unset", "-S", "--split-string"}
+
+
 def _sin_prefijos(palabras):
-    indice = 0
+    indice, visto = 0, False
     while indice < len(palabras):
         palabra = palabras[indice]
         if "=" in palabra and not palabra.startswith("-") and "/" not in palabra.split("=")[0]:
             indice += 1
+            visto = True
             continue
         if palabra in PREFIJOS:
+            indice += 1
+            visto = True
+            continue
+        if visto and palabra in PREFIJOS_CON_ARGUMENTO:
+            indice += 2          # `env -C main rm -rf x`: sin esto el comando seria `-C`
+            continue
+        if visto and _es_bandera(palabra):
             indice += 1
             continue
         break
@@ -394,6 +462,37 @@ def _rutas_de(argumento, variables):
     return []
 
 
+def _cadena_de_literales(codigo, verbo):
+    """Los trozos de ruta de una expresión encadenada, de izquierda a derecha.
+
+    `Path('main').joinpath('x.txt').write_text(…)` reparte la ruta en trozos y ninguno,
+    suelto, cae bajo `main/`. Se anda hacia atrás desde el verbo que muta, saltando los
+    paréntesis emparejados, hasta donde arranca la expresión; los literales que quedan por
+    el camino son los segmentos de la ruta, en orden.
+    """
+    indice, nivel = verbo - 1, 0
+    while indice >= 0:
+        caracter = codigo[indice]
+        if caracter == ")":
+            nivel += 1
+        elif caracter == "(":
+            if nivel == 0:
+                break
+            nivel -= 1
+        elif nivel == 0 and caracter in "\n;=,[{":
+            break
+        indice -= 1
+    trozo = codigo[indice + 1:verbo]
+    if "(" not in trozo:
+        return []
+    partes = []
+    for encaje in LITERAL.finditer(trozo):
+        literal = encaje.group(1) or encaje.group(2) or ""
+        if literal and " " not in literal:
+            partes.append(literal)
+    return partes
+
+
 def _parece_ruta(literal):
     if not literal or " " in literal or "\n" in literal:
         return False
@@ -444,6 +543,12 @@ def _revisar_codigo(codigo, cwd, main):
             sospechosas.append(literal)
         elif nombre in variables:
             sospechosas.append(variables[nombre])
+        # `Path('main').joinpath('x.txt').write_text(…)`: la ruta viene a trozos y ninguno
+        # de ellos, suelto, cae bajo main/. Se recomponen los literales de la cadena de
+        # llamadas que lleva hasta el verbo y se juzga la ruta entera.
+        trozos = _cadena_de_literales(codigo, encaje.start(4))
+        if len(trozos) > 1:
+            sospechosas.append("/".join(trozos))
 
     for literal in sospechosas:
         if not _parece_ruta(literal):
@@ -476,7 +581,25 @@ def _revisar_git(palabras, cwd, main):
     if subcomando is None:
         return None
 
-    muta = subcomando in GIT_MUTADORES
+    # R1 pide LISTA BLANCA explícita, y hasta la ronda 2 esto era una lista negra con
+    # `GIT_LECTURAS` de adorno: un adversario la vació entera y no se cayó ni un test. Ahora
+    # manda la lista blanca, y lo que no está en ninguna de las dos no se adivina: avisa.
+    if subcomando in GIT_LECTURAS:
+        muta = False
+    elif subcomando in GIT_MUTADORES:
+        muta = True
+    else:
+        muta = None           # ni blanca ni negra: no lo sé, y no me lo invento
+
+    if subcomando == "config":
+        argumentos = [t for t in resto if not _es_bandera(t)]
+        banderas = [t for t in resto if _es_bandera(t)]
+        if any(b in CONFIG_ESCRIBE for b in banderas) or len(argumentos) >= 2:
+            muta = True       # `git config core.hooksPath …`: eso escribe en el clon
+        elif any(b in CONFIG_LEE for b in banderas) or len(argumentos) <= 1:
+            muta = False
+    if subcomando == "reflog":
+        muta = bool(resto) and resto[0] in ("expire", "delete", "drop")
     if subcomando == "stash" and resto and resto[0] in ("list", "show"):
         muta = False          # `git stash` a secas esconde el árbol: eso es mutar
     if subcomando == "merge" and "--ff-only" in resto:
@@ -487,7 +610,7 @@ def _revisar_git(palabras, cwd, main):
         # de ello (`cd main && git checkout main && git pull --ff-only`).
         argumentos = [t for t in resto if not _es_bandera(t)]
         muta = "--" in resto or any(t == "." or "/" in t for t in argumentos)
-    if not muta:
+    if muta is False:
         return None
 
     if directorio is None:
@@ -496,10 +619,14 @@ def _revisar_git(palabras, cwd, main):
         if _irresoluble(directorio):
             return _aviso(f"git -C {directorio} {subcomando}")
         objetivo = _resolver(directorio, cwd)
-    if _bajo(objetivo, main):
-        return _deny("ESCRIBIR EN main/ con git",
-                     " ".join(palabras[:6]), SALIDA_GIT)
-    return None
+    if not _bajo(objetivo, main):
+        return None
+    if muta is None:
+        return Decision(
+            "aviso",
+            f"subcomando de git que no tengo en la lista: git {subcomando} sobre main/",
+            SALIDA_GIT)
+    return _deny("ESCRIBIR EN main/ con git", " ".join(palabras[:6]), SALIDA_GIT)
 
 
 # --- destinos de un comando -----------------------------------------------------------
@@ -517,8 +644,29 @@ def _destinos(palabras):
         return libres
     if orden in DESTINO_ULTIMO:
         return libres[-1:] if libres else []
-    if orden == "sed" and any(b.startswith("-i") or b == "--in-place" for b in banderas):
-        return libres[1:] if len(libres) > 1 else []
+    if orden in EDITA_EN_SITIO and any(
+            b == "--in-place" or (b.startswith("-") and not b.startswith("--") and "i" in b)
+            for b in banderas):
+        # `sed -i '' s/a/b/ f`, `perl -pi -e '…' f`: los ficheros que quedan son los que se
+        # reescriben. Con `-e`/`-f` el guion siguiente es el programa, no un fichero.
+        saltar = 1 if orden == "sed" and not any(
+            b.startswith("-e") or b.startswith("-f") for b in banderas) else 0
+        objetivos = list(libres)
+        for bandera in ("-e", "-f", "--expression", "--file"):
+            for indice, token in enumerate(argumentos):
+                if token == bandera and indice + 1 < len(argumentos):
+                    if argumentos[indice + 1] in objetivos:
+                        objetivos.remove(argumentos[indice + 1])
+        return objetivos[saltar:]
+    if orden in BANDERA_DE_SALIDA:
+        salidas = []
+        for indice, token in enumerate(argumentos):
+            if token in BANDERA_DE_SALIDA[orden] and indice + 1 < len(argumentos):
+                salidas.append(argumentos[indice + 1])
+            for prefijo in BANDERA_DE_SALIDA[orden]:
+                if token.startswith(prefijo + "="):
+                    salidas.append(token.split("=", 1)[1])
+        return salidas
     if orden == "tar":
         # `tar xf x.tar -C main/` no lleva guion en el modo: hay que mirar tambien el
         # primer argumento suelto, o el rodeo entra por la puerta de al lado.
@@ -581,12 +729,19 @@ def _expandir(token, variables):
 
 
 def _seguir_enlaces(ruta, enlaces):
-    """Deshace los symlinks que el propio comando acaba de crear.
+    """Deshace los symlinks que el comando creo en una orden ANTERIOR.
 
     `ln -sf main/visor enlace && rm -rf enlace/.runtime` es el rodeo del symlink de
     verificacion-02 §2. `realpath` no lo deshace porque el enlace todavia no existe en
     disco: las dos ordenes viajan en la MISMA llamada, y el guardian las ve antes de que
     ninguna se ejecute. Asi que el enlace se sigue aqui, por lo que dice el comando.
+
+    Ojo con el orden, que es la parte que se hizo mal a la primera: el enlace que crea ESTA
+    orden no vale para ELLA misma. `ln -sf x main/y` escribe en `main/y` (hay que pararlo) y
+    `ln -s main/x y` escribe en `y`, fuera (hay que dejarlo pasar, es el equivalente de
+    `cp main/x /tmp/`). Sustituir el destino por su objetivo en la propia orden del `ln`
+    invertia los dos: un escape y un falso rojo por el mismo sitio. Por eso el enlace se
+    apunta DESPUES de juzgar la orden que lo crea.
     """
     for _ in range(4):
         for nombre, objetivo in enlaces.items():
@@ -640,6 +795,8 @@ def _revisar_bash(comando, cwd, main, profundidad=0):
                 break
         destinos = [_expandir(d, variables) for d in destinos]
         palabras = _sin_prefijos(limpias)
+        cwd_orden = _cwd_de_prefijo(limpias[:len(limpias) - len(palabras)],
+                                    cwd_actual, variables)
         if not palabras:
             for destino in destinos:
                 if _bajo(_resolver(destino, cwd_actual), main):
@@ -655,37 +812,77 @@ def _revisar_bash(comando, cwd, main, profundidad=0):
             cwd_actual = _resolver(_expandir(argumentos[0], variables), cwd_actual)
             continue
 
+        enlace_pendiente = None
         if orden == "ln":
             libres = [t for t in palabras[1:] if not _es_bandera(t)]
             if len(libres) >= 2:
-                objetivo = _resolver(_expandir(libres[-2], variables), cwd_actual)
-                nombre = _resolver(_expandir(libres[-1], variables), cwd_actual)
+                objetivo = _resolver(_expandir(libres[-2], variables), cwd_orden)
+                nombre = _resolver(_expandir(libres[-1], variables), cwd_orden)
                 if objetivo and nombre:
-                    enlaces[nombre] = objetivo
+                    enlace_pendiente = (nombre, objetivo)
 
         if orden == "git":
-            veredicto = _revisar_git(palabras, cwd_actual, main)
+            veredicto = _revisar_git(palabras, cwd_orden, main)
             if veredicto is not None and veredicto.veredicto == "deny":
                 return veredicto
             if veredicto is not None and aviso is None:
                 aviso = veredicto
 
+        if orden in EVALUADORES:
+            # `eval "rm -rf main/x"`: el argumento es codigo de este mismo shell. Si esta
+            # literal se mira; si lleva `$VAR` no se puede saber, y entonces se avisa.
+            argumento = " ".join(palabras[1:])
+            if argumento and profundidad < 2:
+                if _irresoluble(argumento):
+                    if aviso is None:
+                        aviso = Decision("aviso", ("ejecución indirecta: no puedo comprobar "
+                                                   f"la ruta de {orden} {argumento[:80]}"),
+                                         SALIDA_DUDOSA)
+                else:
+                    veredicto = _revisar_bash(argumento, cwd_orden, main, profundidad + 1)
+                    if veredicto.veredicto == "deny":
+                        return veredicto
+                    if veredicto.veredicto == "aviso" and aviso is None:
+                        aviso = veredicto
+
         if orden in INTERPRETES or orden in CONCHAS:
             for indice, token in enumerate(palabras):
-                if token in ("-c", "-e") and indice + 1 < len(palabras):
+                # `-c` puede venir pegado a otras banderas: `bash -lc '…'` es la forma real.
+                es_codigo = token in ("-c", "-e") or (
+                    orden in CONCHAS and token.startswith("-") and not token.startswith("--")
+                    and token.endswith("c"))
+                if es_codigo and indice + 1 < len(palabras):
                     codigo = palabras[indice + 1]
-                    if orden in CONCHAS:
+                    if orden in CONCHAS or orden in EVALUADORES:
                         if profundidad < 2:
-                            veredicto = _revisar_bash(codigo, cwd_actual, main,
+                            veredicto = _revisar_bash(codigo, cwd_orden, main,
                                                       profundidad + 1)
                             if veredicto.veredicto == "deny":
                                 return veredicto
                             if veredicto.veredicto == "aviso" and aviso is None:
                                 aviso = veredicto
                     else:
-                        veredicto = _revisar_codigo(codigo, cwd_actual, main)
+                        veredicto = _revisar_codigo(codigo, cwd_orden, main)
                         if veredicto is not None:
                             return veredicto
+
+        if orden == "xargs":
+            # Lo que se teclea detrás de `xargs` sí se juzga; lo que le llegue por stdin no
+            # se puede saber sin ejecutar el pipe, y eso se dice en vez de callarlo.
+            resto_x, indice_x = palabras[1:], 0
+            while indice_x < len(resto_x) and (_es_bandera(resto_x[indice_x])
+                                               or resto_x[indice_x] == "--"):
+                # las banderas de xargs que llevan valor se comen su argumento
+                indice_x += 2 if resto_x[indice_x] in (
+                    "-n", "-P", "-I", "-L", "-s", "-E", "-d", "-a") else 1
+            interno = _sin_prefijos(resto_x[indice_x:])
+            if interno:
+                destinos += [_expandir(d, variables) for d in _destinos(interno)]
+                if _borra(interno) and aviso is None:
+                    aviso = Decision("aviso",
+                                     ("ejecución indirecta: no puedo comprobar la ruta que "
+                                      "le llega a xargs por la entrada estándar"),
+                                     SALIDA_DUDOSA)
 
         destinos += [_expandir(d, variables) for d in _destinos(palabras)]
         borra = _borra(palabras)
@@ -694,12 +891,15 @@ def _revisar_bash(comando, cwd, main, profundidad=0):
                 if borra and aviso is None:
                     aviso = _aviso(destino)
                 continue
-            ruta = _resolver(destino, cwd_actual)
+            ruta = _resolver(destino, cwd_orden)
             if ruta is None:
                 continue
             ruta = _seguir_enlaces(ruta, enlaces)
             if _bajo(ruta, main):
                 return _deny("ESCRIBIR EN main/", destino, SALIDA_MAIN)
+
+        if enlace_pendiente is not None:
+            enlaces[enlace_pendiente[0]] = enlace_pendiente[1]
 
         if cierre == ")" and pila:
             cwd_actual = pila.pop()
