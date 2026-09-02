@@ -95,7 +95,7 @@ PLANTILLAS = ("agents-repo-codigo", "bug", "conocimiento", "decision", "desplieg
 PLANTILLAS_VPS = ("compose.prod.yml", "Caddyfile", "env.ejemplo",
                   "servidor-preparar.sh", "backup.sh", "restaurar-prueba.sh")
 SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste.py", "doctor.py",
-           "ejecucion.py",
+           "ejecucion.py", "guardian_rutas.py",
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
            "lint_invariantes.py", "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
            "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
