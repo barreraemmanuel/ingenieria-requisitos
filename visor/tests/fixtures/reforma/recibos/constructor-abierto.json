@@ -1,0 +1,56 @@
+{
+ "schema": "ejecucion/v1",
+ "id": "e58630e120ca408db1d73ab191091cc2",
+ "unidad": "001-lanzador-harness-claude",
+ "harness": "claude",
+ "rol": "constructor",
+ "cwd": "/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude",
+ "rama": "001-lanzador-harness-claude",
+ "sandbox": "seatbelt",
+ "sandbox_ejecutable": {
+  "ruta": "/usr/bin/sandbox-exec",
+  "sha256": "f3162ae11789a5b296bb3850d493c33ddd52053a03f984b2c4bc34004f4fee99"
+ },
+ "lease": {
+  "session_id": "00000000-0000-4000-8000-000000000003",
+  "fencing": {
+   "unit:001-lanzador-harness-claude": 2,
+   "resource:plantilla/docs/00-metodo/scripts/ejecucion.py": 2,
+   "resource:visor/tests/test_ejecucion_control_plane.py": 2,
+   "resource:visor/tests/test_ejecucion_gate_real.py": 2
+  }
+ },
+ "git": {
+  "inicial": {
+   "head": "ee39e1228502f3aab701d8e261b25a010072cec1",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  },
+  "final": {
+   "head": "ee39e1228502f3aab701d8e261b25a010072cec1",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  }
+ },
+ "skills_tecnicas": [],
+ "checkpoints": [
+  {
+   "nombre": "lease",
+   "estado": "ok",
+   "detalle": "unit:001-lanzador-harness-claude#2, resource:plantilla/docs/00-metodo/scripts/ejecucion.py#2, resource:visor/tests/test_ejecucion_control_plane.py#2, resource:visor/tests/test_ejecucion_gate_real.py#2"
+  },
+  {
+   "nombre": "identidad",
+   "estado": "ok",
+   "detalle": "/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude · rama 001-lanzador-harness-claude"
+  },
+  {
+   "nombre": "sandbox",
+   "estado": "fail",
+   "detalle": "sandbox no cumple la política: observado={'outside': False, 'worktree': True, 'tmp': True, 'doc0': True, 'cwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'pwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'branch': ''}, esperado={'outside': False, 'worktree': True, 'tmp': True, 'cwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'pwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'branch': '001-lanzador-harness-claude', 'doc0': True}"
+  }
+ ],
+ "exit_code": null,
+ "error": "sandbox no cumple la política: observado={'outside': False, 'worktree': True, 'tmp': True, 'doc0': True, 'cwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'pwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'branch': ''}, esperado={'outside': False, 'worktree': True, 'tmp': True, 'cwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'pwd': '/taller/Project/ingenieria-requisitos-agents/worktrees/001-lanzador-harness-claude', 'branch': '001-lanzador-harness-claude', 'doc0': True}",
+ "_fixture": "recibo real de este método, anonimizado para la suite (unidad 146): rutas y session_id sustituidos, el resto es literal"
+}

@@ -3,6 +3,7 @@
 
     python visor/tests/correr.py            # rápida (web, visor, visor_contratos, visor_presentaciones, visor_tablero)
     python visor/tests/correr.py --nightly  # la adversarial
+    python visor/tests/correr.py --reforma  # la tabla de transiciones (rojos esperados)
     python visor/tests/correr.py -v         # verboso
 
 La última línea es siempre `VEREDICTO: verde|rojo (n suites, m rojas)` y el código de
@@ -37,6 +38,16 @@ RAIZ = Path(__file__).resolve().parents[2]
 RAPIDAS = ("web/tests", "visor/tests", "visor_contratos/tests",
            "visor_presentaciones/tests", "visor_tablero/tests")
 NIGHTLY = ("visor/tests/nightly",)
+# La prueba base de la reforma (146). NO entra en las rápidas y su carpeta no tiene
+# `__init__.py`: casi toda ella está en rojo A PROPÓSITO —es la línea base que la 147 y la
+# 148 tienen que poner en verde—, y una suite que sale roja todos los días acaba borrada.
+# Tiene su propio lanzador porque su veredicto no es «verde/rojo» sino «coincide o no con
+# el manifiesto `esperado.json`».
+REFORMA = Path("visor/tests/reforma/correr_reforma.py")
+# La contraprueba de no vacuidad (146 · R4). No se llama `test_*.py` y por eso `discover` no
+# la ve: no es una suite, es un lanzador que apaga mecanismos y exige que los tests se pongan
+# rojos. Va al FINAL de la nightly, y su rojo cuenta como el de cualquier otra suite.
+CONTRAPRUEBA = Path("visor/tests/nightly/contraprueba_reforma.py")
 
 # Ruido, no órdenes: llegan solas en máquinas cargadas o al redimensionar la terminal.
 IGNORABLES = ("SIGURG", "SIGWINCH")
@@ -99,11 +110,22 @@ def main():
     p = argparse.ArgumentParser(description=__doc__,
                                 formatter_class=argparse.RawDescriptionHelpFormatter)
     p.add_argument("--nightly", action="store_true", help="la suite adversarial")
+    p.add_argument("--reforma", action="store_true",
+                   help="la tabla de transiciones de la reforma (146): imprime cuántos casos "
+                        "están en rojo esperado y cuántos verdes, y solo falla si algún caso "
+                        "cambió de color sin que nadie actualizara el manifiesto")
     p.add_argument("-v", "--verbose", action="store_true")
     args = p.parse_args()
 
     blindar_senales()
     entorno = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+
+    if args.reforma:
+        orden = [sys.executable, "-X", "utf8", str(RAIZ / REFORMA)]
+        if args.verbose:
+            orden.append("-v")
+        return subprocess.run(orden, cwd=str(RAIZ), env=entorno).returncode
+
     carpetas = NIGHTLY if args.nightly else RAPIDAS
     resultados = []                      # (carpeta, código) en el orden en que se corrieron
 
@@ -122,6 +144,20 @@ def main():
         finally:
             _en_marcha["hijo"] = None
         resultados.append((carpeta, codigo))
+
+    # La contraprueba solo se lanza si está en ESTE árbol. El lanzador se ejecuta también
+    # sobre árboles de juguete (su propia suite lo hace), y ahí exigir un fichero del repo
+    # convertiría en rojo un veredicto que no tiene nada que ver con lo que se estaba
+    # midiendo. Cuando falta se dice, para que «no corrió» nunca se lea como «pasó».
+    if args.nightly and not _parada["senal"]:
+        if (RAIZ / CONTRAPRUEBA).is_file():
+            print(f"== {CONTRAPRUEBA} ==", flush=True)
+            codigo = subprocess.run([sys.executable, "-X", "utf8", str(RAIZ / CONTRAPRUEBA)],
+                                    cwd=str(RAIZ), env=entorno).returncode
+            resultados.append((str(CONTRAPRUEBA), codigo))
+            carpetas = (*carpetas, str(CONTRAPRUEBA))
+        else:
+            print(f"== {CONTRAPRUEBA} == (no está en este árbol: sin correr)", flush=True)
 
     rojas = [(carpeta, codigo) for carpeta, codigo in resultados if codigo != 0]
     print("", flush=True)

@@ -37,7 +37,14 @@ Las cuatro juntas que vigila:
       última cuenta está congelada y SOLO PUEDE BAJAR. Escribir una regla nueva sin decir quién
       la ejecuta es FAIL; quitar el script que ejecutaba una, también.
 
-Uso: python3 docs/00-metodo/scripts/lint_juntas.py [--raiz RUTA]
+  (e) LOS EJECUTORES SIN DIENTES (146, opt-in con `--dientes`). `funcion_existe()` acepta un
+      `def` VACIADO: «tiene ejecutor» significa hoy «existe un `def` con ese nombre», y así
+      es como los mecanismos se pierden de verdad —nadie los borra, se vacían—. Cada ejecutor
+      declara en `reglas.json` su `id` y su `dientes`: el par de tests que demuestra que el
+      mecanismo hace algo (con él, el acto se bloquea; con el ejecutor abierto solo dentro
+      del test, el mismo acto pasa). `base.sin_dientes` es el trinquete y solo baja.
+
+Uso: python3 docs/00-metodo/scripts/lint_juntas.py [--raiz RUTA] [--dientes]
                                                    [--congelar-puertas] [--congelar-reglas]
 Sin dependencias: solo stdlib. Exit 0 si las cuatro juntas cuadran; exit 1 si alguna no.
 """
@@ -489,14 +496,20 @@ def congelar_reglas(raiz, inventario, reglas):
             "texto": regla["texto"],
             # Recongelar adopta el ENCOGIMIENTO; jamás borra la autoría ya declarada.
             "ejecutor": previa.get("ejecutor"),
+            # 146: el id y el par de dientes son autoría declarada, como el ejecutor; una
+            # recongelación adopta encogimientos, nunca borra lo que alguien ya demostró.
+            "id": previa.get("id"),
+            "dientes": previa.get("dientes"),
             "por_diseno": previa.get("por_diseno"),
         }
     sin = sum(1 for e in congeladas.values() if estado_de(e) == "sin_ejecutor")
+    sin_dientes = sum(1 for e in congeladas.values()
+                      if e.get("ejecutor") and not e.get("dientes"))
     inventario.parent.mkdir(parents=True, exist_ok=True)
     inventario.write_text(json.dumps({
         "_porque": PORQUE_REGLAS,
         "base": {"sin_ejecutor": sin, "fecha": date.today().isoformat(),
-                 "sha": sha_corto(raiz)},
+                 "sha": sha_corto(raiz), "sin_dientes": sin_dientes},
         "reglas": dict(sorted(congeladas.items())),
     }, ensure_ascii=False, indent=1) + "\n", encoding="utf-8")
     return congeladas, sin
@@ -560,6 +573,112 @@ def junta_reglas(raiz, inventario):
     return problemas, sin, tope
 
 
+# ------------------------------------------------------- (e) dientes de cada ejecutor (146)
+# Dónde vive la suite según DESDE DÓNDE se mire, que son tres sitios distintos y los tres
+# reales: en un workspace el repo de código cuelga de `main/`; dentro del propio repo de
+# código la suite está en la raíz; y cuando se apunta al método tal y como VIAJA
+# (`--raiz .../plantilla`, que es como lo llama la suite del repo) queda un nivel por encima.
+# Sin el tercero, el guardián no encuentra ni un test y denuncia como «sin dientes» a los
+# cuatro ejecutores que sí lo tienen — que es justo el falso positivo que más caro sale.
+CARPETAS_DE_TESTS = ("main/visor/tests", "visor/tests", "../visor/tests")
+SUFIJOS_DEL_PAR = ("_bloquea", "_abierto_pasa")
+
+
+def tests_del_repo(raiz):
+    """{nombre del test: fuente del fichero} de la suite del repo de código.
+
+    Con `ast`, no con `grep`: un nombre citado en un comentario o en una cadena no es un
+    test, y el trinquete de los dientes existe justo para que «tener» no sea «parecer».
+    """
+    encontrados = {}
+    for relativa in CARPETAS_DE_TESTS:
+        carpeta = (raiz / relativa).resolve()
+        if not carpeta.is_dir():
+            continue
+        for ruta in sorted(carpeta.rglob("test_*.py")):
+            try:
+                fuente = ruta.read_text(encoding="utf-8", errors="replace")
+                arbol = ast.parse(fuente)
+            except (OSError, SyntaxError):
+                continue
+            for nodo in ast.walk(arbol):
+                if isinstance(nodo, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    encontrados.setdefault(nodo.name, fuente)
+    return encontrados
+
+
+def par_de_dientes(entrada, tests):
+    """None si el ejecutor tiene su par completo; si no, por qué no lo tiene.
+
+    Tres cosas, y las tres importan: que el par esté DECLARADO, que sus dos mitades EXISTAN
+    como tests de verdad, y que la fuente del par NOMBRE al ejecutor. Sin la tercera, un par
+    con el nombre correcto puede estar midiendo cualquier otra cosa.
+    """
+    ejecutor = entrada.get("ejecutor")
+    par = entrada.get("dientes")
+    if not par:
+        return "no declara `dientes`"
+    faltan = [par + s for s in SUFIJOS_DEL_PAR if (par + s) not in tests]
+    if faltan:
+        return f"declara `dientes: {par}` y no existe {', '.join(faltan)}"
+    funcion = str(ejecutor).partition(":")[2]
+    if funcion and not any(funcion in tests[par + s] for s in SUFIJOS_DEL_PAR):
+        return (f"el par `{par}` no nombra a `{funcion}`: mide algo, pero no consta que mida "
+                f"este ejecutor")
+    return None
+
+
+def junta_dientes(raiz, inventario):
+    """(problemas, sin_dientes, base) — ejecutores sin par de dientes, contra la congelada.
+
+    `funcion_existe()` devuelve `True` sobre una función VACIADA (medido: cuerpo sustituido
+    por «todo bien» con la forma correcta). O sea: hoy «esta regla tiene ejecutor» significa
+    «existe un `def` con ese nombre», y así es exactamente como los mecanismos se pierden —
+    nadie los borra, se vacían—. El par de dientes es la otra verdad: con el mecanismo el
+    acto se bloquea, con el ejecutor abierto DENTRO del test el mismo acto pasa.
+
+    Igual que (d), esto es un trinquete y no una exigencia de llegar a cero: pedir cero para
+    poder existir es lo mismo que no existir. La cuenta de hoy se congela y solo puede bajar.
+    """
+    if not inventario.is_file():
+        return [(f"no existe el inventario de reglas {inventario.name}: sin él no se sabe "
+                 f"qué ejecutores deberían tener dientes",
+                 f"créalo una vez con  python3 {YO} --congelar-reglas")], 0, None
+    try:
+        datos = json.loads(inventario.read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        return [(f"el inventario de reglas no se puede leer ({exc})",
+                 f"recongélalo con  python3 {YO} --congelar-reglas")], 0, None
+    reglas = datos.get("reglas", {})
+    tests = tests_del_repo(raiz)
+    huerfanos = []
+    for clave in sorted(reglas):
+        entrada = reglas[clave]
+        if not entrada.get("ejecutor"):
+            continue
+        motivo = par_de_dientes(entrada, tests)
+        if motivo:
+            huerfanos.append((entrada["ejecutor"], motivo))
+    tope = (datos.get("base") or {}).get("sin_dientes")
+    problemas = []
+    if not isinstance(tope, int):
+        problemas.append((
+            f"la base de dientes de {inventario.name} no lleva número: sin trinquete, la "
+            f"cuenta de ejecutores sin par puede subir sin que nadie se entere",
+            f"congélala con  python3 {YO} --congelar-reglas"))
+        return problemas, len(huerfanos), None
+    if len(huerfanos) > tope:
+        detalle = "; ".join(f"{ejecutor} ({motivo})" for ejecutor, motivo in huerfanos[:5])
+        problemas.append((
+            f"{len(huerfanos)} ejecutor(es) sin par de dientes, y la base congelada son "
+            f"{tope}: la cuenta SUBIÓ. Un ejecutor sin par es un `def` del que nadie ha "
+            f"demostrado que haga nada: {detalle}",
+            f"escribe el par `test_dientes_<ID>_bloquea` / `_abierto_pasa` en "
+            f"visor/tests/reforma/test_dientes_reforma.py y decláralo en {inventario.name}; "
+            f"si de verdad bajó, adopta el encogimiento con  python3 {YO} --congelar-reglas"))
+    return problemas, len(huerfanos), tope
+
+
 # ------------------------------------------------------------------ main
 def main(argv=None):
     p = argparse.ArgumentParser(
@@ -575,6 +694,9 @@ def main(argv=None):
     p.add_argument("--congelar-reglas", action="store_true",
                    help="reescribe la base de reglas sin ejecutor con la de hoy, con su fecha "
                         "y su commit (solo debe bajar)")
+    p.add_argument("--dientes", action="store_true",
+                   help="además, la junta (e): qué ejecutores no tienen par de dientes que "
+                        "demuestre que hacen algo (unidad 146)")
     args = p.parse_args(argv)
 
     raiz = Path(args.raiz).resolve()
@@ -617,6 +739,14 @@ def main(argv=None):
           f"{'FAIL · ' + str(len(reglas)) if reglas else 'OK'}"
           f"   ({sin_ejecutor} reglas sin ejecutor ({base}))")
     problemas += reglas
+
+    if args.dientes:
+        dientes, sin_dientes, tope_dientes = junta_dientes(raiz, inventario_reglas)
+        base_dientes = "sin base" if tope_dientes is None else f"base {tope_dientes}"
+        print(f"   (e) ejecutores con dientes      "
+              f"{'FAIL · ' + str(len(dientes)) if dientes else 'OK'}"
+              f"   ({sin_dientes} ejecutores sin par ({base_dientes}))")
+        problemas += dientes
 
     # R9, y por eso va FUERA del recuento: `CARRILES` vale cosas distintas en cada script
     # porque son conceptos distintos con el mismo nombre. Se documenta, no se unifica.

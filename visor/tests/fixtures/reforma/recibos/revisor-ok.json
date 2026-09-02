@@ -1,0 +1,55 @@
+{
+ "schema": "ejecucion/v1",
+ "id": "c0737be3243a4faf96d1c8dbbb9ccbfd",
+ "unidad": "025-codex-flag-aprobacion",
+ "harness": "claude",
+ "rol": "revisor",
+ "modelo": "claude-opus-5",
+ "cwd": "/taller/Project/ingenieria-requisitos-agents/worktrees/025-codex-flag-aprobacion",
+ "rama": "025-codex-flag-aprobacion",
+ "lease": {
+  "session_id": "00000000-0000-4000-8000-000000000004",
+  "fencing": {
+   "unit:025-codex-flag-aprobacion": 7,
+   "resource:plantilla/docs/00-metodo/scripts/ejecucion.py": 36,
+   "resource:visor/tests/test_ejecucion_control_plane.py": 30
+  }
+ },
+ "git": {
+  "inicial": {
+   "head": "873a569fb9fdb04385920b0378f3492cf1a7d0b9",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  },
+  "final": {
+   "head": "873a569fb9fdb04385920b0378f3492cf1a7d0b9",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  }
+ },
+ "skills_tecnicas": [],
+ "checkpoints": [
+  {
+   "nombre": "lease",
+   "estado": "ok",
+   "detalle": "unit:025-codex-flag-aprobacion#7, resource:plantilla/docs/00-metodo/scripts/ejecucion.py#36, resource:visor/tests/test_ejecucion_control_plane.py#30"
+  },
+  {
+   "nombre": "identidad",
+   "estado": "ok",
+   "detalle": "/taller/Project/ingenieria-requisitos-agents/worktrees/025-codex-flag-aprobacion · rama 025-codex-flag-aprobacion"
+  },
+  {
+   "nombre": "harness",
+   "estado": "ok",
+   "detalle": "exit 0"
+  }
+ ],
+ "exit_code": 0,
+ "trabajo": {
+  "acreditado": true,
+  "detalle": "hallazgos.md (o la ficha del bug) cambió durante el harness"
+ },
+ "resultado": "ok",
+ "_fixture": "recibo real de este método, anonimizado para la suite (unidad 146): rutas y session_id sustituidos, el resto es literal"
+}

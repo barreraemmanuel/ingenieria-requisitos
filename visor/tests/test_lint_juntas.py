@@ -611,6 +611,136 @@ class ReglasDelMetodoRealTest(unittest.TestCase):
         self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
 
 
+class DientesDeCadaEjecutorTest(unittest.TestCase):
+    """R3 de la 146 — la junta (e): un ejecutor sin par de dientes es un `def` del que
+    nadie ha demostrado que haga nada, y esa cuenta SOLO PUEDE BAJAR.
+
+    El motivo está medido: `funcion_existe()` devuelve `True` sobre la función VACIADA
+    —cuerpo sustituido por «todo bien» con la forma correcta—, que es exactamente como los
+    mecanismos se pierden en la práctica. La junta (d) mira que el `def` exista; esta mira
+    que alguien haya demostrado que muerde.
+    """
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory(prefix="juntas-dientes-")
+        self.addCleanup(self.tmp.cleanup)
+        self.raiz = Path(self.tmp.name).resolve()
+        self.modulo = cargar_modulo()
+
+    def taller(self, entradas, base, *, tests=""):
+        (self.raiz / "docs/00-metodo").mkdir(parents=True, exist_ok=True)
+        (self.raiz / "docs/00-metodo/reglas.json").write_text(json.dumps({
+            "base": dict({"sin_ejecutor": 0, "fecha": "2026-09-01", "sha": "abc1234"}, **base),
+            "reglas": entradas,
+        }, ensure_ascii=False), encoding="utf-8")
+        carpeta = self.raiz / "main/visor/tests"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        (carpeta / "test_dientes_de_juguete.py").write_text(tests, encoding="utf-8")
+        return self.raiz / "docs/00-metodo/reglas.json"
+
+    def par_de(self, prefijo, funcion):
+        return (f"def {prefijo}_bloquea():\n"
+                f"    con_el_mecanismo({funcion})\n\n"
+                f"def {prefijo}_abierto_pasa():\n"
+                f"    sin_el_mecanismo({funcion})\n")
+
+    # ------------------------------------------------------------------ R3
+    def test_r3_un_ejecutor_con_su_par_completo_no_cuenta(self):
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "id": "R-X-01",
+                        "dientes": "test_dientes_R_X_01", "por_diseno": None}},
+            {"sin_dientes": 0},
+            tests=self.par_de("test_dientes_R_X_01", "puerta"))
+        problemas, sin, tope = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual((sin, tope), (0, 0))
+        self.assertEqual(problemas, [])
+
+    def test_r3_un_ejecutor_sin_dientes_declarados_cuenta(self):
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "dientes": None}},
+            {"sin_dientes": 1})
+        problemas, sin, _ = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual(sin, 1)
+        self.assertEqual(problemas, [], "la base congelada es 1: no ha subido, no bloquea")
+
+    def test_r3_la_cuenta_que_sube_sobre_la_base_es_fail_con_salida(self):
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "dientes": None},
+             "A::dos": {"ejecutor": "unidad.py:otra", "dientes": None}},
+            {"sin_dientes": 1})
+        problemas, sin, tope = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual((sin, tope), (2, 1))
+        self.assertEqual(len(problemas), 1)
+        self.assertIn("SUBIÓ", problemas[0][0])
+        self.assertIn("test_dientes_", problemas[0][1], "el rechazo no nombra cómo salir")
+
+    def test_r3_un_par_declarado_a_medias_no_vale(self):
+        """Un `_bloquea` sin su `_abierto_pasa` no demuestra que el mecanismo muerda."""
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "id": "R-X-01",
+                        "dientes": "test_dientes_R_X_01", "por_diseno": None}},
+            {"sin_dientes": 0},
+            tests="def test_dientes_R_X_01_bloquea():\n    con_el_mecanismo(puerta)\n")
+        problemas, sin, _ = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual(sin, 1)
+        self.assertTrue(problemas)
+
+    def test_r3_un_par_que_no_nombra_al_ejecutor_no_vale(self):
+        """El nombre correcto no basta: el par tiene que hablar DE esta función."""
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta_recibo_revisor", "id": "R-X-01",
+                        "dientes": "test_dientes_R_X_01", "por_diseno": None}},
+            {"sin_dientes": 0},
+            tests=self.par_de("test_dientes_R_X_01", "otra_cosa_cualquiera"))
+        problemas, sin, _ = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual(sin, 1)
+        self.assertIn("no nombra", problemas[0][0])
+
+    def test_r3_un_nombre_citado_en_un_comentario_no_es_un_test(self):
+        """Se lee con `ast`: «tener» no puede ser «parecer», que es el fallo que se mide."""
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "id": "R-X-01",
+                        "dientes": "test_dientes_R_X_01", "por_diseno": None}},
+            {"sin_dientes": 0},
+            tests="# aquí iría test_dientes_R_X_01_bloquea y test_dientes_R_X_01_abierto_pasa\n")
+        _, sin, _ = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertEqual(sin, 1)
+
+    def test_r3_sin_base_congelada_se_dice_como_congelarla(self):
+        inventario = self.taller(
+            {"A::uno": {"ejecutor": "unidad.py:puerta", "dientes": None}}, {})
+        problemas, _, tope = self.modulo.junta_dientes(self.raiz, inventario)
+        self.assertIsNone(tope)
+        self.assertIn("--congelar-reglas", problemas[0][1])
+
+    # ------------------------------------------------------------------ integración
+    def test_r3_la_junta_e_es_opt_in_y_no_cambia_lo_que_decide_el_guardian_de_siempre(self):
+        """La 146 mide; no mueve ninguna puerta de producción."""
+        sin_flag = correr(METODO.parent.parent)
+        con_flag = correr(METODO.parent.parent, "--dientes")
+        self.assertEqual(sin_flag.returncode, 0, sin_flag.stdout + sin_flag.stderr)
+        self.assertNotIn("(e) ejecutores con dientes", sin_flag.stdout)
+        self.assertIn("(e) ejecutores con dientes", con_flag.stdout)
+
+    def test_r3_el_metodo_real_pasa_su_propio_trinquete_de_dientes(self):
+        salida = correr(METODO.parent.parent, "--dientes")
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("ejecutores sin par (base", salida.stdout)
+
+    def test_r3_los_cuatro_ejecutores_medidos_declaran_id_y_par(self):
+        datos = json.loads(REGLAS_REAL.read_text(encoding="utf-8"))
+        con_par = {e["ejecutor"]: (e.get("id"), e.get("dientes"))
+                   for e in datos["reglas"].values() if e.get("dientes")}
+        self.assertEqual(con_par, {
+            "unidad.py:puerta_recibo_revisor": ("R-REV-01", "test_dientes_R_REV_01"),
+            "lint_juntas.py:junta_tope_directo": ("R-DIR-01", "test_dientes_R_DIR_01"),
+            "herramienta.py:cmd_comprobar": ("R-AVI-01", "test_dientes_R_AVI_01"),
+            "canario.py:salida_hook_stop": ("R-CAN-01", "test_dientes_R_CAN_01"),
+        })
+        self.assertIsInstance(datos["base"].get("sin_dientes"), int,
+                              "sin trinquete congelado, la cuenta puede subir sin ruido")
+
+
 class CarrilesTest(unittest.TestCase):
     """R9 — dos conceptos con el mismo nombre no son una deriva: se documentan."""
 

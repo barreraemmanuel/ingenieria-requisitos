@@ -1,0 +1,57 @@
+{
+ "schema": "ejecucion/v1",
+ "id": "77a462e413c34eb78ea3a7be64d61b59",
+ "unidad": "042-presentaciones-locales",
+ "harness": "codex",
+ "rol": "constructor",
+ "cwd": "/taller/Project/ingenieria-requisitos-agents/worktrees/042-presentaciones-locales",
+ "rama": "042-presentaciones-locales",
+ "lease": {
+  "session_id": "00000000-0000-4000-8000-000000000002",
+  "fencing": {
+   "unit:042-presentaciones-locales": 2,
+   "resource:visor/bootstrap.py": 26,
+   "resource:visor_presentaciones/manifestar.py": 2,
+   "resource:visor_presentaciones/plantilla.html": 2,
+   "resource:visor_presentaciones/servir.py": 2,
+   "resource:visor_presentaciones/tests/test_visor_presentaciones.py": 2
+  }
+ },
+ "git": {
+  "inicial": {
+   "head": "19af8da3613fea486ccb8cfbbaec965b5a63e680",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  },
+  "final": {
+   "head": "19af8da3613fea486ccb8cfbbaec965b5a63e680",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  }
+ },
+ "skills_tecnicas": [],
+ "checkpoints": [
+  {
+   "nombre": "lease",
+   "estado": "ok",
+   "detalle": "unit:042-presentaciones-locales#2, resource:visor/bootstrap.py#26, resource:visor_presentaciones/manifestar.py#2, resource:visor_presentaciones/plantilla.html#2, resource:visor_presentaciones/servir.py#2, resource:visor_presentaciones/tests/test_visor_presentaciones.py#2"
+  },
+  {
+   "nombre": "identidad",
+   "estado": "ok",
+   "detalle": "/taller/Project/ingenieria-requisitos-agents/worktrees/042-presentaciones-locales · rama 042-presentaciones-locales"
+  },
+  {
+   "nombre": "harness",
+   "estado": "ok",
+   "detalle": "exit 0"
+  }
+ ],
+ "exit_code": 0,
+ "trabajo": {
+  "acreditado": false,
+  "detalle": "proceso terminó sin error, pero no acreditó trabajo (sin casillas nuevas ni hallazgos.md actualizado)"
+ },
+ "resultado": "ok_sin_trabajo",
+ "_fixture": "recibo real de este método, anonimizado para la suite (unidad 146): rutas y session_id sustituidos, el resto es literal"
+}

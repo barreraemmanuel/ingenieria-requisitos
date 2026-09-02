@@ -1,9 +1,10 @@
 {
- "_porque": "Cada regla del método y QUIÉN la hace cumplir. El ADR-029 lo zanjó: una regla o la ejecuta un script, o está declarada inejecutable con su motivo, o se retira. Esta lista está CONGELADA por el número de reglas SIN ejecutor, y ese número solo puede bajar: una regla nueva sin entrada es FAIL, una cuenta que sube es FAIL, y un ejecutor que ya no existe es FAIL —arreglada y perdida son indistinguibles desde fuera—. La base la escribe lint_juntas.py --congelar-reglas, con su fecha y su commit; a mano no vale.",
+ "_porque": "Cada regla del método y QUIÉN la hace cumplir. El ADR-029 lo zanjó: una regla o la ejecuta un script, o está declarada inejecutable con su motivo, o se retira. Esta lista está CONGELADA por el número de reglas SIN ejecutor, y ese número solo puede bajar: una regla nueva sin entrada es FAIL, una cuenta que sube es FAIL, y un ejecutor que ya no existe es FAIL —arreglada y perdida son indistinguibles desde fuera—. La base la escribe lint_juntas.py --congelar-reglas, con su fecha y su commit; a mano no vale.  Desde la 146 cada ejecutor lleva además `id` y `dientes`: el nombre del PAR de tests que demuestra que el mecanismo tiene dientes (con él el acto se bloquea; con el ejecutor abierto solo dentro del test, el mismo acto pasa). `funcion_existe()` acepta un `def` vaciado, así que «tiene ejecutor» y «el ejecutor hace algo» son dos verdades distintas y hasta ahora solo se lintaba la barata. `base.sin_dientes` es el trinquete: solo baja.",
  "base": {
   "sin_ejecutor": 11,
   "fecha": "2026-08-27",
-  "sha": "7f7e738"
+  "sha": "7f7e738",
+  "sin_dientes": 13
  },
  "reglas": {
   "AGENTS.md::Actualiza el taller:": {
@@ -16,12 +17,16 @@
    "fichero": "AGENTS.md",
    "texto": "Antes de afirmar que algo funciona, ejecutar la verificación que lo demuestra.",
    "ejecutor": "lint_cierre.py:validar",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Buscar tiene fin y la investigación es graduada.": {
    "fichero": "AGENTS.md",
    "texto": "Buscar tiene fin y la investigación es graduada.",
    "ejecutor": "peticion.py:investigacion_lista",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Búsquedas de código: dentro de `main/` o de tu worktree.": {
@@ -34,12 +39,16 @@
    "fichero": "AGENTS.md",
    "texto": "Caja negra.",
    "ejecutor": "caja_negra.py:redactar_incidente",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Carriles (cuatro).": {
    "fichero": "AGENTS.md",
    "texto": "Carriles (cuatro).",
    "ejecutor": "lint_juntas.py:junta_tope_directo",
+   "id": "R-DIR-01",
+   "dientes": "test_dientes_R_DIR_01",
    "por_diseno": null
   },
   "AGENTS.md::Declara tu rol al usuario y confírmalo ANTES de trabajar.": {
@@ -58,12 +67,16 @@
    "fichero": "AGENTS.md",
    "texto": "El aviso del método corre SIEMPRE, también en solo-consulta, y va lo primero.",
    "ejecutor": "herramienta.py:cmd_comprobar",
+   "id": "R-AVI-01",
+   "dientes": "test_dientes_R_AVI_01",
    "por_diseno": null
   },
   "AGENTS.md::Entrada, numeración y despacho: con scripts, no a mano.": {
    "fichero": "AGENTS.md",
    "texto": "Entrada, numeración y despacho: con scripts, no a mano.",
    "ejecutor": "unidad.py:validar_origenes",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Escribir sobre material del usuario se anuncia y se deja escrito": {
@@ -88,6 +101,8 @@
    "fichero": "AGENTS.md",
    "texto": "Evidencia, no afirmación.",
    "ejecutor": "lint_cierre.py:validar_parte",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Fusionar main NO despliega.": {
@@ -118,24 +133,32 @@
    "fichero": "AGENTS.md",
    "texto": "Los flujos siguen vivos — la puerta la abre el DELTA, no el cambio.",
    "ejecutor": "peticion.py:exigir_huella_de_flujo",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Los guardianes se lintean.": {
    "fichero": "AGENTS.md",
    "texto": "Los guardianes se lintean.",
    "ejecutor": "lint_juntas.py:main",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Merge y cierre son indivisibles.": {
    "fichero": "AGENTS.md",
    "texto": "Merge y cierre son indivisibles.",
    "ejecutor": "unidad.py:puerta_recibo_validacion",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Mira el canario:": {
    "fichero": "AGENTS.md",
    "texto": "Mira el canario:",
    "ejecutor": "canario.py:salida_hook_stop",
+   "id": "R-CAN-01",
+   "dientes": "test_dientes_R_CAN_01",
    "por_diseno": null
   },
   "AGENTS.md::Nadie espera a ciegas": {
@@ -148,24 +171,32 @@
    "fichero": "AGENTS.md",
    "texto": "Nunca mostrar secretos ni PII.",
    "ejecutor": "caja_negra.py:credencial_residual",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Proceso nativo (ADR-021).": {
    "fichero": "AGENTS.md",
    "texto": "Proceso nativo (ADR-021).",
    "ejecutor": "ejecucion.py:lanzar",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Producción y servicios externos (pagos, DNS, correo, chat) son LECTURA por defec": {
    "fichero": "AGENTS.md",
    "texto": "Producción y servicios externos (pagos, DNS, correo, chat) son LECTURA por defec",
    "ejecutor": "control_plane.py:assert_safe_test_target",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Quién construye lo dice el CARRIL (ADR-017).": {
    "fichero": "AGENTS.md",
    "texto": "Quién construye lo dice el CARRIL (ADR-017).",
    "ejecutor": "unidad.py:puerta_recibo_revisor",
+   "id": "R-REV-01",
+   "dientes": "test_dientes_R_REV_01",
    "por_diseno": null
   },
   "AGENTS.md::Se escribe según se hace:": {
@@ -178,6 +209,8 @@
    "fichero": "AGENTS.md",
    "texto": "Si abres la sesión con Codex CLI, confía los hooks del método UNA vez",
    "ejecutor": "ejecucion.py:argv_harness",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   },
   "AGENTS.md::Solo-consulta arranca ligero.": {
@@ -196,6 +229,8 @@
    "fichero": "docs/00-metodo/decisiones/029-una-regla-tiene-ejecutor-o-se-retira.md",
    "texto": "- **La marca `` como señal de puerta infranqueable.** Aparecía 62 veces en 25",
    "ejecutor": "lint_juntas.py:junta_puertas",
+   "id": null,
+   "dientes": null,
    "por_diseno": null
   }
  }

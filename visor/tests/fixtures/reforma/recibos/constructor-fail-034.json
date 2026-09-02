@@ -1,0 +1,56 @@
+{
+ "schema": "ejecucion/v1",
+ "id": "bbb0c471fc0c4dbbb84e853912912188",
+ "unidad": "034-puertas-sin-salida",
+ "harness": "claude",
+ "rol": "constructor",
+ "cwd": "/taller/Project/ingenieria-requisitos-agents/worktrees/034-puertas-sin-salida",
+ "rama": "034-puertas-sin-salida",
+ "lease": {
+  "session_id": "00000000-0000-4000-8000-000000000001",
+  "fencing": {
+   "unit:034-puertas-sin-salida": 2,
+   "resource:manual-ingenieria-requisitos.html": 7,
+   "resource:plantilla/docs/00-metodo/scripts/ejecucion.py": 32,
+   "resource:plantilla/docs/00-metodo/scripts/lint_metodo.py": 19,
+   "resource:plantilla/docs/00-metodo/scripts/unidad.py": 30,
+   "resource:visor/revision.py": 5,
+   "resource:visor/tests/test_reglas_con_ejecutor.py": 2
+  }
+ },
+ "git": {
+  "inicial": {
+   "head": "fcb68cefeb457887c01226f2c80a8307657ed388",
+   "diff_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+   "status_porcelain": []
+  },
+  "final": {
+   "head": "fcb68cefeb457887c01226f2c80a8307657ed388",
+   "diff_sha256": "01a08d10944de572f8f0608b21fc8f8ac9b62a4f00ae9d43e9b884bea75999c9",
+   "status_porcelain": [
+    " M visor/tests/test_reglas_con_ejecutor.py"
+   ]
+  }
+ },
+ "skills_tecnicas": [],
+ "checkpoints": [
+  {
+   "nombre": "lease",
+   "estado": "ok",
+   "detalle": "unit:034-puertas-sin-salida#2, resource:manual-ingenieria-requisitos.html#7, resource:plantilla/docs/00-metodo/scripts/ejecucion.py#32, resource:plantilla/docs/00-metodo/scripts/lint_metodo.py#19, resource:plantilla/docs/00-metodo/scripts/unidad.py#30, resource:visor/revision.py#5, resource:visor/tests/test_reglas_con_ejecutor.py#2"
+  },
+  {
+   "nombre": "identidad",
+   "estado": "ok",
+   "detalle": "/taller/Project/ingenieria-requisitos-agents/worktrees/034-puertas-sin-salida · rama 034-puertas-sin-salida"
+  },
+  {
+   "nombre": "harness",
+   "estado": "fail",
+   "detalle": "exit 1"
+  }
+ ],
+ "exit_code": 1,
+ "resultado": "fail",
+ "_fixture": "recibo real de este método, anonimizado para la suite (unidad 146): rutas y session_id sustituidos, el resto es literal"
+}
