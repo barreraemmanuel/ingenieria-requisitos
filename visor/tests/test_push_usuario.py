@@ -137,9 +137,9 @@ class WorkspaceGitTest(unittest.TestCase):
         (self.ws / "docs/05-trabajo").mkdir(parents=True)
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
-        for nombre in ("control_plane.py", "lease.py", "lint_ci.py", "lint_cierre.py",
-                       "lint_metodo.py", "peticion.py", "repo_config.py", "unidad.py",
-                       "workspace_paths.py"):
+        for nombre in ("control_plane.py", "entrega.py", "lease.py", "lint_ci.py",
+                       "lint_cierre.py", "lint_metodo.py", "peticion.py", "repo_config.py",
+                       "subagente.py", "unidad.py", "veredicto_lint.py", "workspace_paths.py"):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.unidad = scripts / "unidad.py"
         self.linter = scripts / "lint_metodo.py"
@@ -307,16 +307,31 @@ class HookPostCierreDeadlockTest(WorkspaceGitTest):
         carpeta = self.ws / ".runtime/ejecuciones"
         carpeta.mkdir(parents=True, exist_ok=True)
         for rol in ("constructor", "revisor"):
-            (carpeta / f"{nombre}-{rol}.json").write_text(json.dumps({
+            recibo = {
                 "schema": "ejecucion/v1",
                 "id": rol,
                 "unidad": nombre,
-                "harness": "claude",
+                "harness": ("subagente-del-padre" if rol == "constructor" else "claude"),
                 "rol": rol,
                 "lease": {"session_id": f"{rol}-{nombre}", "fencing": {}},
                 "exit_code": 0,
                 "resultado": "ok",
-            }, ensure_ascii=False), encoding="utf-8")
+            }
+            if rol == "constructor":
+                final = self.git(self.repo, "rev-parse", "HEAD")
+                inicial = self.git(self.repo, "rev-parse", f"{final}^")
+                recibo["git"] = {
+                    "inicial": {"head": inicial,
+                                "tree": self.git(self.repo, "rev-parse", f"{inicial}^{{tree}}"),
+                                "plan": {"marcadas": 0, "totales": 1}},
+                    "final": {"head": final,
+                              "tree": self.git(self.repo, "rev-parse", f"{final}^{{tree}}"),
+                              "status_porcelain": [], "materializada": False},
+                }
+                recibo["trabajo"] = {
+                    "acreditado": True, "plan": {"marcadas": 1, "totales": 1}}
+            (carpeta / f"{nombre}-{rol}.json").write_text(
+                json.dumps(recibo, ensure_ascii=False), encoding="utf-8")
 
     def cerrar_bug_fusionado(self, slug="hook-post-cierre"):
         """Lleva un bug hasta `unidad.py cerrar` en verde, con el trabajo YA fusionado en

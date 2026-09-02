@@ -239,7 +239,8 @@ class AnclaDelRevisorEnFichaDeBugTest(ControlPlaneE2ETest):
         self.git("commit", "-m", "001-demo: el arreglo", cwd=self.worktree)
 
     def recibo(self):
-        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        recibos = [r for r in (self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")
+                   if json.loads(r.read_text(encoding="utf-8")).get("rol") != "constructor"]
         self.assertEqual(len(recibos), 1, recibos)
         return json.loads(recibos[0].read_text(encoding="utf-8"))
 

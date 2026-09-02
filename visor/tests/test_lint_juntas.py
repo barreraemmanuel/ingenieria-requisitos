@@ -734,6 +734,7 @@ class DientesDeCadaEjecutorTest(unittest.TestCase):
                    for e in datos["reglas"].values() if e.get("dientes")}
         self.assertEqual(con_par, {
             "unidad.py:puerta_recibo_revisor": ("R-REV-01", "test_dientes_R_REV_01"),
+            "entrega.py:exigir_entrega_constructor": ("R-ENT-01", "test_dientes_R_ENT_01"),
             "lint_juntas.py:junta_tope_directo": ("R-DIR-01", "test_dientes_R_DIR_01"),
             "herramienta.py:cmd_comprobar": ("R-AVI-01", "test_dientes_R_AVI_01"),
             "canario.py:salida_hook_stop": ("R-CAN-01", "test_dientes_R_CAN_01"),

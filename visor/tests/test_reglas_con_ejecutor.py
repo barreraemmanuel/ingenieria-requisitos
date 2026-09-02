@@ -44,8 +44,9 @@ class WorkspaceBase(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "ejecucion.py", "lease.py", "lint_cierre.py",
-            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py",
+            "control_plane.py", "ejecucion.py", "entrega.py", "lease.py", "lint_cierre.py",
+            "peticion.py", "repo_config.py", "subagente.py", "unidad.py",
+            "veredicto_lint.py", "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
@@ -158,6 +159,18 @@ class WorkspaceBase(unittest.TestCase):
         """
         carpeta = self.ws / ".runtime/ejecuciones"
         carpeta.mkdir(parents=True, exist_ok=True)
+        if rol == "constructor":
+            for existente in sorted(carpeta.glob(f"{unidad}-*.json"), reverse=True):
+                datos = json.loads(existente.read_text(encoding="utf-8"))
+                if datos.get("harness") != "subagente-del-padre":
+                    continue
+                datos.setdefault("lease", {})["session_id"] = session_id
+                if modelo is not None:
+                    datos["modelo"] = modelo
+                existente.write_text(
+                    json.dumps(datos, ensure_ascii=False), encoding="utf-8"
+                )
+                return existente
         identificador = f"{rol}{sufijo}"
         ruta = carpeta / f"{unidad}-{identificador}.json"
         ruta.write_text(json.dumps({
@@ -367,10 +380,30 @@ vista muestra el estado anterior a la escritura hasta la siguiente carga complet
             )
         self.git(worktree, "add", "-A")
         self.git(worktree, "commit", "-m", f"trabajo de {nombre}")
+        ficha, firma = self.ficha_de(nombre)
+        requiere_recibo = re.search(
+            r"^carril:\s*(normal|completo)\b",
+            ficha.read_text(encoding="utf-8"), flags=re.M,
+        )
+        if requiere_recibo:
+            texto_plan = firma.read_text(encoding="utf-8")
+            texto_marcado, cambios_plan = re.subn(
+                r"- \[ \]", "- [x]", texto_plan, count=1,
+            )
+            if not cambios_plan:
+                texto_marcado += (
+                    "\n### Plan de trabajo del subagente\n"
+                    "- [x] entrega del fixture\n"
+                )
+            firma.write_text(texto_marcado, encoding="utf-8")
+            entrega = self.ejecutar(
+                self.ws / "docs/00-metodo/scripts/subagente.py",
+                "cerrar", nombre, "--resultado", "ok",
+            )
+            self.assertEqual(entrega.returncode, 0, entrega.stdout + entrega.stderr)
         self.git(self.repo, "merge", "--ff-only", nombre)
         if quitar_worktree:
             self.git(self.repo, "worktree", "remove", str(worktree))
-        ficha, firma = self.ficha_de(nombre)
         ficha.write_text(
             re.sub(r"^estado:\s*\S+", f"estado: {estado}",
                    ficha.read_text(encoding="utf-8"), count=1, flags=re.M),
@@ -378,7 +411,6 @@ vista muestra el estado anterior a la escritura hasta la siguiente carga complet
         )
         self.firmar_revision(firma)
         if recibos:
-            self.recibo_ejecucion(nombre, "constructor", f"c-{nombre}")
             self.recibo_ejecucion(nombre, "revisor", f"r-{nombre}")
 
     def borrar_rama(self, nombre):

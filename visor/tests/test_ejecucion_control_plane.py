@@ -38,6 +38,7 @@ class ControlPlaneE2ETest(unittest.TestCase):
         self.assertTrue(LAUNCHER.is_file(), "falta el launcher canónico ejecucion.py")
         shutil.copy2(LAUNCHER, scripts / "ejecucion.py")
         shutil.copy2(LAUNCHER.with_name("control_plane.py"), scripts / "control_plane.py")
+        shutil.copy2(LAUNCHER.with_name("entrega.py"), scripts / "entrega.py")
         shutil.copy2(LAUNCHER.with_name("lease.py"), scripts / "lease.py")
         # Bug 065: el launcher deriva el modelo de la tabla de la regla 10, que vive en
         # repo_config; sin él a su lado, ejecucion.py no importa.
@@ -65,6 +66,9 @@ class ControlPlaneE2ETest(unittest.TestCase):
         (self.main / "README.md").write_text("# demo\n", encoding="utf-8")
         self.git("add", "README.md", cwd=self.main)
         self.git("commit", "-m", "base", cwd=self.main)
+        (self.main / "BASELINE.md").write_text("base de entrega\n", encoding="utf-8")
+        self.git("add", "BASELINE.md", cwd=self.main)
+        self.git("commit", "-m", "segunda base para entregas de fixture", cwd=self.main)
         (self.ws / "worktrees").mkdir()
         self.worktree = self.ws / "worktrees" / self.unidad
         self.git(
@@ -150,7 +154,7 @@ argv = [resolver(v) for v in sys.argv[1:]]
 prompt = argv[-1] if argv else ''
 """
 
-    def crear_doble_harness(self, nombre):
+    def crear_doble_harness(self, nombre, marca_trabajo=True):
         cuerpo = """import json, pathlib, stat, subprocess
 tmp = pathlib.Path(os.environ['TMPDIR'])
 
@@ -187,6 +191,15 @@ record = {
                ('SCRATCH','BASH_ENV','ENV','ZDOTDIR','CDPATH','PYTHONPATH','NODE_OPTIONS')},
 }
 pathlib.Path('.harness-record.json').write_text(json.dumps(record), encoding="utf-8")
+"""
+        if marca_trabajo:
+            cuerpo += """
+encontrado = re.search(r'CONTRATO: (.+)', prompt)
+if encontrado:
+    ficha = pathlib.Path(encontrado.group(1).strip())
+    hallazgos = ficha if ficha.parent.name == 'bugs' else ficha.parent / 'hallazgos.md'
+    with open(hallazgos, 'a', encoding='utf-8') as fh:
+        fh.write('\\n- [x] trabajo marcado por el doble de prueba\\n')
 """
         self.instalar_doble(nombre, cuerpo)
 
@@ -246,6 +259,9 @@ try:
 except OSError as exc:
     registro['error'] = str(exc)
 pathlib.Path('.intento-escritura-ficha.json').write_text(json.dumps(registro), encoding="utf-8")
+hallazgos = pathlib.Path(ficha).parent / 'hallazgos.md'
+with open(hallazgos, 'a', encoding='utf-8') as fh:
+    fh.write('\\n- [x] trabajo marcado por el doble de prueba\\n')
 """
         self.instalar_doble(nombre, cuerpo)
 
@@ -280,8 +296,66 @@ pathlib.Path('.harness-record.json').write_text(
         args.extend(("--prompt", prompt))
         return args
 
+    def sembrar_entrega_constructor(self, unidad):
+        """Precondición realista de los tests históricos que ejercitan al revisor."""
+        ficha = self.ws / "docs/05-trabajo" / unidad / "especificacion.md"
+        if not ficha.is_file():
+            ficha = self.ws / "docs/bugs" / f"{unidad}.md"
+        if not ficha.is_file():
+            return
+        texto = ficha.read_text(encoding="utf-8")
+        if re.search(r"(?m)^ejecucion:\s*documental\b", texto):
+            return
+        carril = re.search(r"(?m)^carril:\s*([^\s#]+)", texto)
+        if carril and carril.group(1).lower() in {"directo", "expres", "exprés"}:
+            return
+        carpeta = self.ws / ".runtime/ejecuciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for ruta in carpeta.glob(f"{unidad}-*.json"):
+            with contextlib.suppress(OSError, ValueError):
+                if json.loads(ruta.read_text(encoding="utf-8")).get("rol") == "constructor":
+                    return
+        worktree = self.ws / "worktrees" / unidad
+        if worktree.is_dir():
+            final = self.git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
+            estado = self.git("status", "--porcelain", cwd=worktree).stdout.splitlines()
+        else:
+            fusion = re.search(r"(?m)^fusion:\s*([^\s#]+)", texto)
+            if not fusion:
+                return
+            final = fusion.group(1)
+            estado = []
+        principal = self.git("rev-parse", "main", cwd=self.main).stdout.strip()
+        inicial = principal if final != principal else self.git(
+            "rev-parse", f"{final}^", cwd=self.main).stdout.strip()
+        arbol_inicial = self.git(
+            "rev-parse", f"{inicial}^{{tree}}", cwd=self.main).stdout.strip()
+        arbol_final = self.git(
+            "rev-parse", f"{final}^{{tree}}", cwd=self.main).stdout.strip()
+        plan = ficha if ficha.parent.name == "bugs" else ficha.parent / "hallazgos.md"
+        previas = len(re.findall(r"(?m)^\s*-\s*\[[xX]\]", plan.read_text(encoding="utf-8")))
+        with open(plan, "a", encoding="utf-8") as salida:
+            salida.write("\n- [x] entrega de fixture lista para revisión\n")
+        recibo = {
+            "schema": "ejecucion/v1", "id": "entrega-fixture", "unidad": unidad,
+            "harness": "subagente-del-padre", "rol": "constructor", "resultado": "ok",
+            "git": {
+                "inicial": {"head": inicial, "tree": arbol_inicial,
+                            "plan": {"marcadas": previas, "totales": previas + 1}},
+                "final": {"head": final, "tree": arbol_final,
+                          "status_porcelain": estado, "materializada": False},
+            },
+            "trabajo": {"acreditado": True,
+                        "plan": {"marcadas": previas + 1, "totales": previas + 1}},
+            "exit_code": 0,
+        }
+        (carpeta / f"{unidad}-entrega-fixture.json").write_text(
+            json.dumps(recibo), encoding="utf-8")
+
     def ejecutar(self, harness="claude", rol="constructor", skills=(), prompt="Haz la tarea",
                  unidad=None, env=None):
+        if rol == "revisor":
+            self.sembrar_entrega_constructor(unidad or self.unidad)
         return subprocess.run(
             self.argumentos(harness, rol, skills, prompt, unidad),
             cwd=self.main, env=env or self.env, text=True,
@@ -629,9 +703,10 @@ pathlib.Path('.harness-record.json').write_text(
     def test_recibo_ok_sin_trabajo_cuando_el_harness_no_toca_nada(self):
         # R5: el fallo del "verde que miente" — exit 0 sin ninguna casilla nueva ni
         # hallazgos.md actualizado debe distinguirse de un ok real.
+        self.crear_doble_harness("claude", marca_trabajo=False)
         resultado = self.ejecutar()
 
-        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertNotEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         recibo = json.loads(
             next((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
                 .read_text(encoding="utf-8")
@@ -681,7 +756,7 @@ pathlib.Path('.harness-record.json').write_text(
         # sin sandbox de SO de por medio (unidad 012: esta es la garantía que se
         # mantiene íntegra).
         nuevo = self.ejecutar()
-        self.assertEqual(nuevo.returncode, 0, nuevo.stdout + nuevo.stderr)
+        self.assertNotEqual(nuevo.returncode, 0, nuevo.stdout + nuevo.stderr)
         harness = self.registros()
         self.assertEqual(harness["cwd"], str(self.worktree.resolve()))
 
@@ -1035,7 +1110,8 @@ class AnclaDeLaRevisionTest(ControlPlaneE2ETest):
         return piezas[0]
 
     def recibo(self):
-        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        recibos = [r for r in (self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")
+                   if json.loads(r.read_text(encoding="utf-8")).get("rol") != "constructor"]
         self.assertEqual(len(recibos), 1, recibos)
         return json.loads(recibos[0].read_text(encoding="utf-8"))
 
@@ -1140,7 +1216,9 @@ pathlib.Path('.harness-record.json').write_text(
             encoding="utf-8")
 
     def recibo(self):
-        recibos = list((self.ws / ".runtime/ejecuciones").glob("001-demo-*.json"))
+        recibos = [r for r in (self.ws / ".runtime/ejecuciones").glob("001-demo-*.json")
+                   if json.loads(r.read_text(encoding="utf-8")).get("harness")
+                   != "subagente-del-padre"]
         self.assertEqual(len(recibos), 1, recibos)
         return json.loads(recibos[0].read_text(encoding="utf-8"))
 
@@ -1279,9 +1357,10 @@ pathlib.Path('.harness-record.json').write_text(
         diff_sha256 que al empezar no es una corrección: no cuenta y queda marcada."""
         self.poner_veredicto("HUECOS DE CORRECCIÓN")
 
-        resultado = self.ejecutar()   # el doble de fábrica no toca el árbol
+        self.crear_doble_harness("claude", marca_trabajo=False)
+        resultado = self.ejecutar()
 
-        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertNotEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
         self.assertEqual(self.clave("ronda"), "1", "R5: la ronda vacía se devuelve")
         recibo = self.recibo()
         self.assertTrue(recibo["ronda_vacia"])
@@ -1835,6 +1914,11 @@ if sid and os.environ.get('HOME') and %s:
         + json.dumps({'type': 'assistant', 'sessionId': sid, 'effort': %s,
                       'message': {'role': 'assistant', 'model': %s}}) + chr(10),
         encoding='utf-8')
+encontrado = re.search(r'CONTRATO: (.+)', prompt)
+if encontrado:
+    hallazgos = pathlib.Path(encontrado.group(1).strip()).parent / 'hallazgos.md'
+    with open(hallazgos, 'a', encoding='utf-8') as fh:
+        fh.write('\\n- [x] trabajo marcado por el doble de transcript\\n')
 """
 
 

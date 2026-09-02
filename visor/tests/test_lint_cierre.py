@@ -326,8 +326,9 @@ class CierreBloqueaTest(unittest.TestCase):
         self.ws = Path(self.tmp.name)
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
-        for nombre in ("control_plane.py", "lease.py", "lint_cierre.py", "peticion.py",
-                       "repo_config.py", "unidad.py", "workspace_paths.py"):
+        for nombre in ("control_plane.py", "entrega.py", "lease.py", "lint_cierre.py",
+                       "peticion.py", "repo_config.py", "unidad.py", "veredicto_lint.py",
+                       "workspace_paths.py"):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.unidad = scripts / "unidad.py"
         plantillas = self.ws / "docs/00-metodo/plantillas"
@@ -432,8 +433,9 @@ class AnclaEnElCierreTest(unittest.TestCase):
         self.ws = Path(self.tmp.name)
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
-        for nombre in ("control_plane.py", "lease.py", "lint_cierre.py", "peticion.py",
-                       "repo_config.py", "unidad.py", "workspace_paths.py"):
+        for nombre in ("control_plane.py", "entrega.py", "lease.py", "lint_cierre.py",
+                       "peticion.py", "repo_config.py", "unidad.py", "veredicto_lint.py",
+                       "workspace_paths.py"):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.unidad = scripts / "unidad.py"
         shutil.copy2(METODO / "senales-de-riesgo.json",

@@ -98,8 +98,9 @@ class WorkspaceBase(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "ejecucion.py", "lease.py", "lint_cierre.py",
-            "peticion.py", "repo_config.py", "unidad.py", "workspace_paths.py",
+            "control_plane.py", "ejecucion.py", "entrega.py", "lease.py", "lint_cierre.py",
+            "peticion.py", "repo_config.py", "subagente.py", "unidad.py",
+            "veredicto_lint.py", "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
@@ -230,13 +231,29 @@ class WorkspaceBase(unittest.TestCase):
     def recibo_ejecucion(self, unidad, rol, session_id):
         carpeta = self.ws / ".runtime/ejecuciones"
         carpeta.mkdir(parents=True, exist_ok=True)
-        (carpeta / f"{unidad}-{rol}.json").write_text(json.dumps({
+        recibo = {
             "schema": "ejecucion/v1", "id": rol, "unidad": unidad, "harness": "claude",
             "rol": rol, "modelo": None, "cwd": str(self.ws / "worktrees" / unidad),
             "rama": unidad, "lease": {"session_id": session_id, "fencing": {}},
             "git": {"inicial": {}, "final": {}}, "skills_tecnicas": [],
             "checkpoints": [], "exit_code": 0, "resultado": "ok",
-        }, ensure_ascii=False), encoding="utf-8")
+        }
+        if rol == "constructor":
+            final = self.git(self.repo, "rev-parse", "HEAD")
+            inicial = self.git(self.repo, "rev-parse", f"{final}^")
+            recibo["harness"] = "subagente-del-padre"
+            recibo["git"] = {
+                "inicial": {"head": inicial,
+                            "tree": self.git(self.repo, "rev-parse", f"{inicial}^{{tree}}"),
+                            "plan": {"marcadas": 0, "totales": 1}},
+                "final": {"head": final,
+                          "tree": self.git(self.repo, "rev-parse", f"{final}^{{tree}}"),
+                          "status_porcelain": [], "materializada": False},
+            }
+            recibo["trabajo"] = {
+                "acreditado": True, "plan": {"marcadas": 1, "totales": 1}}
+        (carpeta / f"{unidad}-{rol}.json").write_text(
+            json.dumps(recibo, ensure_ascii=False), encoding="utf-8")
 
     # ---------------------------------------------------------- unidades de juguete
     CUERPO = """

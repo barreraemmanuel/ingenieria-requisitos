@@ -46,6 +46,8 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
   el modelo y el esfuerzo que imprime `unidad.py despachar` (tabla de abajo). Todo revisor
   fresco se lanza con `docs/00-metodo/scripts/ejecucion.py` (su recibo acredita la firma);
   ese lanzador queda como vía opcional para el constructor (Codex, sesión desatendida).
+  La notificación de fin del ayudante es diagnóstico, no evidencia: la entrega solo existe
+  cuando su recibo derivado de git acredita el árbol y el avance del plan.
   El **modelo y el esfuerzo no se teclean**: los deriva la tabla de abajo.
 - **Aprobación de un contrato:** pedirle el OK a un contrato (unidad o bug) exige abrir
   antes el apartado de contratos de la web en el mismo turno — `python3 main/web/abrir.py

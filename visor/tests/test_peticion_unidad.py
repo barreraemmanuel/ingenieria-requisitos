@@ -35,8 +35,9 @@ class PeticionUnidadTest(unittest.TestCase):
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
         for nombre in (
-            "control_plane.py", "lease.py", "lint_cierre.py", "peticion.py",
-            "repo_config.py", "unidad.py", "workspace_paths.py",
+            "control_plane.py", "entrega.py", "lease.py", "lint_cierre.py", "peticion.py",
+            "repo_config.py", "subagente.py", "unidad.py", "veredicto_lint.py",
+            "workspace_paths.py",
         ):
             shutil.copy2(SCRIPTS / nombre, scripts / nombre)
         self.peticion = scripts / "peticion.py"
@@ -267,13 +268,49 @@ class PeticionUnidadTest(unittest.TestCase):
         """
         carpeta = self.ws / ".runtime/ejecuciones"
         carpeta.mkdir(parents=True, exist_ok=True)
+        ficha = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        documental = ficha.is_file() and "ejecucion: documental" in ficha.read_text(
+            encoding="utf-8")
+        worktree = self.ws / "worktrees" / nombre
+        repo_entrega = worktree if worktree.is_dir() else self.repo
+        final = subprocess.run(
+            ["git", "rev-parse", "HEAD"], cwd=repo_entrega, check=True,
+            text=True, encoding="utf-8", errors="replace", capture_output=True,
+        ).stdout.strip()
+        entrega_git = None
+        if not documental:
+            inicial = subprocess.run(
+                ["git", "rev-parse", f"{final}^"], cwd=self.repo, check=True,
+                text=True, encoding="utf-8", errors="replace", capture_output=True,
+            ).stdout.strip()
+            arbol_inicial = subprocess.run(
+                ["git", "rev-parse", f"{inicial}^{{tree}}"], cwd=self.repo, check=True,
+                text=True, encoding="utf-8", errors="replace", capture_output=True,
+            ).stdout.strip()
+            arbol_final = subprocess.run(
+                ["git", "rev-parse", f"{final}^{{tree}}"], cwd=self.repo, check=True,
+                text=True, encoding="utf-8", errors="replace", capture_output=True,
+            ).stdout.strip()
+            entrega_git = {
+                "inicial": {"head": inicial, "tree": arbol_inicial,
+                            "plan": {"marcadas": 0, "totales": 1}},
+                "final": {"head": final, "tree": arbol_final,
+                          "status_porcelain": [], "materializada": False},
+            }
         for rol, sesion in (("constructor", "sesion-constructor"), ("revisor", "sesion-revisor")):
-            (carpeta / f"{nombre}-{rol}.json").write_text(json.dumps({
+            recibo = {
                 "schema": "ejecucion/v1", "id": rol, "unidad": nombre,
-                "harness": "claude", "rol": rol, "modelo": f"modelo-{rol}",
+                "harness": ("subagente-del-padre" if rol == "constructor" else "claude"),
+                "rol": rol, "modelo": f"modelo-{rol}",
                 "lease": {"session_id": sesion, "fencing": {}},
                 "checkpoints": [], "exit_code": 0, "resultado": "ok",
-            }), encoding="utf-8")
+            }
+            if rol == "constructor" and entrega_git is not None:
+                recibo["git"] = entrega_git
+                recibo["trabajo"] = {
+                    "acreditado": True, "plan": {"marcadas": 1, "totales": 1}}
+            (carpeta / f"{nombre}-{rol}.json").write_text(
+                json.dumps(recibo), encoding="utf-8")
 
     def recibo_preparacion(self, nombre):
         ruta = self.ws / ".runtime/worktree-readiness" / f"{nombre}.json"
@@ -3451,5 +3488,3 @@ class PuertaAprobacionWebTest(unittest.TestCase):
         self.assertRegex(
             (SCRIPTS / "unidad.py").read_text(encoding="utf-8"),
             r'APROBACION_WEB_DESDE = "2026-08-2[78]"')
-
-

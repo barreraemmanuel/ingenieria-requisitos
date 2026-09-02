@@ -260,7 +260,9 @@ class ComandoPrefusionTest(unittest.TestCase):
 
     def ejecutar(self, guardian):
         anterior = unidad.guardian_del_metodo
+        anterior_entrega = unidad.entrega.exigir_entrega_constructor
         unidad.guardian_del_metodo = guardian
+        unidad.entrega.exigir_entrega_constructor = lambda *_args, **_kwargs: ([], [])
         salida, errores = io.StringIO(), io.StringIO()
         try:
             with contextlib.redirect_stdout(salida), contextlib.redirect_stderr(errores):
@@ -268,6 +270,7 @@ class ComandoPrefusionTest(unittest.TestCase):
                     argparse.Namespace(unidad=self.RAMA))
         finally:
             unidad.guardian_del_metodo = anterior
+            unidad.entrega.exigir_entrega_constructor = anterior_entrega
         return codigo, salida.getvalue() + errores.getvalue()
 
     def test_sin_rebasar_bloquea_la_fusion_y_dice_como_salir(self):

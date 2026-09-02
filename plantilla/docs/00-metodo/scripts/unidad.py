@@ -48,15 +48,19 @@ import stat
 import subprocess
 import sys
 import time
+import tempfile
+import uuid
 import webbrowser
 from pathlib import Path
 
 import peticion as gestion_peticiones
 import control_plane
+import entrega
 import lease as gestion_leases
 import lint_cierre
 import repo_config
 import workspace_paths
+import veredicto_lint
 
 # Windows: en cuanto la salida va a un PIPE —setup.py, la CI, cualquier harness de agente— el
 # encoding deja de ser el de la consola y pasa a ser el local (cp1252), donde un `→` o un `·`
@@ -2564,6 +2568,12 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             f"(ADR-017).\n       Al terminar revisa un agente fresco que no construyó."
         )
     else:
+        if abrir_entrega_del_subagente(nombre, fm) != 0:
+            fail(
+                f"no pude abrir el recibo derivado de git para {nombre}. SALIDA: "
+                f"python3 docs/00-metodo/scripts/unidad.py despachar {nombre} --serie"
+            )
+            return 1
         paso_obra = encargo_subagente_del_padre(nombre, fm, destino, ruta)
     print(f"\n  Siguientes pasos:\n{paso_obra}\n"
           f"    2. Actualiza ESTADO.md con la unidad en obra (lo escribe el padre).\n"
@@ -2627,6 +2637,23 @@ def encargo_subagente_del_padre(nombre, fm, destino, ruta_ficha):
         f"       Al recibir el PR, el revisor sigue siendo fresco y por el lanzador (deja recibo):\n"
         f"       {comando_revision(nombre)}"
     )
+
+
+def abrir_entrega_del_subagente(nombre, fm):
+    """Abre el recibo con la base git antes de entregar el encargo al ayudante."""
+    carril = (fm.get("carril") or "normal").strip() or "normal"
+    try:
+        plan = repo_config.plan_de_modelo(carril, "constructor", documental=False)
+        modelo, esfuerzo = plan.modelo, plan.esfuerzo
+    except repo_config.RepoConfigError:
+        modelo, esfuerzo = "tabla-del-carril", "medio"
+    orden = [
+        sys.executable,
+        str(Path(__file__).with_name("subagente.py")),
+        "abrir", nombre, "--modelo", modelo, "--rol", "constructor",
+        "--esfuerzo", esfuerzo,
+    ]
+    return subprocess.run(orden, cwd=str(RAIZ), check=False).returncode
 
 
 def lanzamiento_interrumpido(manager, nombre):
@@ -3589,6 +3616,120 @@ def puerta_carril_directo(repo, nombre, carril, declarados, referencias, tipo_pr
 COMANDO_GUARDIAN_METODO = "python3 docs/00-metodo/scripts/lint_metodo.py"
 
 
+def _copiar_taller_inmutable(destino, mutacion_controlada=None):
+    """Copia una vez los datos ajenos al repo de código que comparten ambas revisiones."""
+    excluidos = {".git", ".runtime", ".private", "main", "worktrees", "__pycache__"}
+
+    def ignorar(_ruta, nombres):
+        return [nombre for nombre in nombres if nombre in excluidos]
+
+    shutil.copytree(RAIZ, destino, ignore=ignorar)
+    if mutacion_controlada:
+        mutacion_controlada(destino)
+    huella = hashlib.sha256()
+    for ruta in sorted(p for p in destino.rglob("*") if p.is_file()):
+        huella.update(ruta.relative_to(destino).as_posix().encode("utf-8"))
+        huella.update(ruta.read_bytes())
+    return huella.hexdigest()
+
+
+def _revisar_guardian_en_commit(repo, revision, snapshot):
+    """Ejecuta el linter de una revisión sobre una copia del mismo taller."""
+    snapshot, snapshot_id = snapshot
+    with tempfile.TemporaryDirectory(prefix="guardian-revision-") as tmp:
+        tmp = Path(tmp)
+        codigo = tmp / "codigo"
+        taller = tmp / "taller"
+        proceso = subprocess.run(
+            ["git", "-C", str(repo), "worktree", "add", "--detach", str(codigo), revision],
+            capture_output=True, text=True, encoding="utf-8", errors="replace", check=False,
+        )
+        if proceso.returncode:
+            raise RuntimeError((proceso.stdout + proceso.stderr).strip())
+        try:
+            shutil.copytree(snapshot, taller)
+            metodo = taller / "docs/00-metodo"
+            metodo_revision = codigo / "plantilla/docs/00-metodo"
+            # Este propio repositorio versiona el método bajo `plantilla/`; una aplicación
+            # normal no. En el segundo caso la vara pertenece al snapshot inmutable y lo
+            # único que cambia entre base/head es `main/`, que es justo lo evaluado.
+            if metodo_revision.is_dir():
+                shutil.rmtree(metodo)
+                shutil.copytree(metodo_revision, metodo)
+                for nombre in ("AGENTS.md", "CLAUDE.md", "GEMINI.md"):
+                    origen = codigo / "plantilla" / nombre
+                    if origen.is_file():
+                        shutil.copy2(origen, taller / nombre)
+            shutil.copytree(
+                codigo, taller / "main",
+                ignore=shutil.ignore_patterns(".git", "__pycache__"),
+            )
+            linter = metodo / "scripts/lint_metodo.py"
+            salida = subprocess.run(
+                [sys.executable, str(linter), "--json", "--raiz", str(taller)],
+                cwd=str(taller), capture_output=True, text=True, encoding="utf-8",
+                errors="replace", check=False,
+            )
+            try:
+                datos = json.loads(salida.stdout)
+            except ValueError as exc:
+                raise RuntimeError(
+                    f"lint_metodo.py --json devolvió JSON inválido: {salida.stdout[:200]}"
+                ) from exc
+            if datos.get("schema") != "lint-hallazgos/v1":
+                raise RuntimeError("lint_metodo.py --json devolvió un esquema desconocido")
+            return datos, snapshot_id
+        finally:
+            subprocess.run(
+                ["git", "-C", str(repo), "worktree", "remove", "--force", str(codigo)],
+                capture_output=True, check=False,
+            )
+
+
+def comparar_guardian_revisionado(repo, base_sha, head_sha, unidad, peticiones,
+                                  mutacion_controlada=None):
+    """Compara dos revisiones contra un único snapshot; crash o drift cierran la puerta."""
+    evidencia_vacia = {
+        "base_revision": str(base_sha), "head_revision": str(head_sha),
+        "snapshot_id": "invalido", "base_evaluada_en": "1970-01-01T00:00:00+00:00",
+        "head_evaluada_en": "1970-01-01T00:00:00+00:00",
+    }
+    try:
+        with tempfile.TemporaryDirectory(prefix="guardian-snapshot-") as tmp:
+            snapshot = Path(tmp) / "taller"
+            snapshot_id = _copiar_taller_inmutable(snapshot, mutacion_controlada)
+            base, id_base = _revisar_guardian_en_commit(
+                repo, base_sha, (snapshot, snapshot_id)
+            )
+            hora_base = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            head, id_head = _revisar_guardian_en_commit(
+                repo, head_sha, (snapshot, snapshot_id)
+            )
+            hora_head = datetime.datetime.now(datetime.timezone.utc).isoformat()
+            if id_base != id_head:
+                raise RuntimeError(
+                    f"drift externo entre las dos ejecuciones ({id_base} != {id_head})"
+                )
+            evidencia = {
+                "base_revision": str(base_sha), "head_revision": str(head_sha),
+                "snapshot_id": id_base, "base_evaluada_en": hora_base,
+                "head_evaluada_en": hora_head,
+            }
+            return veredicto_lint.veredicto_cierre(
+                base.get("hallazgos"), head.get("hallazgos"), unidad, peticiones,
+                evidencia=evidencia,
+            )
+    except Exception as exc:
+        evidencia_vacia["snapshot_id"] = f"fallo-{uuid.uuid4().hex[:8]}"
+        return veredicto_lint.Veredicto(
+            True, 0, f"fallo de infraestructura o drift del linter: {exc}",
+            "SALIDA: ejecuta `python3 docs/00-metodo/scripts/lint_metodo.py --json | "
+            "python3 -m json.tool` y repite la operación.",
+            {"propios": [], "nuevos": [], "ajenos_preexistentes": 0,
+             "evidencia": evidencia_vacia},
+        )
+
+
 def guardian_del_metodo(raiz=None):
     """(verde, salida) — `lint_metodo.py`, que lleva dentro el trinquete de `lint_salidas`."""
     raiz = RAIZ if raiz is None else Path(raiz)
@@ -3664,7 +3805,34 @@ def cmd_prefusion(args):
         return 1
     repo, principal = repo_codigo()
     print(f"== Antes del ff de {nombre} ==\n")
-    problemas, notas = puerta_prefusion(repo, nombre, principal)
+    problemas_entrega, avisos_entrega = entrega.exigir_entrega_constructor(nombre)
+    for aviso in avisos_entrega:
+        warn(aviso)
+    if problemas_entrega:
+        err(
+            "\n  FUSIÓN BLOQUEADA: la entrega del ayudante no está acreditada. "
+            "SALIDA: sigue el comando de cada motivo y repite "
+            "`python3 docs/00-metodo/scripts/unidad.py prefusion NNN-slug`."
+        )
+        for problema in problemas_entrega:
+            err(f"       · {problema}")
+        return 1
+    def guardian_revisionado():
+        if not (RAIZ / "docs/00-metodo/guardianes-degradados.json").is_file():
+            return guardian_del_metodo()
+        base = base_principal(repo, principal)
+        head = (sha_de(repo, f"refs/heads/{nombre}")
+                or sha_de(repo, f"refs/remotes/origin/{nombre}"))
+        if not base or not head:
+            return False, "no se pudieron resolver las dos revisiones del guardián"
+        veredicto = comparar_guardian_revisionado(
+            repo, base, head, nombre, unidad["fm"].get("peticiones") or []
+        )
+        return not veredicto.bloquea, f"{veredicto.motivo}. {veredicto.salida}"
+
+    problemas, notas = puerta_prefusion(
+        repo, nombre, principal, guardian=guardian_revisionado
+    )
     for nota in notas:
         ok(nota)
     if problemas:
@@ -4171,6 +4339,16 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
         )
         return 1
 
+    fallos_entrega, avisos_entrega = entrega.exigir_entrega_constructor(
+        nombre, {"carril": carril_real, "ejecucion": modo_real}
+    )
+    problemas.extend(fallos_entrega)
+    for aviso in avisos_entrega:
+        warn(aviso)
+    if not fallos_entrega and carril_real not in {"expres", "exprés", "directo"} \
+            and modo_real != "documental":
+        ok("entrega del constructor derivada de git")
+
     recibo_requerido = (fm.get("control_plane") or "").strip().lower() == "requerido"
     if recibo_requerido or args.recibo_control_plane:
         if not args.recibo_control_plane:
@@ -4436,6 +4614,27 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
         problemas.append(problema_directo)
     elif nota_directo:
         ok(nota_directo)
+
+    if (politica.require_merge and hay_repo and sha_fusion
+            and (RAIZ / "docs/00-metodo/guardianes-degradados.json").is_file()):
+        punta_lint = punta_a_medir(repo, nombre, principal, sha_fusion)
+        base_lint, _ = base_de_medida(
+            repo, punta_lint, principal, base_registrada
+        )
+        if base_lint and punta_lint and base_lint != punta_lint:
+            veredicto_guardian = comparar_guardian_revisionado(
+                repo, base_lint, punta_lint, nombre, referencias_peticion
+            )
+            if veredicto_guardian.bloquea:
+                problemas.append(
+                    f"los guardianes revisionados bloquean: {veredicto_guardian.motivo}. "
+                    f"{veredicto_guardian.salida}"
+                )
+            else:
+                ok(
+                    f"guardianes revisionados: {veredicto_guardian.motivo}; "
+                    f"{veredicto_guardian.agrega} ajeno(s) preexistente(s) agregado(s)"
+                )
 
     if problemas:
         err(f"\n  CIERRE BLOQUEADO ({len(problemas)}):")

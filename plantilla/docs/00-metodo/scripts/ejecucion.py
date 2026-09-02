@@ -29,6 +29,7 @@ import uuid
 from pathlib import Path
 
 import control_plane
+import entrega
 import lease as gestion_leases
 import repo_config
 import workspace_paths
@@ -1386,6 +1387,32 @@ def guardar_recibo(ruta, recibo):
     os.replace(str(temporal), str(ruta))
 
 
+def exigir_entrega_constructor(worktree, unidad, recibos, base):
+    """Compatibilidad pública de la tabla de transiciones de la reforma."""
+    return entrega.validar_entrega(worktree, unidad, recibos, base)
+
+
+def exit_de_resultado(resultado, rol, espera_cambios):
+    """El resultado semántico manda sobre el exit del harness."""
+    if resultado in {"fail", "fallo", "parado", "interrumpido"}:
+        return 1
+    if resultado == "ok_sin_trabajo" and (rol == "revisor" or espera_cambios):
+        return 1
+    return 0
+
+
+def imprimir_resultado(ruta, resultado, avisos=()):
+    """Deja RESULTADO al final para que sobreviva incluso a `| tail -3`."""
+    for aviso in avisos:
+        print(aviso, flush=True)
+    print(f"RESULTADO {ruta} · {resultado}", flush=True)
+
+
+def puerta_entrega_para_revisor(unidad):
+    """Único adaptador del lanzador a la puerta común de la entrega."""
+    return entrega.exigir_entrega_constructor(unidad)
+
+
 def checkpoint(recibo, nombre, estado, detalle):
     recibo["checkpoints"].append(
         {"nombre": nombre, "estado": estado, "detalle": detalle}
@@ -1953,14 +1980,16 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 recibo, documentos, worktree, ronda_previa, ronda_actual
             )
             guardar_recibo(ruta_recibo, recibo)
-            print(f"RESULTADO {ruta_recibo}", flush=True)
-            if aviso_ronda:
-                print(aviso_ronda, flush=True)
+            avisos = [aviso_ronda] if aviso_ronda else []
             if recibo["resultado"] == "ok_sin_trabajo":
-                print(
-                    "AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"], flush=True
-                )
-            return resultado.returncode
+                avisos.append("AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"])
+            imprimir_resultado(ruta_recibo, recibo["resultado"], avisos)
+            espera_cambios = (
+                args.rol == "revisor"
+                or (datos.get("carril") or "normal").strip().lower()
+                not in {"expres", "exprés", "directo", "documental"}
+            )
+            return exit_de_resultado(recibo["resultado"], args.rol, espera_cambios)
         finally:
             shutil.rmtree(tmp, ignore_errors=True)
 
@@ -2040,6 +2069,12 @@ def avisar_de_lanzamiento_interrumpido(manager, unidad):
 def lanzar(args):
     if not RE_NOMBRE.fullmatch(args.unidad):
         raise ErrorEjecucion("unidad inválida: se esperaba NNN-slug")
+    if args.rol == "revisor":
+        problemas, avisos = puerta_entrega_para_revisor(args.unidad)
+        for aviso in avisos:
+            print(f"AVISO {aviso}")
+        if problemas:
+            raise ErrorEjecucion("; ".join(problemas))
     manager = gestion_leases.LeaseManager(RAIZ)
     avisar_de_lanzamiento_interrumpido(manager, args.unidad)
     try:

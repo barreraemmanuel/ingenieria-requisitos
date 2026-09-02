@@ -202,7 +202,9 @@
   "AGENTS.md::Se escribe según se hace:": {
    "fichero": "AGENTS.md",
    "texto": "Se escribe según se hace:",
-   "ejecutor": null,
+   "ejecutor": "entrega.py:exigir_entrega_constructor",
+   "id": "R-ENT-01",
+   "dientes": "test_dientes_R_ENT_01",
    "por_diseno": null
   },
   "AGENTS.md::Si abres la sesión con Codex CLI, confía los hooks del método UNA vez": {

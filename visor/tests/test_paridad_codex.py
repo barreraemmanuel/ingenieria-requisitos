@@ -19,8 +19,10 @@ esta unidad corrigieron tres suposiciones de esa investigación (`hallazgos.md`)
 Los tests de aquí usan DOBLES del binario (`codex debug models`, `codex exec`): la prueba
 contra el binario real es la de sistema de R4, y su evidencia vive en `hallazgos.md`.
 """
+import contextlib
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -186,7 +188,7 @@ class CatalogoQueFallaTest(BaseCatalogo):
 
 
 # ================================================ R2 · argv de codex y recibo acreditado
-CUERPO_EXEC = """import json, os, pathlib, sys
+CUERPO_EXEC = """import json, os, pathlib, re, sys
 DESTINO = pathlib.Path(%s)
 argv = sys.argv[1:]
 DESTINO.write_text(json.dumps({'argv': argv, 'cwd': os.getcwd(),
@@ -208,6 +210,16 @@ if home and %s:
                       'payload': {'model': modelo, 'effort': esfuerzo,
                                   'approval_policy': 'never'}}) + chr(10),
         encoding='utf-8')
+encontrado = None
+for pieza in argv:
+    candidato = re.search(r'CONTRATO: (.+)', pieza)
+    if candidato:
+        encontrado = candidato
+        break
+if encontrado:
+    hallazgos = pathlib.Path(encontrado.group(1).strip()).parent / 'hallazgos.md'
+    with open(hallazgos, 'a', encoding='utf-8') as fh:
+        fh.write('\\n- [x] trabajo marcado por el doble de prueba\\n')
 """
 
 
@@ -224,7 +236,7 @@ class BaseLanzadorCodex(unittest.TestCase):
         self.ws = self.base / "demo-agents"
         scripts = self.ws / "docs/00-metodo/scripts"
         scripts.mkdir(parents=True)
-        for nombre in ("ejecucion.py", "control_plane.py", "lease.py",
+        for nombre in ("ejecucion.py", "control_plane.py", "entrega.py", "lease.py",
                        "workspace_paths.py", "repo_config.py"):
             (scripts / nombre).write_bytes((SCRIPTS / nombre).read_bytes())
         self.launcher = scripts / "ejecucion.py"
@@ -247,6 +259,9 @@ class BaseLanzadorCodex(unittest.TestCase):
         (self.main / "README.md").write_text("# demo\n", encoding="utf-8")
         self.git("add", "README.md", cwd=self.main)
         self.git("commit", "-m", "base", cwd=self.main)
+        (self.main / "BASELINE.md").write_text("base de entrega\n", encoding="utf-8")
+        self.git("add", "BASELINE.md", cwd=self.main)
+        self.git("commit", "-m", "segunda base para entregas de fixture", cwd=self.main)
         (self.ws / "worktrees").mkdir()
         self.worktree = self.ws / "worktrees" / self.unidad
         self.git("worktree", "add", str(self.worktree), "-b", self.unidad, "main",
@@ -283,7 +298,44 @@ class BaseLanzadorCodex(unittest.TestCase):
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
         return r
 
+    def sembrar_entrega_constructor(self):
+        carpeta = self.ws / ".runtime/ejecuciones"
+        carpeta.mkdir(parents=True, exist_ok=True)
+        for ruta in carpeta.glob(f"{self.unidad}-*.json"):
+            with contextlib.suppress(OSError, ValueError):
+                if json.loads(ruta.read_text(encoding="utf-8")).get("rol") == "constructor":
+                    return
+        final = self.git("rev-parse", "HEAD", cwd=self.worktree).stdout.strip()
+        principal = self.git("rev-parse", "main", cwd=self.main).stdout.strip()
+        inicial = principal if final != principal else self.git(
+            "rev-parse", f"{final}^", cwd=self.main).stdout.strip()
+        arbol_inicial = self.git(
+            "rev-parse", f"{inicial}^{{tree}}", cwd=self.main).stdout.strip()
+        arbol_final = self.git(
+            "rev-parse", f"{final}^{{tree}}", cwd=self.main).stdout.strip()
+        plan = self.ficha.parent / "hallazgos.md"
+        previas = len(re.findall(r"(?m)^\s*-\s*\[[xX]\]", plan.read_text(encoding="utf-8")))
+        with open(plan, "a", encoding="utf-8") as salida:
+            salida.write("\n- [x] entrega de fixture lista para revisión\n")
+        recibo = {
+            "schema": "ejecucion/v1", "id": "entrega-fixture", "unidad": self.unidad,
+            "harness": "subagente-del-padre", "rol": "constructor", "resultado": "ok",
+            "git": {
+                "inicial": {"head": inicial, "tree": arbol_inicial,
+                            "plan": {"marcadas": previas, "totales": previas + 1}},
+                "final": {"head": final, "tree": arbol_final,
+                          "status_porcelain": [], "materializada": False},
+            },
+            "trabajo": {"acreditado": True,
+                        "plan": {"marcadas": previas + 1, "totales": previas + 1}},
+            "exit_code": 0,
+        }
+        (carpeta / f"{self.unidad}-entrega-fixture.json").write_text(
+            json.dumps(recibo), encoding="utf-8")
+
     def ejecutar(self, *extra, rol="constructor"):
+        if rol == "revisor":
+            self.sembrar_entrega_constructor()
         return subprocess.run(
             [sys.executable, str(self.launcher), "lanzar", self.unidad,
              "--harness", "codex", "--rol", rol, *extra, "--prompt", "Haz la tarea"],
