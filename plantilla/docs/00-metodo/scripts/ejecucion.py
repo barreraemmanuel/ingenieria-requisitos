@@ -847,21 +847,45 @@ def sellar_patch_id(hallazgos, patch_id):
     return sellar_clave(hallazgos, "revisado_patch_id", patch_id)
 
 
-def sellar_firma_del_revisor(hallazgos, modelo, fecha):
+def sellar_firma_del_revisor(hallazgos, modelo_acreditado, fecha):
     """Bug 152 — la firma del revisor cuando el revisor NO puede escribirla él.
 
     Solo se usa bajo el perfil de UNA raíz (Windows): ahí la carpeta de la unidad no es
-    escribible y el agente no llega a `hallazgos.md`. La firma sale del RECIBO —el modelo
-    que el rollout acredita— y la escribe el lanzador, exactamente por la misma puerta que
-    `revisado_patch_id`. No es un auto-sello: precisamente porque la pone la máquina desde
-    una fuente que el agente no controla, sigue siendo imposible fabricarla a mano.
+    escribible y el agente no llega a `hallazgos.md`. La escribe el lanzador por la misma
+    puerta que `revisado_patch_id`.
 
-    Sin modelo acreditado no se firma: una firma inventada es peor que ninguna (ADR-029).
+    `modelo_acreditado` es lo que `acreditar()` sacó del rollout de ESA sesión, nunca lo que
+    pidió la tabla. Quien llama lo garantiza pasando `recibo["modelo_acreditado"]`, que es
+    `None` cuando el checkpoint `modelo-acreditado` salió en `warn`: sin acreditación no se
+    firma, porque una firma que dice el modelo que se PIDIÓ afirma algo que nadie comprobó,
+    y eso es exactamente lo que este campo existe para impedir (ADR-029).
     """
-    if not (modelo or "").strip():
+    if not (modelo_acreditado or "").strip():
         return False
-    return (sellar_clave(hallazgos, "revisor", modelo)
+    return (sellar_clave(hallazgos, "revisor", modelo_acreditado)
             and sellar_clave(hallazgos, "revisado", fecha))
+
+
+def firma_bajo_perfil_de_una_raiz(perfil, modelo_acreditado):
+    """(¿firmar?, modelo, aviso) — la decisión de sellar, aparte de la escritura. H1 · 152.
+
+    Vive suelta y sin efectos para que la distinción declarado/acreditado se pueda probar
+    tal cual, que es justo lo que la ronda 1 no cubría: el guard de `sellar_firma_del_revisor`
+    solo frenaba el modelo VACÍO, y por la vía normal el modelo nunca llega vacío.
+    """
+    if (perfil or {}).get("nombre") != PERFIL_REVISOR_CODEX_UNA_RAIZ:
+        return False, "", ""
+    if (modelo_acreditado or "").strip():
+        return True, modelo_acreditado.strip(), ""
+    return False, "", (
+        f"firma NO sellada: bajo el perfil {PERFIL_REVISOR_CODEX_UNA_RAIZ} el revisor no "
+        f"puede escribir la carpeta de la unidad, y el rollout de esta sesión no acredita "
+        f"con qué modelo corrió, así que el lanzador NO firma: poner el modelo que se pidió "
+        f"sería afirmar algo que nadie comprobó. La revisión hay que repetirla. {SALIDA} "
+        f"vuelve a lanzarla con `python3 docs/00-metodo/scripts/ejecucion.py lanzar <NNN-slug> "
+        f"--rol revisor --prompt \"Revisa el diff contra el contrato y firma hallazgos.md\"`; "
+        f"si vuelve a no acreditar, mira el checkpoint `modelo-acreditado` del recibo"
+    )
 
 
 def veredicto_ultimo(texto):
@@ -2127,6 +2151,10 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             # corrió de verdad, o dice que no ha podido saberlo. Nunca se inventa.
             acreditado, esfuerzo_real, fuente = acreditar(
                 args.harness, env, worktree, sesion_harness)
+            # H1 de la ronda 1 (bug 152): `modelo` NO distingue lo pedido de lo acreditado
+            # —cuando el rollout no se puede leer conserva lo que pidió la tabla—, así que
+            # nadie puede apoyarse en él para firmar. La distinción se guarda como DATO.
+            recibo["modelo_acreditado"] = acreditado or None
             if acreditado:
                 recibo["model_slug"] = acreditado
                 recibo["modelo"] = acreditado
@@ -2144,6 +2172,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                     f"el {fuente} no dice con qué modelo corrió; el recibo declara lo "
                     "pedido, no lo acredita",
                 )
+            avisos_del_lanzador = []
             if resultado.returncode == 0:
                 # R5/R6: el recibo distingue "el proceso terminó sin error" de "hubo trabajo
                 # acreditado" — una casilla nueva marcada o hallazgos.md (o la ficha del bug)
@@ -2164,11 +2193,18 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 # Bug 152 · el perfil de UNA raíz (Windows) deja al revisor sin poder tocar
                 # `hallazgos.md`. Va DESPUÉS de `huella_posterior`, como `cerrar_la_ronda`:
                 # lo que escribe el lanzador no puede contar como trabajo del agente.
+                # H1: se firma con `modelo_acreditado`, JAMÁS con `modelo` —que conserva
+                # lo pedido cuando el rollout no se deja leer—. Sin acreditación no hay
+                # firma y se dice en voz alta: la revisión se repite, no se rellena.
                 perfil = recibo.get("perfil_revisor") or {}
-                if perfil.get("nombre") == PERFIL_REVISOR_CODEX_UNA_RAIZ and documentos:
+                firmar, modelo_firma, aviso_firma = firma_bajo_perfil_de_una_raiz(
+                    perfil, recibo.get("modelo_acreditado"))
+                if aviso_firma:
+                    avisos_del_lanzador.append(aviso_firma)
+                    recibo["firma_sellada_por_el_lanzador"] = False
+                if firmar and documentos:
                     firmada = sellar_firma_del_revisor(
-                        documentos[0], recibo.get("modelo") or "",
-                        dt.date.today().isoformat())
+                        documentos[0], modelo_firma, dt.date.today().isoformat())
                     recibo["firma_sellada_por_el_lanzador"] = firmada
                     if firmada:
                         recibo["trabajo"] = {
@@ -2187,6 +2223,7 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
             )
             guardar_recibo(ruta_recibo, recibo)
             avisos = [aviso_ronda] if aviso_ronda else []
+            avisos.extend(avisos_del_lanzador)
             if recibo["resultado"] == "ok_sin_trabajo":
                 avisos.append("AVISO ok_sin_trabajo: " + recibo["trabajo"]["detalle"])
             imprimir_resultado(ruta_recibo, recibo["resultado"], avisos)

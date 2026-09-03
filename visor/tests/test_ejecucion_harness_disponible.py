@@ -178,9 +178,51 @@ class FirmaSelladaPorElLanzadorTest(unittest.TestCase):
         self.assertIn("revisor: no", self.hallazgos.read_text(encoding="utf-8"))
 
 
+# ============================== H1 de la ronda 1: firmar exige modelo ACREDITADO, no pedido
+class SoloSeFirmaConModeloAcreditadoTest(unittest.TestCase):
+    """El hueco que devolvió el revisor: `recibo["modelo"]` conserva lo que PIDIÓ la tabla
+    cuando el rollout no se deja leer (checkpoint `modelo-acreditado: warn`), así que sellar
+    desde ahí firmaba con un modelo que nadie comprobó."""
+
+    def perfil(self, nombre):
+        return {"nombre": nombre, "escribibles": ["/tmp/x"], "so": "nt"}
+
+    def test_sin_acreditacion_no_se_firma_aunque_haya_modelo_pedido(self):
+        firmar, modelo, aviso = ejecucion.firma_bajo_perfil_de_una_raiz(
+            self.perfil(ejecucion.PERFIL_REVISOR_CODEX_UNA_RAIZ), None)
+
+        self.assertFalse(firmar)
+        self.assertEqual(modelo, "")
+        self.assertIn(ejecucion.SALIDA, aviso)
+        self.assertIn("--rol revisor", aviso)
+
+    def test_con_acreditacion_se_firma_con_ese_modelo(self):
+        firmar, modelo, aviso = ejecucion.firma_bajo_perfil_de_una_raiz(
+            self.perfil(ejecucion.PERFIL_REVISOR_CODEX_UNA_RAIZ), "modelo-segundo")
+
+        self.assertTrue(firmar)
+        self.assertEqual(modelo, "modelo-segundo")
+        self.assertEqual(aviso, "")
+
+    def test_una_cadena_en_blanco_cuenta_como_no_acreditado(self):
+        firmar, _, aviso = ejecucion.firma_bajo_perfil_de_una_raiz(
+            self.perfil(ejecucion.PERFIL_REVISOR_CODEX_UNA_RAIZ), "   ")
+
+        self.assertFalse(firmar)
+        self.assertIn(ejecucion.SALIDA, aviso)
+
+    def test_bajo_el_perfil_normal_el_lanzador_no_firma_ni_avisa(self):
+        # Límite: en POSIX firma el revisor, y que el lanzador se meta sería el auto-sello.
+        firmar, _, aviso = ejecucion.firma_bajo_perfil_de_una_raiz(
+            self.perfil(ejecucion.PERFIL_REVISOR_CODEX), "modelo-segundo")
+
+        self.assertFalse(firmar)
+        self.assertEqual(aviso, "")
+
+
 # ================================================== (b) de punta a punta, con el doble de codex
-class SoloCodexInstaladoTest(BaseLanzadorCodex):
-    """El taller de Javier: Codex instalado, `claude` no. El cierre TIENE que poder revisar."""
+class BaseSoloCodex(BaseLanzadorCodex):
+    """Escenario compartido, sin casos propios: Codex instalado y `claude` en ninguna parte."""
 
     def setUp(self):
         super().setUp()
@@ -214,6 +256,10 @@ class SoloCodexInstaladoTest(BaseLanzadorCodex):
             cwd=str(self.main), env=self.env, text=True, encoding="utf-8",
             errors="replace", capture_output=True)
 
+
+class SoloCodexInstaladoTest(BaseSoloCodex):
+    """El taller de Javier: Codex instalado, `claude` no. El cierre TIENE que poder revisar."""
+
     def test_sin_claude_el_revisor_sale_igual_con_codex(self):
         resultado = self.lanzar_sin_harness()
 
@@ -239,6 +285,14 @@ class SoloCodexInstaladoTest(BaseLanzadorCodex):
         self.assertNotEqual(resultado.returncode, 0)
         self.assertIn(ejecucion.SALIDA, resultado.stderr)
         self.assertIn("--harness auto", resultado.stderr)
+
+    def test_el_recibo_separa_el_modelo_acreditado_del_pedido(self):
+        # H1: con rollout, `modelo_acreditado` existe y es el que corrió de verdad.
+        self.lanzar_sin_harness()
+
+        recibo = self.recibo()
+        self.assertEqual(recibo["modelo_acreditado"], recibo["model_slug"])
+        self.assertEqual(recibo["modelo_origen"], "harness-acreditado")
 
     def test_el_recibo_dice_bajo_que_perfil_corrio_el_revisor(self):
         self.lanzar_sin_harness()
@@ -277,6 +331,29 @@ class LaProsaNoContradiceAlLanzadorTest(unittest.TestCase):
 
         self.assertNotIn("--harness claude --rol revisor", unidad)
         self.assertNotIn("--harness claude --rol revisor", lint)
+
+
+
+class SinRolloutNoHayModeloAcreditadoTest(BaseSoloCodex):
+    """El escenario exacto de H1 con datos reales: el doble de `codex` NO escribe rollout,
+    así que `acreditar_codex` devuelve `(None, None)` y el recibo se queda DECLARANDO."""
+
+    escribe_rollout = False
+
+    def test_el_recibo_conserva_el_modelo_pedido_pero_no_lo_acredita(self):
+        self.lanzar_sin_harness()
+
+        recibo = self.recibo()
+        # Esto es lo que hacía peligroso firmar desde `modelo`: no está vacío.
+        self.assertTrue(recibo["modelo"])
+        self.assertEqual(recibo["modelo_origen"], "tabla")
+        self.assertIsNone(recibo["modelo_acreditado"])
+        # Y con ese recibo, la decisión de firmar tiene que ser NO.
+        firmar, _, aviso = ejecucion.firma_bajo_perfil_de_una_raiz(
+            {"nombre": ejecucion.PERFIL_REVISOR_CODEX_UNA_RAIZ},
+            recibo["modelo_acreditado"])
+        self.assertFalse(firmar)
+        self.assertIn(ejecucion.SALIDA, aviso)
 
 
 if __name__ == "__main__":

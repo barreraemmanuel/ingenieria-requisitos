@@ -141,8 +141,12 @@ Para verlo con los nombres de hoy: `python3 -c "import sys; sys.path.insert(0,
   de la sesión (sin él no hay `CODEX_HOME` ni rollout, o sea, no hay sesión). La carpeta de la
   unidad queda cerrada, así que la firma `revisor:`/`revisado:` la sella el **lanzador** desde
   el recibo, por la misma puerta que `revisado_patch_id`, y el recibo escribe en
-  `perfil_revisor` bajo cuál corrió. Sigue sin poder falsificarse a mano: el nombre sale del
-  modelo que el rollout acredita.
+  `perfil_revisor` bajo cuál corrió. El nombre sale del modelo **acreditado**
+  (`modelo_acreditado` del recibo, leído del rollout de esa sesión), nunca del que pidió la
+  tabla: si esa sesión no acreditó, el lanzador no firma y avisa de que hay que repetir la
+  revisión. Con todo, esto es una firma más débil que la del revisor que la escribe él: el
+  rollout vive en el temporal, que bajo este perfil es justo lo único escribible para el
+  agente. Vale como constancia de qué corrió, no como prueba anti-manipulación.
 - **Con Codex CLI, los hooks del método hay que confiarlos UNA vez.** Un hook de
   `.codex/hooks.json` no corre hasta que alguien revisa y confía su huella: `/hooks` en la sesión
   interactiva. Sin eso Codex **no los ejecuta y no te avisa**, y la sesión se queda sin canario y

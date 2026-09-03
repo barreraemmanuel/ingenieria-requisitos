@@ -169,9 +169,11 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    varios conjuntos de rutas escribibles, así que allí el revisor Codex corre bajo un perfil de
    **una sola raíz** (el temporal de la sesión) y no puede escribir `hallazgos.md`: su
    `revisor:`/`revisado:` los pone el lanzador desde el recibo —la misma puerta que
-   `revisado_patch_id`—, y el recibo deja escrito bajo qué perfil corrió. No es un auto-sello:
-   el nombre sale del modelo que el rollout acredita, que el agente no controla. El veredicto
-   sí lo dice el revisor por su salida, y se transcribe a la sección Revisión tal cual.
+   `revisado_patch_id`—, y el recibo deja escrito bajo qué perfil corrió. **Y solo firma si la
+   sesión ACREDITÓ con qué modelo corrió**: si el rollout no se deja leer, el recibo se queda
+   declarando lo que se pidió, el lanzador NO firma y lo dice — la revisión se repite, porque
+   estampar el modelo pedido sería afirmar algo que nadie comprobó. El veredicto sí lo dice el
+   revisor por su salida, y se transcribe a la sección Revisión tal cual.
 
    **Si el worktree ya no existe** (la unidad está en `en_validacion` o `mergeada` y el cierre
    se lo llevó), el mismo comando sigue valiendo: el lanzador se crea uno efímero, detached
