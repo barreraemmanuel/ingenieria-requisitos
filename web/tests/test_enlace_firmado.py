@@ -148,6 +148,25 @@ class ServidorDePrueba:
         return codigo, json.loads(cuerpo.decode("utf-8"))
 
 
+    def crudo(self, ruta):
+        """La respuesta tal cual llega por el socket, sin que nadie la interprete.
+
+        Una inyección de cabeceras se ve AQUÍ: `http.client` parsearía la cabecera
+        colada como si el servidor la hubiera querido escribir, y el test la daría por
+        buena."""
+        import socket as _socket
+        with _socket.create_connection(("127.0.0.1", self.puerto), timeout=10) as sock:
+            sock.sendall(("GET %s HTTP/1.1\r\nHost: 127.0.0.1\r\n"
+                          "Connection: close\r\n\r\n" % ruta).encode("utf-8"))
+            trozos = []
+            while True:
+                trozo = sock.recv(4096)
+                if not trozo:
+                    break
+                trozos.append(trozo)
+        return b"".join(trozos)
+
+
 class ConTaller(unittest.TestCase):
     """Un taller de mentira y la web encima, con el cliente SIEMPRE remoto: el bind
     sigue siendo local (los tests hablan por loopback) y lo que se simula es la
@@ -458,6 +477,44 @@ class LaLanLeePeroNoEscribeLoDemasTest(ConTaller):
         self.assertIn("%s=%s" % (servir.COOKIE_ENLACE, token), galleta)
         self.assertIn("HttpOnly", galleta)
         self.assertIn("SameSite=Strict", galleta)
+
+    def test_un_parametro_con_crlf_no_parte_la_respuesta(self):
+        """H1 de la ronda 2 — `send_header` compone `\"%s: %s\\r\\n\"` sin validar nada.
+
+        Si la query se rehace pegando lo que devuelve `parse_qs` (ya decodificado), un
+        `%0d%0a` en cualquier parámetro cierra la cabecera `Location` y escribe las que
+        quiera quien lo mandó. Y esto es PRE-autenticación: basta con que el parámetro
+        `enlace` exista, no hace falta que valga.
+        """
+        cruda = self.web.crudo(
+            "/contratos?%s=x&a=%%0d%%0aSet-Cookie:%%20pwn=1" % servir.PARAM_ENLACE)
+        cabeceras, _, _cuerpo = cruda.partition(b"\r\n\r\n")
+        lineas = cabeceras.split(b"\r\n")[1:]
+        nombres = [linea.split(b":", 1)[0].lower() for linea in lineas]
+        # La prueba de que la respuesta NO se partió: no hay una cabecera de más. Que
+        # el texto `pwn` siga apareciendo dentro del valor de `Location`, escapado, es
+        # justamente lo que se quiere — ahí es un dato, no una cabecera.
+        self.assertNotIn(b"set-cookie", nombres, cruda)
+        self.assertEqual([b"server", b"date", b"location", b"content-length"], nombres,
+                         cruda)
+        location = next(linea for linea in lineas if linea.lower().startswith(b"location"))
+        self.assertIn(b"%0D%0A", location.upper(), location)
+
+    def test_ninguna_cabecera_admite_un_salto_de_linea(self):
+        self.assertTrue(servir.cabecera_segura("/contratos?a=b"))
+        for veneno in ("a\r\nSet-Cookie: pwn=1", "a\nb", "a\rb", "a\0b"):
+            with self.subTest(veneno=veneno):
+                self.assertFalse(servir.cabecera_segura(veneno))
+
+    def test_los_demas_parametros_sobreviven_a_la_redireccion(self):
+        """Re-codificar no es tirar: lo que no sea el token sigue en la dirección."""
+        token = self.emitir()
+        codigo, cabeceras = self.web.pedir(
+            "/presentaciones?%s=%s&tipo=validacion" % (servir.PARAM_ENLACE, token),
+            seguir=True)
+        self.assertIn(codigo, (302, 303))
+        self.assertEqual("/presentaciones?tipo=validacion", cabeceras["Location"])
+        self.assertIn(servir.COOKIE_ENLACE, cabeceras["Set-Cookie"])
 
     def test_un_token_invalido_en_la_url_no_deja_cookie(self):
         codigo, cabeceras = self.web.pedir(

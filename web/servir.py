@@ -59,7 +59,7 @@ import threading
 import time
 import unicodedata
 from pathlib import Path
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, unquote, urlencode, urlsplit
 
 
 # Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
@@ -253,6 +253,18 @@ def consumir_enlace(fichero):
     except (OSError, ValueError):
         pass
     return True
+
+
+def cabecera_segura(valor):
+    """¿Se puede meter esto en una cabecera HTTP sin partir la respuesta?
+
+    `BaseHTTPRequestHandler.send_header` compone `"%s: %s\r\n"` y NO valida nada: un
+    CR, un LF o un NUL dentro del valor cierra la cabecera y deja escribir las que
+    quiera quien los metió (respuesta partida). Lo que venga de la petición —y en la
+    unidad 162 la petición puede venir de cualquiera de la red— se mira antes.
+    """
+    texto = str(valor)
+    return not any(caracter in texto for caracter in "\r\n\0")
 
 
 def escritura_para_lan(pedida):
@@ -1012,15 +1024,25 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False,
             `SameSite=Strict` es lo que impide que otra página de la red dispare la
             aprobación con la cookie del usuario; `HttpOnly`, que un script se la lleve.
             Un token que no vale no siembra nada: la página se sigue LEYENDO igual.
+
+            La query se rehace con `urlencode`, NUNCA pegando los valores que devuelve
+            `parse_qs`: esos vienen ya decodificados, y un `%0d%0a` en cualquier
+            parámetro acabaría partiendo la cabecera `Location` (H1 de la ronda 2). Con
+            re-codificar basta; el cinturón de `cabecera_segura` está por si mañana
+            alguien compone este destino de otra forma.
             """
             consulta = parse_qs(partes.query or "")
             token = (consulta.pop(PARAM_ENLACE, None) or [""])[0]
             recibo, _fichero, _motivo = buscar_enlace(workspace, token)
-            resto = "&".join("%s=%s" % (clave, valor)
-                             for clave, valores in sorted(consulta.items())
-                             for valor in valores)
+            resto = urlencode(sorted(consulta.items()), doseq=True)
+            destino = partes.path + ("?" + resto if resto else "")
+            if not cabecera_segura(destino) or not cabecera_segura(token):
+                return self._json(400, {"error": (
+                    "esa dirección lleva caracteres que no pueden ir en una cabecera. "
+                    "SALIDA: abre el enlace tal cual te lo dio el agente, sin añadirle "
+                    "nada")})
             self.send_response(303)
-            self.send_header("Location", partes.path + ("?" + resto if resto else ""))
+            self.send_header("Location", destino)
             if recibo is not None:
                 restante = max(1, int(float(recibo["caduca_en"]) - time.time()))
                 self.send_header("Set-Cookie", "%s=%s; Path=/; Max-Age=%d; HttpOnly; "
