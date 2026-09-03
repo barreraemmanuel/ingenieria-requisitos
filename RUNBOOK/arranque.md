@@ -241,8 +241,14 @@ cuando vivía en un único disco, y nada volvía a mencionarlo nunca.
 Así que pregúntaselo SIEMPRE, con estas palabras: "¿quieres que tu proyecto
 quede guardado en tu cuenta de GitHub, además de en este ordenador?".
 
-- **Si dice que sí**: comprueba `gh auth status` (si no hay sesión, guíale por
-  `gh auth login`) y añade `--github <su-cuenta>` — eso crea los DOS repos
+- **Si dice que sí**: antes de nada, tres comprobaciones en este orden (las
+  mismas que hace `finalizar.py --github` antes de empujar, y para con el
+  comando que falta): 1. `gh --version` (si no está: instálalo, macOS
+  `brew install gh`, Windows `winget install GitHub.cli`); 2. `gh auth status`
+  (si no hay sesión, guíale por `gh auth login`, HTTPS); 3. `gh auth setup-git`,
+  SIEMPRE tras iniciar sesión: sin él git no usa el token y el primer push muere
+  con «Password authentication is not supported». Luego añade
+  `--github <su-cuenta>` — eso crea los DOS repos
   privados (`<nombre>` para el código, `<nombre>-agents` para el meta) y deja en
   `repos.yaml` la dirección del código. Al clonar el meta, `setup.py` clona
   `origin/main` dentro de `main/` o lo actualiza si ya existe.

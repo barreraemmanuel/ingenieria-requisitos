@@ -224,8 +224,34 @@ def configurar_remoto(repo, url):
         morir("no pude configurar origin en %s:\n%s" % (repo, r.stdout))
 
 
+# Bug 158: `gh auth login` deja la sesión de gh, pero git sigue sin saber usarla hasta
+# `gh auth setup-git` (el credential helper). Sin eso, el primer push muere con «Password
+# authentication is not supported» y nadie decía qué faltaba. Las tres comprobaciones van
+# ANTES del primer push, en orden, y cada parada nombra el comando que la arregla.
+HELPER_DE_GH = "gh auth git-credential"
+
+
+def comprobar_gh_antes_de_publicar():
+    if shutil.which("gh") is None:
+        morir("--github necesita `gh` (GitHub CLI) y no está instalado.\n"
+              "  Salida: instálalo (https://cli.github.com · macOS: `brew install gh` · "
+              "Windows: `winget install GitHub.cli`), luego `gh auth login` y "
+              "`gh auth setup-git`, y repite este comando. Sin GitHub: --sin-github.")
+    sesion = ejecutar(["gh", "auth", "status"])
+    if sesion.returncode:
+        morir("`gh` está instalado pero sin sesión iniciada.\n"
+              "  Salida: `gh auth login` (elige HTTPS) y después `gh auth setup-git`; "
+              "luego repite este comando.")
+    helper = ejecutar(["git", "config", "--get-all", "credential.helper"])
+    if HELPER_DE_GH not in (helper.stdout or ""):
+        morir("git no usa la sesión de `gh` para autenticarse (falta el credential helper): "
+              "el push moriría con «Password authentication is not supported».\n"
+              "  Salida: `gh auth setup-git` y repite este comando.")
+
+
 def publicar_github(workspace, owner, nombre):
     main = workspace / "main"
+    comprobar_gh_antes_de_publicar()
     nombre_meta = nombre + "-agents"
     url_codigo = repo_github(owner, nombre)
     url_meta = repo_github(owner, nombre_meta)
