@@ -31,6 +31,7 @@ WEBS = (
     ("contratos", "/contratos", "Contratos"),
     ("presentaciones", "/presentaciones", "Entregas"),
     ("flujos", "/flujos", "Flujos"),
+    ("plan", "/plan", "Plan"),
 )
 
 
