@@ -8,6 +8,13 @@ comandos en su `AGENTS.md`. Un CI remoto solo se exige si el proyecto lo pidió 
 
 Lo que sigue vale para ese caso: un CI real para SU stack.
 
+Y una comprobación que no depende de ese contrato: `gasto-real` (unidad 163). Los ficheros
+de test del repo de código no pueden crear un cliente de un proveedor que COBRA por llamada
+(Anthropic, OpenAI, Stripe, Twilio, SendGrid… la lista editable vive en
+`docs/00-metodo/proveedores-de-pago.json`) sin mock en el módulo ni un sandbox declarado en
+`docs/01-constitucion/bias.md`: un ayudante ya le costó ~25 dólares reales al usuario corriendo
+su propia suite.
+
 No ejecuta tests ni escáneres: comprueba la interfaz común que la primera unidad crea cuando
 ya conoce lenguaje, framework y gestor de paquetes. El repo vacío es válido; un repo con
 código no puede dar verde con huecos o saltos silenciosos.
@@ -634,6 +641,228 @@ def checks_declarados_en_agents(repo):
     return "; ".join(dict.fromkeys(comandos)) if comandos else None
 
 
+# ------------------------------------------------------------------ gasto real (unidad 163)
+# Un ayudante construyendo con la clave de pago del usuario le costó ~25 dólares reales: sus
+# tests llamaban a la API de verdad y nada lo impedía ni lo detectaba. `roles.md` pone la regla
+# (los tests no llaman a servicios de pago) y esto es su ejecutor: los ficheros de test del repo
+# de código no pueden crear un cliente de un proveedor que cobra sin mock en el mismo módulo o
+# sin un sandbox declarado por el proyecto en su `bias.md`. Se mira la FORMA del test, no se
+# ejecuta nada — igual que el resto de este guardián.
+RUTA_PROVEEDORES = Path(__file__).resolve().parents[1] / "proveedores-de-pago.json"
+# Si el JSON no viajó a este workspace (método viejo), la puerta no se cae: queda la lista
+# mínima de los proveedores que de verdad causaron el incidente.
+PROVEEDORES_MINIMOS = [
+    {"id": "anthropic", "nombre": "Anthropic (API de Claude)",
+     "paquetes": ["anthropic", "@anthropic-ai/sdk"],
+     "clientes": ["Anthropic", "AsyncAnthropic"], "hosts": ["api.anthropic.com"]},
+    {"id": "openai", "nombre": "OpenAI", "paquetes": ["openai"],
+     "clientes": ["OpenAI", "AsyncOpenAI"], "hosts": ["api.openai.com"]},
+    {"id": "stripe", "nombre": "Stripe (pagos)", "paquetes": ["stripe"],
+     "clientes": ["Stripe"], "hosts": ["api.stripe.com"]},
+]
+EXT_TEST = {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}
+DIRS_IGNORADOS = {
+    ".git", ".hg", ".tox", ".venv", "venv", "env", "node_modules", "vendor", "dist",
+    "build", "target", "coverage", "__pycache__", ".next", ".nuxt", "site-packages",
+}
+DIRS_TEST = {"tests", "test", "__tests__", "spec", "specs", "e2e"}
+RE_NOMBRE_TEST = re.compile(r"^(?:test[_.-].*|.*[_.-]test|.*\.(?:test|spec))$", re.I)
+RE_DOCSTRING = re.compile(r'"""[\s\S]*?"""|\'\'\'[\s\S]*?\'\'\'')
+RE_COMENTARIO_BLOQUE = re.compile(r"/\*[\s\S]*?\*/")
+RE_LITERAL_MULTILINEA = re.compile(
+    r"'(?:\\.|[^'\\])*'|\"(?:\\.|[^\"\\])*\"|`(?:\\.|[^`\\])*`"
+)
+RE_IMPORT_PY = re.compile(r"(?m)^\s*(?:from\s+([\w.]+)\s+import\b|import\s+([\w.]+))")
+RE_IMPORT_JS = re.compile(
+    r"""(?:from|require|import)\s*\(?\s*['"]([^'"\n]+)['"]"""
+)
+# Un módulo que trae cualquiera de estas piezas ya está simulando la red: es la señal de que
+# quien escribió el test NO quiso llamar al proveedor de verdad (R2 del contrato).
+RE_MOCK = re.compile(
+    r"""(?xm)
+    \bunittest\.mock\b
+    | ^\s*import\s+mock\b
+    | ^\s*from\s+(?:unittest|unittest\.mock|mock)\s+import\b
+    | ^\s*(?:import|from)\s+(?:responses|respx|vcr|vcrpy|betamax|httpretty|aioresponses
+        |pook|pytest_httpx|pytest_recording|requests_mock|freezegun)\b
+    | \bmonkeypatch\b
+    | @(?:mock\.)?patch\b
+    | \b(?:mock\.)?patch(?:\.object)?\s*\(
+    | \b(?:Magic|Async)?Mock\s*\(
+    | \b(?:responses|respx|requests_mock|httpretty)\.\w+
+    | \b(?:jest|vi|jasmine)\.(?:mock|spyOn|fn)\s*\(
+    | \b(?:nock|fetchMock|sinon|msw|setupServer|createMock)\b
+    """
+)
+RE_IMPORT_MOCK_JS = re.compile(
+    r"""(?:from|require|import)\s*\(?\s*['"](?:nock|msw|msw/node|sinon|jest-mock|jest-fetch-mock
+        |fetch-mock|vitest-fetch-mock|@mswjs/[^'"\n]+)['"]""",
+    re.X,
+)
+RE_LLAMADA_HTTP = re.compile(
+    r"\b(?:requests|httpx|aiohttp|urlopen|urllib|http\.client|fetch|axios|got|superagent"
+    r"|base_url|baseURL|baseUrl|endpoint)\b"
+)
+RE_SANDBOX_BIAS = re.compile(r"(?mi)^[\s>*+-]*`?sandbox`?\s*:\s*\**\s*([^\n*#]+)")
+
+
+def _blanquear(encaje):
+    """Sustituye un tramo por espacios SIN perder sus saltos: la línea es la evidencia."""
+    return re.sub(r"[^\n]", " ", encaje.group(0))
+
+
+def sin_ruido(texto):
+    """El texto sin comentarios ni docstrings, conservando el número de línea (R3).
+
+    Un proveedor nombrado en un comentario, en un docstring o en una cadena de un fixture
+    grabado NO es una llamada: misma familia que el `pkill` del bug 148, donde contar
+    menciones en prosa fabricaba rojos que nadie podía arreglar.
+    """
+    texto = RE_COMENTARIO_BLOQUE.sub(_blanquear, texto)
+    texto = RE_DOCSTRING.sub(_blanquear, texto)
+    return "\n".join(
+        "" if linea.lstrip().startswith(("#", "//")) else linea
+        for linea in texto.splitlines()
+    )
+
+
+def sin_cadenas_conservando_lineas(texto):
+    return RE_LITERAL_MULTILINEA.sub(_blanquear, texto)
+
+
+def proveedores_de_pago():
+    """La lista editable del método; si no viajó, la mínima que no deja la puerta muda."""
+    try:
+        datos = json.loads(RUTA_PROVEEDORES.read_text(encoding="utf-8"))
+        proveedores = datos["proveedores"]
+    except (OSError, json.JSONDecodeError, KeyError, TypeError):
+        return PROVEEDORES_MINIMOS
+    return proveedores if isinstance(proveedores, list) and proveedores else PROVEEDORES_MINIMOS
+
+
+def es_fichero_de_test(relativa):
+    if relativa.suffix.lower() not in EXT_TEST:
+        return False
+    if any(parte in DIRS_IGNORADOS for parte in relativa.parts):
+        return False
+    if any(parte.lower() in DIRS_TEST for parte in relativa.parts[:-1]):
+        return True
+    return RE_NOMBRE_TEST.match(relativa.stem) is not None
+
+
+def ficheros_de_test(repo):
+    encontrados = []
+    for ruta in sorted(repo.rglob("*")):
+        if not ruta.is_file():
+            continue
+        relativa = ruta.relative_to(repo)
+        if es_fichero_de_test(relativa):
+            encontrados.append((relativa, ruta))
+    return encontrados
+
+
+def _paquete_encaja(importado, paquete):
+    importado, paquete = importado.strip(), paquete.strip()
+    return importado == paquete or importado.startswith(paquete + ".") \
+        or importado.startswith(paquete + "/")
+
+
+def modulo_simula_la_red(texto_sin_ruido):
+    return bool(RE_MOCK.search(texto_sin_ruido)
+                or RE_IMPORT_MOCK_JS.search(texto_sin_ruido))
+
+
+def _corte_de_comentario(linea_codigo):
+    """Dónde empieza el comentario de cola de una línea YA sin cadenas."""
+    posiciones = [p for p in (linea_codigo.find("#"), linea_codigo.find("//")) if p >= 0]
+    return min(posiciones) if posiciones else len(linea_codigo)
+
+
+def usos_de_proveedores(texto, proveedores):
+    """Líneas donde el test usa un proveedor de pago DE VERDAD: import, cliente o host.
+
+    Tres señales, y las tres miran código, nunca prosa: el import del SDK (Python o JS), el
+    nombre del cliente instanciado y el host del proveedor cuando la misma línea hace una
+    llamada HTTP —un host suelto dentro de un cassette grabado no cuenta—.
+    """
+    sin_comentarios = sin_ruido(texto)
+    lineas = sin_comentarios.splitlines()
+    codigos = sin_cadenas_conservando_lineas(sin_comentarios).splitlines()
+    encontrados = {}
+
+    def anotar(proveedor, numero):
+        previo = encontrados.get(proveedor["id"])
+        if previo is None or numero < previo:
+            encontrados[proveedor["id"]] = numero
+
+    for numero, (linea, linea_codigo) in enumerate(zip(lineas, codigos), 1):
+        corte = _corte_de_comentario(linea_codigo)
+        linea, linea_codigo = linea[:corte], linea_codigo[:corte]
+        importados = [m.group(1) or m.group(2) for m in RE_IMPORT_PY.finditer(linea)]
+        importados += RE_IMPORT_JS.findall(linea)
+        for proveedor in proveedores:
+            if any(_paquete_encaja(importado, paquete)
+                   for importado in importados
+                   for paquete in proveedor.get("paquetes", [])):
+                anotar(proveedor, numero)
+                continue
+            clientes = [re.escape(c) for c in proveedor.get("clientes", []) if c]
+            if clientes and re.search(rf"\b(?:{'|'.join(clientes)})\s*\(", linea_codigo):
+                anotar(proveedor, numero)
+                continue
+            if RE_LLAMADA_HTTP.search(linea_codigo) and any(
+                    host in linea for host in proveedor.get("hosts", [])):
+                anotar(proveedor, numero)
+    return encontrados
+
+
+def sandboxes_declarados(workspace):
+    """Los proveedores con entorno de pruebas que el proyecto declaró en su `bias.md`.
+
+    Se lee del bias por lo mismo que `ci_remoto` (ADR-035): una decisión de proveedor tiene
+    que sobrevivir a la sesión que la tomó, y en la memoria del agente no sobrevive.
+    """
+    try:
+        texto = (Path(workspace) / BIAS_RELATIVA).read_text(encoding="utf-8")
+    except OSError:
+        return set()
+    declarados = set()
+    for encaje in RE_SANDBOX_BIAS.finditer(texto):
+        for token in re.split(r"[,;\s]+", encaje.group(1)):
+            token = token.strip("`*.\'\"()").lower()
+            if token and token not in ("y", "and"):
+                declarados.add(token)
+    return declarados
+
+
+def revisar_gasto_real(repo, workspace=RAIZ):
+    """R2: ningún test del repo de código llama a un proveedor de pago sin mock ni sandbox."""
+    proveedores = proveedores_de_pago()
+    por_id = {p["id"]: p for p in proveedores}
+    declarados = sandboxes_declarados(workspace)
+    fallos = []
+    for relativa, ruta in ficheros_de_test(repo):
+        try:
+            texto = ruta.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            continue
+        if modulo_simula_la_red(sin_ruido(texto)):
+            continue
+        for pid, numero in sorted(usos_de_proveedores(texto, proveedores).items()):
+            proveedor = por_id[pid]
+            if declarados & ({pid} | {p.lower() for p in proveedor.get("paquetes", [])}):
+                continue
+            fallos.append(
+                f"gasto-real {relativa.as_posix()}:{numero}: el test usa "
+                f"{proveedor['nombre']} sin mock en el módulo ni sandbox declarado, así que "
+                f"al correr la suite se gasta dinero real del usuario. SALIDA: envuelve la "
+                f"llamada con `python3 -m unittest` + unittest.mock.patch (o responses, respx, "
+                f"vcr, jest.mock), o declara `sandbox: {pid}` en {BIAS_RELATIVA} si ese "
+                f"proveedor tiene entorno de pruebas sin coste"
+            )
+    return fallos
+
+
 def revisar(repo, require_e2e=False, require_control_plane=False,
             control_plane_allow_hosts=(), workspace=RAIZ):
     if not repo.is_dir():
@@ -641,6 +870,10 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
     if not repo_tiene_codigo(repo):
         print("  OK   repositorio todavía vacío: el CI real nacerá cuando se conozca el stack")
         return []
+    # `gasto-real` (163) NO depende del contrato de CI: un repo puede no tener workflows y
+    # aun así tener tests que llaman a un proveedor de pago. Se mide siempre y se suma a
+    # todas las salidas, incluida la degradada a WARN de deuda.
+    gasto = revisar_gasto_real(repo, workspace=workspace)
     if (not require_e2e and not require_control_plane
             and not contrato_ci_materializado(repo)):
         # R6: las puertas explícitas siempre exigen su pieza; sin ellas, un contrato
@@ -653,25 +886,25 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
             if checks:
                 print("  OK   verificación local declarada en AGENTS.md y sin CI remoto "
                       f"pedido en el bias (ADR-035); los checks son: {checks}")
-                return []
+                return gasto
             print(f"  WARN {MARCADOR_DEUDA}: este repo no declara en su AGENTS.md los checks "
                   "que corre en local antes de fusionar (tests, lint, seguridad). SALIDA: "
                   "escríbelos ahí con el comando exacto entre comillas invertidas, siguiendo "
                   "plantillas/agents-repo-codigo.md")
-            return []
+            return gasto
         detalle = (f"los checks locales declarados son: {checks}" if checks
                    else "su AGENTS.md tampoco declara los checks locales: decláralos ahí")
         print(f"  WARN {MARCADOR_DEUDA}: `ci_remoto: sí` en {BIAS_RELATIVA} pide un CI remoto "
               f"que este repo no tiene (sin scripts/ci/ ni workflows); {detalle}. SALIDA: o "
               "abre una unidad que lo materialice siguiendo runbooks/planificacion.md, o pon "
               "`ci_remoto: no` en el bias y quédate con la verificación local (ADR-035)")
-        return []
+        return gasto
     requeridos = REQUERIDOS + (("scripts/ci/e2e", "scripts/ci/provision-e2e")
                               if require_e2e else ())
     fallos = [f"falta {relativa}" for relativa in requeridos
               if not (repo / relativa).is_file()]
     if fallos:
-        return fallos
+        return fallos + gasto
     fallos = revisar_workflows(repo) + revisar_scripts(repo) + revisar_agents(repo)
     if require_e2e:
         fallos += revisar_e2e(repo)
@@ -680,7 +913,7 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
         required=require_control_plane,
         trusted_allow_hosts=control_plane_allow_hosts,
     )
-    return fallos
+    return fallos + gasto
 
 
 def main():

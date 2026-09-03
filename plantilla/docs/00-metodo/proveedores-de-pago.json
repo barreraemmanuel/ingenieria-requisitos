@@ -1,0 +1,82 @@
+{
+ "_porque": "Los proveedores externos que COBRAN por llamada. Un test que llama a uno de verdad gasta dinero del usuario sin que el usuario lo sepa: eso ya pasó (unos 25 dólares de la API de Claude) y nada en el método lo detectaba. `lint_ci.py` cruza esta lista con los ficheros de test del repo de código y exige mock o un sandbox declarado en docs/01-constitucion/bias.md. La lista se EDITA aquí: añadir un proveedor no toca ningún script.",
+ "proveedores": [
+  {
+   "id": "anthropic",
+   "nombre": "Anthropic (API de Claude)",
+   "paquetes": ["anthropic", "@anthropic-ai/sdk", "anthropic-bedrock"],
+   "clientes": ["Anthropic", "AsyncAnthropic", "AnthropicBedrock", "AnthropicVertex"],
+   "hosts": ["api.anthropic.com"]
+  },
+  {
+   "id": "openai",
+   "nombre": "OpenAI",
+   "paquetes": ["openai", "@openai/agents", "llama_index.llms.openai"],
+   "clientes": ["OpenAI", "AsyncOpenAI", "AzureOpenAI", "ChatOpenAI"],
+   "hosts": ["api.openai.com"]
+  },
+  {
+   "id": "google-genai",
+   "nombre": "Google Gemini",
+   "paquetes": ["google.generativeai", "google.genai", "@google/generative-ai"],
+   "clientes": ["GenerativeModel", "GoogleGenerativeAI"],
+   "hosts": ["generativelanguage.googleapis.com"]
+  },
+  {
+   "id": "mistral",
+   "nombre": "Mistral AI",
+   "paquetes": ["mistralai", "@mistralai/mistralai"],
+   "clientes": ["MistralClient", "Mistral"],
+   "hosts": ["api.mistral.ai"]
+  },
+  {
+   "id": "cohere",
+   "nombre": "Cohere",
+   "paquetes": ["cohere", "cohere-ai"],
+   "clientes": ["ClientV2"],
+   "hosts": ["api.cohere.ai", "api.cohere.com"]
+  },
+  {
+   "id": "stripe",
+   "nombre": "Stripe (pagos)",
+   "paquetes": ["stripe", "@stripe/stripe-js"],
+   "clientes": ["Stripe", "StripeClient"],
+   "hosts": ["api.stripe.com"]
+  },
+  {
+   "id": "twilio",
+   "nombre": "Twilio (SMS y voz)",
+   "paquetes": ["twilio"],
+   "clientes": ["TwilioClient"],
+   "hosts": ["api.twilio.com"]
+  },
+  {
+   "id": "sendgrid",
+   "nombre": "SendGrid (correo)",
+   "paquetes": ["sendgrid", "@sendgrid/mail"],
+   "clientes": ["SendGridAPIClient"],
+   "hosts": ["api.sendgrid.com"]
+  },
+  {
+   "id": "aws-ses",
+   "nombre": "AWS SES (correo)",
+   "paquetes": ["@aws-sdk/client-ses", "@aws-sdk/client-sesv2"],
+   "clientes": ["SESClient", "SESv2Client"],
+   "hosts": ["email.us-east-1.amazonaws.com", "ses.us-east-1.amazonaws.com"]
+  },
+  {
+   "id": "mailgun",
+   "nombre": "Mailgun (correo)",
+   "paquetes": ["mailgun", "mailgun.client", "mailgun.js"],
+   "clientes": ["MailgunClient"],
+   "hosts": ["api.mailgun.net"]
+  },
+  {
+   "id": "resend",
+   "nombre": "Resend (correo)",
+   "paquetes": ["resend"],
+   "clientes": ["Resend"],
+   "hosts": ["api.resend.com"]
+  }
+ ]
+}

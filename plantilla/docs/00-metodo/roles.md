@@ -53,6 +53,15 @@ desplegar ni saltarse el límite del rol; después se sigue `runbooks/peticiones
   antes el apartado de contratos de la web en el mismo turno — `python3 main/web/abrir.py
   --workspace . --apartado contratos` — igual que ANALISTA DE FLUJOS abre el de flujos
   para los planos. Es la MISMA web: los cuatro apartados van en el mismo puerto.
+- **Sin gasto real (unidad 163):** **los tests no llaman a servicios de pago.** Toda llamada a
+  un proveedor externo dentro de un test va con mock (`unittest.mock.patch`, `responses`,
+  `respx`, `vcr`, `jest.mock`…) o contra un entorno de pruebas declarado como
+  `sandbox: <proveedor>` en `docs/01-constitucion/bias.md`; **las credenciales de pago no
+  entran en el entorno del constructor**. Quien lo ejecuta es `lint_ci.py` (comprobación
+  `gasto-real`, antes del merge): un test que crea un cliente de la lista de
+  `docs/00-metodo/proveedores-de-pago.json` sin mock ni sandbox es FAIL con fichero y línea.
+  No es prosa preventiva: correr la suite con la clave del usuario ya le costó ~25 dólares
+  reales, y el agente lo negó hasta que una auditoría lo demostró.
 - **Cadencia:** una sesión por unidad (o por fase de proyecto). Al arrancar: `ESTADO.md`.
   Al terminar algo relevante: actualizar `ESTADO.md` antes de cerrar sesión.
 

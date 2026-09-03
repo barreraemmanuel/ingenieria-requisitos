@@ -163,6 +163,10 @@ METODO_RAIZ = (
     # arriba: `unidad.py despachar` y `ejecucion.py` la LEEN, así que sin ella el workspace
     # nace con la puerta del carril directo sin nada contra lo que comparar.
     "senales-de-riesgo.json",
+    # Y la lista de proveedores que cobran (unidad 163): `lint_ci.py` la LEE para su
+    # comprobación `gasto-real`. Sin ella el workspace nace con una lista mínima de
+    # emergencia y el proyecto no puede añadir su proveedor sin tocar un script.
+    "proveedores-de-pago.json",
 )
 ARCHIVOS_METODO = tuple(
     [*METODO_RAIZ]
