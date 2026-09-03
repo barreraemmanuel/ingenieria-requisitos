@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""La web del método: UN servidor, UNA dirección, cuatro apartados (unidad 081).
+"""La web del método: UN servidor, UNA dirección, cinco apartados (unidad 081).
 
 Hasta la 080 había cuatro webs en cuatro puertos, con tres lanzadores y una barra
 que enlazaba a `http://127.0.0.1:8766/` y compañía: navegar entre ellas era saltar
@@ -9,6 +9,7 @@ de servidor. Aquí hay un solo `ThreadingHTTPServer` y una tabla de prefijos:
     GET /contratos              los contratos de trabajo
     GET /presentaciones         la validación guiada (la última, o /<unidad>)
     GET /flujos                 los planos de la aplicación
+    GET /plan                   la investigación y la planificación (unidad 155)
     GET /<apartado>/<dato>      los datos de ese apartado, tal cual los daba su visor
     GET /render.js /base.css    el motor de bloques y la hoja común, una sola copia
     GET /meta.json              identidad del servicio, para `abrir.py`
@@ -49,8 +50,9 @@ import socket
 import sys
 import threading
 import time
+import unicodedata
 from pathlib import Path
-from urllib.parse import parse_qs, urlsplit
+from urllib.parse import parse_qs, unquote, urlsplit
 
 
 # Windows: la salida por PIPE hereda cp1252 y los acentos salen como mojibake.
@@ -163,7 +165,7 @@ def escribir_rastro_aprobacion(workspace, que, ruta, huella, cliente, extra=None
         return None
     return destino
 
-# Los cuatro apartados, en el orden de la barra común (desde la 076):
+# Los apartados, en el orden de la barra común (desde la 076; cinco desde la 155):
 # (clave, ruta, rótulo, marca de la cabecera).
 # Unidad 121: los rótulos son los que lee una persona que no conoce el método.
 # «Tablero» no decía qué era ni que fuese la portada; «Presentaciones» no decía
@@ -174,8 +176,30 @@ APARTADOS = (
     ("contratos", "/contratos", "Contratos"),
     ("presentaciones", "/presentaciones", "Entregas"),
     ("flujos", "/flujos", "Flujos"),
+    ("plan", "/plan", "Plan"),
 )
 CLAVES = tuple(clave for clave, _, _ in APARTADOS)
+
+# ------------------------------------------------ unidad 155: el apartado «Plan»
+# Las dos fases anteriores al código vivían sólo en dos ficheros que hay que saber
+# abrir. Aquí se leen en la misma web que los flujos y los contratos: la síntesis
+# de lo investigado (fase 3) y el plan por delante (fase 4). Sólo lectura — de este
+# apartado no cuelga ninguna escritura, y por eso no aparece en `es_escritura`.
+# (clave, rótulo, ruta en el taller, número de fase, runbook que lo escribe)
+DOCUMENTOS_PLAN = (
+    ("sintesis", "Investigación", "docs/03-investigacion/SINTESIS.md", 3,
+     "runbooks/investigacion.md"),
+    ("roadmap", "Planificación", "docs/04-planificacion/ROADMAP.md", 4,
+     "runbooks/planificacion.md"),
+)
+CARPETA_INFORMES = "docs/03-investigacion"
+AVISO_SIN_DOCUMENTO = "todavía no existe: lo escribe la fase %d (`%s`)"
+# El rechazo dice cómo salir: la lista de rechazos sin salida no crece (lint_salidas.py).
+SALIDA_FUERA_DE_DOCS = (
+    "aquí sólo se leen los .md de docs/ de este taller, y ése no lo es. SALIDA: "
+    "vuelve al apartado Plan (/plan) y abre los enlaces de la propia página")
+TITULO_MD = re.compile(r"^#\s+(.+)$", re.M)
+SECCION_MD = re.compile(r"^##\s+(.+)$", re.M)
 
 # Dónde vive el módulo de datos y su plantilla, en los DOS layouts posibles: en el
 # repo de código cada visor conserva su carpeta; en el workspace del alumno todo
@@ -277,11 +301,22 @@ def _entre(texto, marca):
     return texto[i + len(inicio):j]
 
 
+def _sin_bloque(texto, marca):
+    """El documento sin la región `<!-- apartado:X -->…<!-- /apartado:X -->`."""
+    inicio = "<!-- apartado:%s -->" % marca
+    fin = "<!-- /apartado:%s -->" % marca
+    i = texto.find(inicio)
+    j = texto.find(fin)
+    if i < 0 or j < 0:
+        return texto
+    return texto[:i] + texto[j + len(fin):]
+
+
 def barra(actual, cascara=None):
-    """La barra común de los cuatro apartados, con el actual marcado.
+    """La barra común de los apartados, con el actual marcado.
 
     El marcado sale de `<template id="barra-comun">` de la cáscara: un solo sitio
-    donde están escritos los cuatro enlaces, y son rutas relativas del mismo
+    donde están escritos los enlaces, y son rutas relativas del mismo
     origen (R2). Aquí sólo se marca cuál se está sirviendo.
     """
     texto = cascara if cascara is not None else CASCARA.read_text(encoding="utf-8")
@@ -304,12 +339,21 @@ def pagina(actual, base, cuerpo_alternativo=None, titulo=None,
     tres piezas que la cáscara monta: estilos propios, cuerpo y guion.
     """
     cascara = CASCARA.read_text(encoding="utf-8")
-    if cuerpo_alternativo is None:
-        plantilla = ruta_plantilla(actual).read_text(encoding="utf-8")
-        piezas = {marca: _entre(plantilla, marca) for marca in MARCADORES}
-    else:
+    if cuerpo_alternativo is not None:
         piezas = {"estilos": "", "barra": "", "cuerpo": cuerpo_alternativo,
                   "guion": ""}
+    elif actual == "plan":
+        # El único apartado sin visor propio detrás (unidad 155): no tiene datos de
+        # nadie más que los dos .md del taller, así que su sección vive en la cáscara,
+        # con los mismos marcadores que usan las cuatro plantillas.
+        piezas = {marca: _entre(_entre(cascara, "plan"), marca)
+                  for marca in MARCADORES}
+    else:
+        plantilla = ruta_plantilla(actual).read_text(encoding="utf-8")
+        piezas = {marca: _entre(plantilla, marca) for marca in MARCADORES}
+    # Se sirva el apartado que se sirva, la sección de Plan sale de la cáscara: es
+    # la FUENTE de esa página, no contenido de las otras cuatro.
+    cascara = _sin_bloque(cascara, "plan")
     contexto = json.dumps({"apartado": actual, "base": base,
                            "solo_lectura": bool(solo_lectura)}, ensure_ascii=False)
     nav = barra(actual, cascara)
@@ -350,9 +394,10 @@ CUERPO_SIN_PLANOS = """
       <main class="panel">
         <div class="vacio">Aquí no hay planos que enseñar todavía. Cuando el analista
         de flujos escriba el mapa, este apartado se llena solo. Mientras tanto, los
-        otros tres apartados funcionan: <a href="/">Inicio</a>,
-        <a href="/contratos">Contratos</a> y
-        <a href="/presentaciones">Presentaciones</a>.</div>
+        otros apartados funcionan: <a href="/">Inicio</a>,
+        <a href="/contratos">Contratos</a>,
+        <a href="/presentaciones">Presentaciones</a> y
+        <a href="/plan">Plan</a>.</div>
       </main>
     </div>
   </div>
@@ -365,7 +410,7 @@ CUERPO_404 = """
       <!-- apartado:barra -->
       <div class="marca">ingeniería de requisitos</div>
       <h1>Aquí no hay nada</h1>
-      <div class="sub">La dirección <code>%s</code> no es ninguno de los cuatro apartados.</div>
+      <div class="sub">La dirección <code>%s</code> no es ninguno de los apartados.</div>
     </header>
     <div class="cuerpo">
       <main class="panel">
@@ -438,6 +483,102 @@ def indice_presentaciones(workspace):
                        "montada": int(manifiesto.stat().st_mtime)})
     salida.sort(key=lambda x: x["montada"], reverse=True)
     return salida
+
+
+# ----------------------------------------- unidad 155: los datos del apartado Plan
+
+def _ancla(titulo, usadas):
+    """El ancla de una sección del índice: minúsculas, sin tildes y única."""
+    plano = unicodedata.normalize("NFKD", titulo)
+    plano = "".join(c for c in plano if not unicodedata.combining(c))
+    base = re.sub(r"[^a-z0-9]+", "-", plano.lower()).strip("-") or "seccion"
+    veces = usadas.get(base, 0)
+    usadas[base] = veces + 1
+    return base if not veces else "%s-%d" % (base, veces + 1)
+
+
+def secciones_md(texto):
+    """Los `##` de un documento, que son las entradas del índice lateral (R2)."""
+    usadas = {}
+    return [{"titulo": t.strip(), "ancla": _ancla(t.strip(), usadas)}
+            for t in SECCION_MD.findall(texto)]
+
+
+def titulo_md(texto, por_defecto):
+    hallado = TITULO_MD.search(texto)
+    return hallado.group(1).strip() if hallado else por_defecto
+
+
+def documentos_plan(workspace):
+    """Los dos documentos de las fases 3 y 4, existan o no (R2 y R3).
+
+    Si uno falta, el apartado NO se cae: viaja igual, con `existe: false` y el aviso
+    que dice quién lo escribe. Un taller recién montado es el caso normal, no un error.
+    """
+    salida = []
+    for clave, rotulo, relativo, fase, runbook in DOCUMENTOS_PLAN:
+        dato = {"clave": clave, "rotulo": rotulo, "ruta": relativo, "fase": fase,
+                "titulo": rotulo, "existe": False, "markdown": "", "secciones": [],
+                "aviso": AVISO_SIN_DOCUMENTO % (fase, runbook)}
+        try:
+            texto = (Path(workspace) / relativo).read_text(encoding="utf-8")
+        except OSError:
+            salida.append(dato)
+            continue
+        dato.update({"existe": True, "aviso": "", "markdown": texto,
+                     "titulo": titulo_md(texto, rotulo),
+                     "secciones": secciones_md(texto)})
+        salida.append(dato)
+    return salida
+
+
+def informes_plan(workspace):
+    """Los demás `.md` de `docs/03-investigacion/`: los informes que la síntesis cita.
+
+    Se listan para que se abran desde el propio apartado, sin salir de la web y sin
+    tener que encontrar la carpeta. Sólo el primer nivel: las subcarpetas de una
+    investigación son su material de trabajo (corpus, notas sueltas) y llenarían el
+    índice de entradas que nadie busca. Lo que la síntesis enlace, aunque esté
+    dentro de una de ellas, se sigue abriendo igual por `/plan/doc/<ruta>`.
+    """
+    raiz = Path(workspace) / CARPETA_INFORMES
+    sintesis = DOCUMENTOS_PLAN[0][2]
+    salida = []
+    if not raiz.is_dir():
+        return salida
+    for ruta in sorted(raiz.glob("*.md")):
+        try:
+            relativa = ruta.relative_to(Path(workspace)).as_posix()
+            texto = ruta.read_text(encoding="utf-8")
+        except (OSError, ValueError):
+            continue
+        if relativa == sintesis:
+            continue
+        salida.append({"ruta": relativa, "titulo": titulo_md(texto, ruta.stem)})
+    return salida
+
+
+def datos_plan(workspace):
+    return {"documentos": documentos_plan(workspace),
+            "informes": informes_plan(workspace)}
+
+
+def documento_en_docs(workspace, relativo):
+    """El `.md` de `docs/` que se pide, o `None` si cae fuera (R2, R3).
+
+    `realpath` en los DOS lados: así no pasan ni los `..` de la ruta ni un enlace
+    simbólico que apunte fuera del taller. Lo que no acabe en `.md` tampoco pasa:
+    este apartado sirve documentos, no ficheros.
+    """
+    if not relativo or not relativo.endswith(".md"):
+        return None
+    try:
+        docs = Path(os.path.realpath(str(Path(workspace) / "docs")))
+        destino = Path(os.path.realpath(str(Path(workspace) / relativo)))
+        destino.relative_to(docs)
+    except (ValueError, OSError, RuntimeError):
+        return None
+    return destino if destino.is_file() else None
 
 
 # Atributos que un handler necesita para responder sin volver a parsear la petición.
@@ -563,7 +704,39 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
                 return self._delegar("flujos", resto, metodo)
             if cual == "presentaciones":
                 return self._presentaciones(trozos, metodo)
+            if cual == "plan":
+                return self._plan(trozos, metodo, pedida)
             return self._no_esta(pedida)
+
+        def _plan(self, trozos, metodo, pedida):
+            """`/plan`, `/plan/dato` y `/plan/doc/<ruta>` (unidad 155).
+
+            Un apartado de LECTURA: cualquier método que no sea GET no existe aquí,
+            y se responde lo mismo que a una dirección inventada.
+            """
+            if metodo != "GET":
+                return self._no_esta(pedida)
+            resto = trozos[1:]
+            if not resto:
+                return self._pagina("plan", "/plan")
+            if resto == ["dato"]:
+                return self._json(200, datos_plan(workspace))
+            if resto[0] == "doc" and len(resto) > 1:
+                return self._documento_plan(unquote("/".join(resto[1:])))
+            return self._no_esta(pedida)
+
+        def _documento_plan(self, relativo):
+            """Un `.md` de `docs/`, tal cual, para que la página lo renderice (R2)."""
+            destino = documento_en_docs(workspace, relativo)
+            if destino is None:
+                return self._json(404, {"error": SALIDA_FUERA_DE_DOCS})
+            try:
+                texto = destino.read_text(encoding="utf-8")
+            except OSError:
+                return self._json(404, {"error": SALIDA_FUERA_DE_DOCS})
+            return self._json(200, {"ruta": relativo, "markdown": texto,
+                                    "titulo": titulo_md(texto, destino.stem),
+                                    "secciones": secciones_md(texto)})
 
         def _presentaciones(self, trozos, metodo):
             """`/presentaciones[/<unidad>][/<dato>]`.
@@ -883,7 +1056,7 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
             cuerpo = cuerpo.replace(
                 "Aquí no hay nada", "Todavía no hay nada que validar").replace(
                 "La dirección <code>/presentaciones</code> no es ninguno de los "
-                "cuatro apartados.",
+                "apartados.",
                 "Nadie ha lanzado aún <code>unidad.py validar</code> en este "
                 "workspace.")
             return self._html(200, pagina("presentaciones", "/presentaciones",
@@ -974,7 +1147,7 @@ def olvidar_registro(workspace, puerto):
 
 
 def main():
-    p = argparse.ArgumentParser(description="La web del método: los cuatro apartados")
+    p = argparse.ArgumentParser(description="La web del método: los cinco apartados")
     p.add_argument("--workspace", required=True,
                    help="Ruta del meta-repo (el que tiene docs/05-trabajo/)")
     p.add_argument("--planos",

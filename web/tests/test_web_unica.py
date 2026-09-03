@@ -283,20 +283,25 @@ class DatosBajoSuPrefijoTest(unittest.TestCase):
 # --------------------------------------------------------------------------- R2
 
 class BarraYVueltaAtrasTest(unittest.TestCase):
-    """R2 — DOM estático de la cáscara: los cuatro enlaces, del mismo origen."""
+    """R2 — DOM estático de la cáscara: los enlaces, del mismo origen.
+
+    Eran cuatro; desde la 155 son cinco (el apartado «Plan»). Lo que este test
+    vigila no es el número, sino que sigan siendo rutas relativas de este origen.
+    """
 
     @classmethod
     def setUpClass(cls):
         cls.cascara = (WEB / "plantilla.html").read_text(encoding="utf-8")
 
-    def test_los_cuatro_apartados_son_rutas_relativas_del_mismo_origen(self):
+    def test_los_apartados_son_rutas_relativas_del_mismo_origen(self):
         barra = re.search(r'<nav class="barra-webs".*?</nav>', self.cascara, re.S)
         self.assertIsNotNone(barra, "la cáscara no lleva la barra común")
         enlaces = re.findall(r'<a[^>]*href="([^"]+)"[^>]*data-web="([^"]+)"',
                              barra.group(0))
         self.assertEqual(
             [("/", "tablero"), ("/contratos", "contratos"),
-             ("/presentaciones", "presentaciones"), ("/flujos", "flujos")],
+             ("/presentaciones", "presentaciones"), ("/flujos", "flujos"),
+             ("/plan", "plan")],
             enlaces)
         self.assertNotIn("127.0.0.1", barra.group(0))
         self.assertNotIn("http://", barra.group(0))

@@ -12,6 +12,7 @@ es la dirección concreta a la que se abre el navegador.
     python3 web/abrir.py --workspace . --apartado presentaciones/081-una-sola-web
     python3 web/abrir.py --workspace . --apartado flujos --sin-navegador
     python3 web/abrir.py --workspace . --apartado tablero
+    python3 web/abrir.py --workspace . --apartado plan
 """
 
 import argparse
@@ -28,16 +29,18 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .servir import SERVICIO, huella_workspace
+    from .servir import CLAVES, SERVICIO, huella_workspace
 except ImportError:  # También funciona como `python3 web/abrir.py`.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from servir import SERVICIO, huella_workspace
+    from servir import CLAVES, SERVICIO, huella_workspace
 
 
 BASE = Path(__file__).resolve().parent
 PUERTO_BASE = 8770
 VARIABLE_PUERTO = "INGENIERIA_REQUISITOS_PUERTO"
-APARTADOS = ("tablero", "contratos", "presentaciones", "flujos")
+# Los apartados los declara el servidor, y este lanzador los LEE (unidad 155): con
+# la lista copiada, un apartado nuevo nacía enrutado en la web y desconocido aquí.
+APARTADOS = CLAVES
 # Bug 124 (R2): lo que se levanta para enseñar un contrato o una validación no se queda
 # vivo para siempre. Cuatro horas sin que nadie pida una página son de sobra para la
 # sesión más larga y poco para acumular visores de anteayer.

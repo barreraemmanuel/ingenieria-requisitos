@@ -17,8 +17,8 @@
 </style>
 <link rel="stylesheet" href="/base.css">
 <!-- LA CÁSCARA de la web del método (unidad 081). Una sola web, un solo puerto y
-     cuatro apartados: el tablero (la portada), los contratos, las presentaciones
-     y los flujos. Aquí vive lo COMÚN — la barra de los cuatro apartados, la marca
+     cinco apartados: el tablero (la portada), los contratos, las presentaciones,
+     los flujos y el plan. Aquí vive lo COMÚN — la barra de los apartados, la marca
      y el interruptor de tema — y `web/servir.py` encaja debajo la sección del
      apartado que toca, recortada por marcadores de su propia plantilla. Los
      estilos siguen viviendo enteros en `visor/base.css`, que se sirve en
@@ -30,11 +30,12 @@
      origen: navegar entre apartados ya no cambia de puerto ni de pestaña.
      `web/servir.py` la saca de aquí y le marca el apartado que está sirviendo. -->
 <template id="barra-comun">
-      <nav class="barra-webs" aria-label="Los cuatro apartados de la web">
+      <nav class="barra-webs" aria-label="Los apartados de la web">
         <a href="/" data-web="tablero">Inicio</a>
         <a href="/contratos" data-web="contratos">Contratos</a>
         <a href="/presentaciones" data-web="presentaciones">Entregas</a>
         <a href="/flujos" data-web="flujos">Flujos</a>
+        <a href="/plan" data-web="plan">Plan</a>
       </nav>
 </template>
 <!--{CONTEXTO}-->
@@ -81,8 +82,8 @@
 <script>
   /* R2 (unidad 081): la navegación de la web única.
 
-     Los cuatro apartados son RUTAS REALES del mismo origen (`/`, `/contratos`,
-     `/presentaciones`, `/flujos`), no cuatro puertos: la barra son enlaces de
+     Los apartados son RUTAS REALES del mismo origen (`/`, `/contratos`,
+     `/presentaciones`, `/flujos`, `/plan`), no cinco puertos: la barra son enlaces de
      verdad y la flecha atrás del navegador recorre el historial de apartados
      sola, sin que este guion tenga que interceptar nada.
 
@@ -104,7 +105,8 @@
       var primero = (camino || "/").replace(/^\/+/, "").split("/")[0];
       if (!primero) return "tablero";
       if (primero === "contratos" || primero === "presentaciones" ||
-          primero === "flujos" || primero === "tablero") return primero;
+          primero === "flujos" || primero === "tablero" ||
+          primero === "plan") return primero;
       return null;
     };
 
@@ -263,5 +265,218 @@
 <!--{CUERPO}-->
 <script src="/render.js"></script>
 <!--{GUION}-->
+<!-- apartado:plan -->
+<!-- LA SECCIÓN «PLAN» (unidad 155): la investigación y la planificación del taller.
+
+     Es el único apartado sin visor propio detrás: no tiene datos de nadie más que
+     los dos .md del taller (`docs/03-investigacion/SINTESIS.md` y
+     `docs/04-planificacion/ROADMAP.md`), así que su sección vive aquí, en la
+     cáscara, con los mismos marcadores que recorta `web/servir.py` de las otras
+     cuatro plantillas. Cuando se sirve OTRO apartado, este bloque se recorta
+     entero: es la fuente de esta página, no contenido de las demás.
+
+     Sólo lectura: aquí no hay un solo botón que escriba. El markdown lo pinta
+     `render.js`, el mismo motor de Contratos y Entregas, y no se copia ni una
+     regla de estilo: todo sale de `base.css`. -->
+<!-- apartado:cuerpo -->
+  <div class="pagina">
+    <header>
+      <button type="button" id="boton-tema" class="boton-tema" aria-label="Cambiar entre claro y oscuro"></button>
+      <!-- apartado:barra -->
+      <div class="marca">ingeniería de requisitos · investigación y planificación</div>
+      <h1>Qué se investigó y qué se planificó</h1>
+      <div class="explica">
+        Las dos fases anteriores al código, leídas aquí y no en un fichero: lo que se
+        <strong>investigó</strong> antes de decidir con qué se construye, y el
+        <strong>plan</strong> de lo que viene por delante. Esta pantalla sólo lee: no se
+        aprueba nada desde aquí.
+      </div>
+      <div class="sub" id="sub-plan">Cargando…</div>
+    </header>
+
+    <div class="cuerpo">
+      <aside class="menu-lateral" id="menu-plan" aria-label="Secciones de la investigación y del plan">
+        <div class="titulo-menu">Secciones</div>
+        <div id="indice-plan"></div>
+      </aside>
+
+      <main class="panel" id="panel-plan">
+        <div class="vacio">Cargando…</div>
+      </main>
+    </div>
+  </div>
+<!-- /apartado:cuerpo -->
+<!-- apartado:guion -->
+<script>
+(function () {
+  "use strict";
+
+  /* Los datos de este apartado cuelgan de su prefijo, como los de los otros
+     cuatro: `IR.base` lo sabe y aquí no se escribe ninguna ruta absoluta. */
+  function RUTA(sufijo) {
+    return ((window.IR && window.IR.base) || "/plan") + sufijo;
+  }
+
+  var panel = document.getElementById("panel-plan");
+  var indice = document.getElementById("indice-plan");
+  var sub = document.getElementById("sub-plan");
+  var datos = null;
+
+  function pedir(ruta) {
+    return fetch(ruta).then(function (r) {
+      return r.json().catch(function () { return {}; }).then(function (d) {
+        return { ok: r.ok, datos: d };
+      });
+    });
+  }
+
+  /* `render.js` deja pasar enlaces http(s) y anclas, y descarta las rutas locales:
+     de otro modo un enlace a un informe sacaría al lector de la web o le daría un
+     404. Aquí las rutas relativas a otro `.md` se convierten ANTES en `#doc/<ruta>`,
+     que es un ancla y por tanto sobrevive al motor, y este mismo guion la sirve. */
+  function normalizar(ruta) {
+    var partes = [];
+    ruta.split("/").forEach(function (trozo) {
+      if (!trozo || trozo === ".") return;
+      if (trozo === "..") { partes.pop(); return; }
+      partes.push(trozo);
+    });
+    return partes.join("/");
+  }
+
+  function enlazarDocumentos(texto, ruta) {
+    var carpeta = ruta.split("/").slice(0, -1).join("/");
+    return texto.replace(/\]\(([^)\s#]+\.md)\)/g, function (todo, destino) {
+      if (/^(https?:|\/|#)/.test(destino)) return todo;
+      return "](#doc/" + normalizar(carpeta + "/" + destino) + ")";
+    });
+  }
+
+  /* Un documento se parte por sus `##`: son las entradas del índice y el motor de
+     bloques no pinta encabezados de ese nivel (los `#` y `##` son el esqueleto del
+     documento, no texto). El orden es el mismo que trae el servidor en `secciones`,
+     que es de donde salen las anclas: se calculan en UN sitio, no en dos. */
+  function partir(texto) {
+    var preambulo = [];
+    var secciones = [];
+    var actual = null;
+    var titulada = false;
+    texto.split("\n").forEach(function (linea) {
+      var dos = /^##\s+(.+)$/.exec(linea);
+      if (dos) {
+        actual = { titulo: dos[1].trim(), lineas: [] };
+        secciones.push(actual);
+        return;
+      }
+      if (!actual && !titulada && /^#\s+/.test(linea)) { titulada = true; return; }
+      (actual ? actual.lineas : preambulo).push(linea);
+    });
+    return { preambulo: preambulo, secciones: secciones };
+  }
+
+  function documento(dato) {
+    var html = '<div class="md">';
+    html += "<h2>" + esc(dato.titulo || dato.rotulo) + "</h2>";
+    if (!dato.existe && dato.aviso) {
+      html += '<div class="vacio">' + esc(dato.aviso) + "</div></div>";
+      return html;
+    }
+    var partes = partir(enlazarDocumentos(dato.markdown || "", dato.ruta || ""));
+    if (partes.preambulo.join("").trim()) html += bloques(partes.preambulo);
+    partes.secciones.forEach(function (seccion, n) {
+      var ancla = (dato.secciones[n] || {}).ancla || "";
+      html += '<h3 id="' + esc(ancla) + '">' + esc(seccion.titulo) + "</h3>";
+      html += bloques(seccion.lineas);
+    });
+    return html + "</div>";
+  }
+
+  function entradaDeIndice(destino, rotulo) {
+    return '<a class="menu-item" href="' + esc(destino) + '">' +
+           '<span class="nombre">' + esc(rotulo) + "</span></a>";
+  }
+
+  function indiceDe(documentos, informes) {
+    var html = "";
+    documentos.forEach(function (d) {
+      html += '<div class="menu-grupo">' + esc(d.rotulo) + "</div>";
+      if (!d.existe) {
+        html += '<div class="vacio">todavía no está escrito</div>';
+        return;
+      }
+      if (!d.secciones.length) {
+        html += '<div class="vacio">sin secciones</div>';
+        return;
+      }
+      d.secciones.forEach(function (s) {
+        html += entradaDeIndice("#" + s.ancla, s.titulo);
+      });
+    });
+    if (informes && informes.length) {
+      html += '<div class="menu-grupo">Informes</div>';
+      informes.forEach(function (i) {
+        html += entradaDeIndice("#doc/" + i.ruta, i.titulo);
+      });
+    }
+    indice.innerHTML = html;
+  }
+
+  function pintarTaller() {
+    var informes = datos.informes || [];
+    var faltan = datos.documentos.filter(function (d) { return !d.existe; }).length;
+    panel.innerHTML = datos.documentos.map(documento).join("");
+    indiceDe(datos.documentos, informes);
+    sub.textContent = (faltan ? faltan + " de 2 fases sin escribir · " : "") +
+      informes.length + (informes.length === 1 ? " informe" : " informes") +
+      " de investigación";
+  }
+
+  function pintarDocumento(ruta) {
+    panel.innerHTML = '<div class="vacio">Abriendo…</div>';
+    pedir(RUTA("/doc/" + ruta)).then(function (r) {
+      if (!r.ok) {
+        panel.innerHTML = '<div class="vacio">' +
+          esc(r.datos.error || "no pude abrir ese documento") + "</div>";
+        indice.innerHTML = "";
+        sub.textContent = ruta;
+        return;
+      }
+      var dato = { titulo: r.datos.titulo, ruta: r.datos.ruta, existe: true,
+                   markdown: r.datos.markdown, secciones: r.datos.secciones || [] };
+      panel.innerHTML = '<p><a href="#">← volver a las dos fases</a></p>' +
+                        documento(dato);
+      indiceDe([{ rotulo: dato.titulo, existe: true, secciones: dato.secciones }],
+               datos ? datos.informes : []);
+      sub.textContent = dato.ruta;
+    });
+  }
+
+  function irAlHash() {
+    var hash = decodeURIComponent((location.hash || "").replace(/^#/, ""));
+    if (hash.indexOf("doc/") === 0) return pintarDocumento(hash.slice(4));
+    pintarTaller();
+    if (hash) {
+      var destino = document.getElementById(hash);
+      if (destino) destino.scrollIntoView();
+    }
+  }
+
+  window.addEventListener("hashchange", irAlHash);
+  if (window.IR) window.IR.alVolver = function () { irAlHash(); };
+
+  pedir(RUTA("/dato")).then(function (r) {
+    if (!r.ok) {
+      panel.innerHTML = '<div class="vacio">' +
+        esc(r.datos.error || "no pude leer las dos fases") + "</div>";
+      sub.textContent = "sin datos";
+      return;
+    }
+    datos = r.datos;
+    irAlHash();
+  });
+})();
+</script>
+<!-- /apartado:guion -->
+<!-- /apartado:plan -->
 </body>
 </html>
