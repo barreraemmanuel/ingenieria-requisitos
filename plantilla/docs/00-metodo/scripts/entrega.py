@@ -192,7 +192,7 @@ def validar_entrega(worktree, unidad, recibos, base):
             return [_problema(
                 f"la entrega del ayudante de {unidad} está ausente",
                 f"python3 docs/00-metodo/scripts/ejecucion.py lanzar {unidad} "
-                "--harness claude --rol constructor --prompt \"termina la entrega\"",
+                "--rol constructor --prompt \"termina la entrega\"",
             )], []
         return [_problema(f"ningún recibo legible acredita al constructor de {unidad}")], []
 

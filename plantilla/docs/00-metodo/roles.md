@@ -120,6 +120,14 @@ Para verlo con los nombres de hoy: `python3 -c "import sys; sys.path.insert(0,
 - **Los dos harness entregan unidades.** El despacho delegado —constructor y revisor— vale con
   `--harness claude` y con `--harness codex`; el revisor sigue sin repetir el modelo del
   constructor en ninguno de los dos.
+- **El harness no se teclea: se elige por lo que HAY instalado** (bug 152). `--harness` es
+  opcional y por defecto vale `auto`: el lanzador mira qué ejecutable existe en esta máquina y,
+  para revisar, prefiere el **distinto del que construyó** —lo leen los recibos de la unidad, no
+  la memoria de nadie—. Si solo hay uno instalado, revisa con ese: lo que hace fresca a una
+  revisión es que el agente sea nuevo y de solo lectura, no la marca del binario, y el modelo
+  distinto lo sigue garantizando esta tabla. Si no hay ninguno, el rechazo nombra cuál instalar.
+  El recibo guarda en `harness_origen` **por qué** salió ese y no el otro. Recetar `--harness
+  claude` en la prosa del cierre era justo lo que dejaba sin cerrar a un taller solo-Codex.
 - **El revisor Codex es solo-lectura DE VERDAD** (unidad 108). No por `-s read-only` —bajo ese
   sandbox el binario ignora `--add-dir` y no deja ninguna ruta escribible, así que el revisor no
   podría escribir su veredicto ni su firma—, sino por un **perfil de permisos propio** que
@@ -127,6 +135,14 @@ Para verlo con los nombres de hoy: `python3 -c "import sys; sys.path.insert(0,
   unidad (donde va la firma) y el temporal del lanzador. El cwd sigue siendo el worktree
   (ADR-022): lo que cambia es que ahí ya no puede escribir ni queriendo. El revisor Claude
   conserva su frontera de siempre (cwd correcto más disciplina del contrato).
+- **En Windows ese perfil tiene una sola raíz** (bug 152). El sandbox de Windows sin elevación
+  no garantiza varios conjuntos de rutas escribibles y `codex exec` moría con
+  `UnsupportedOperation` antes de arrancar: allí el perfil abre **una sola raíz**, el temporal
+  de la sesión (sin él no hay `CODEX_HOME` ni rollout, o sea, no hay sesión). La carpeta de la
+  unidad queda cerrada, así que la firma `revisor:`/`revisado:` la sella el **lanzador** desde
+  el recibo, por la misma puerta que `revisado_patch_id`, y el recibo escribe en
+  `perfil_revisor` bajo cuál corrió. Sigue sin poder falsificarse a mano: el nombre sale del
+  modelo que el rollout acredita.
 - **Con Codex CLI, los hooks del método hay que confiarlos UNA vez.** Un hook de
   `.codex/hooks.json` no corre hasta que alguien revisa y confía su huella: `/hooks` en la sesión
   interactiva. Sin eso Codex **no los ejecuta y no te avisa**, y la sesión se queda sin canario y

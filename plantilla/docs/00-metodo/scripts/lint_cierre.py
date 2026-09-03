@@ -72,7 +72,7 @@ APRENDIZAJES_QUIENES = ("constructor", "revisor")
 ANCLA = "revisado_patch_id"
 RE_FECHA = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 COMANDO_REVISION = ("python3 docs/00-metodo/scripts/ejecucion.py lanzar {nombre} "
-                    "--harness claude --rol revisor "
+                    "--rol revisor "
                     "--prompt \"Revisa el diff contra el contrato y firma hallazgos.md\"")
 
 # Los marcadores con que la plantilla llega: dejarlos tal cual es no haber rellenado nada.

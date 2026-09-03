@@ -14,6 +14,7 @@ el cwd correcto más la disciplina del contrato, igual que ya confía el carril 
 """
 import argparse
 import contextlib
+import datetime as dt
 import hashlib
 import json
 import os
@@ -58,6 +59,19 @@ ESTADOS_ENTREGADOS = {"en_validacion", "mergeada"}
 # Toda puerta escribe su vía de salida (ADR-029), y esa vía tiene que ARRANCAR: es lo que
 # comprueba el test de R1 contra el argparse real de cada script.
 SALIDA = "SALIDA:"
+
+# ------------------------------------------------ bug 152: el revisor sale con el harness QUE HAY
+# El cierre exigía `--harness claude` y `cierre.md` declaraba `codex` inejecutable. En un taller
+# solo-Codex eso no es una preferencia: es un cierre imposible (incidente 4f6bdaed, P1). Desde
+# aquí el harness se ELIGE por disponibilidad —el ejecutable que existe en esta máquina— y la
+# preferencia «distinto del que construyó» se resuelve con los recibos, no con la memoria de
+# nadie. Cuando solo hay uno, la revisión fresca no se cancela: sigue siendo un agente nuevo y
+# el modelo distinto lo garantiza la tabla de la regla 10 (`repo_config.plan_de_modelo`).
+HARNESS_CONOCIDOS = ("claude", "codex")
+COMO_INSTALAR = {
+    "claude": "npm install -g @anthropic-ai/claude-code",
+    "codex": "npm install -g @openai/codex",
+}
 
 # --------------------------------------------------------------- unidad 069: rondas contadas
 # El vocabulario del veredicto es CERRADO, y el patrón es LITERALMENTE el de `unidad.py`
@@ -212,7 +226,7 @@ def ficha_unidad(nombre, rol=None):
                     + (
                         f"una unidad en {estado} ya está entregada: lo que cabe sobre ella "
                         f"es REVISARLA, con `python3 docs/00-metodo/scripts/ejecucion.py "
-                        f"lanzar {nombre} --harness claude --rol revisor --prompt \"Revisa "
+                        f"lanzar {nombre} --rol revisor --prompt \"Revisa "
                         f"el diff contra el contrato y firma hallazgos.md\"`. Si de verdad "
                         f"hace falta volver a construir, el padre la devuelve a en_obra y lo "
                         f"deja escrito en la ficha"
@@ -427,6 +441,104 @@ def worktree_de_la_ejecucion(args, datos):
             )
     with _worktree_efimero(args.unidad, sha, destino) as ruta:
         yield ruta, True, origen
+
+
+def harness_conocido(valor):
+    """El harness si es un EJECUTABLE que este lanzador sabe arrancar; si no, None.
+
+    Un recibo puede traer `subagente-del-padre` (ADR-033) o cualquier etiqueta futura: eso
+    no nombra un binario, así que no sirve para decir «el otro» y no dicta preferencia.
+    """
+    valor = (valor or "").strip().lower()
+    return valor if valor in HARNESS_CONOCIDOS else None
+
+
+def harnesses_disponibles(which=None):
+    """Los harness que de verdad existen en esta máquina, en orden de preferencia."""
+    which = which or shutil.which
+    return tuple(h for h in HARNESS_CONOCIDOS if which(h))
+
+
+def harness_del_constructor(unidad):
+    """Con qué harness construyó esta unidad, según sus RECIBOS. None si no consta.
+
+    Misma fuente que `ronda_acreditada` y por el mismo motivo: los recibos los escribe el
+    lanzador y nadie los tiene en su set escribible. Manda el ÚLTIMO recibo de constructor.
+    """
+    carpeta = RAIZ / ".runtime/ejecuciones"
+    if not carpeta.is_dir():
+        return None
+    ultimo = None
+    for ruta in sorted(carpeta.glob(f"{unidad}-*.json"), key=lambda r: r.stat().st_mtime):
+        try:
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError):
+            continue
+        if not isinstance(datos, dict) or datos.get("unidad") != unidad:
+            continue
+        if str(datos.get("rol") or "").strip() != "constructor":
+            continue
+        ultimo = datos.get("harness")
+    return harness_conocido(ultimo)
+
+
+def elegir_harness(pedido, rol, unidad, disponibles=None, constructor=None):
+    """(harness, origen) de esta ejecución. `origen` va al recibo: la elección se explica.
+
+    Tres reglas, en este orden:
+
+      1. Lo que se pide a mano manda, pero tiene que EXISTIR. Si no existe, el rechazo
+         nombra el que sí está y cómo dejar que el método elija.
+      2. Sin pedir nada (`auto`, el valor por defecto) se elige entre los instalados; para
+         el revisor se prefiere el DISTINTO del que construyó, leído de su recibo.
+      3. Si solo hay uno, se usa ese —también para revisar—. La revisión fresca la define
+         que el agente sea nuevo y de solo lectura, no la marca del binario; el modelo
+         distinto lo sigue poniendo la tabla de la regla 10.
+    """
+    disponibles = tuple(disponibles) if disponibles is not None else harnesses_disponibles()
+    pedido = (pedido or "auto").strip().lower()
+    if pedido and pedido != "auto":
+        if pedido in disponibles:
+            return pedido, f"{pedido} pedido a mano con --harness"
+        otros = [h for h in disponibles if h != pedido]
+        raise ErrorEjecucion(
+            f"no encuentro el ejecutable {pedido} en esta máquina. {SALIDA} "
+            + (
+                f"lanza sin `--harness` (o con `--harness auto`) y el método revisa con "
+                f"{'/'.join(otros)}, que sí está instalado; si de verdad quieres {pedido}, "
+                f"instálalo con `{COMO_INSTALAR[pedido]}` y repite el comando"
+                if otros else
+                f"instálalo con `{COMO_INSTALAR[pedido]}` y repite el comando"
+            )
+        )
+    if not disponibles:
+        recetas = "; ".join(f"`{COMO_INSTALAR[h]}`" for h in HARNESS_CONOCIDOS)
+        raise ErrorEjecucion(
+            f"no encuentro el ejecutable de ningún harness "
+            f"({', '.join(HARNESS_CONOCIDOS)}) en esta máquina, y sin ejecutable no hay "
+            f"agente que lanzar. {SALIDA} instala uno de los dos y "
+            f"repite el comando: {recetas}. Comprueba después con "
+            f"`python3 docs/00-metodo/scripts/doctor.py`"
+        )
+    if rol == "revisor":
+        if constructor is None:
+            constructor = harness_del_constructor(unidad)
+        distintos = [h for h in disponibles if h != constructor]
+        if distintos:
+            elegido = distintos[0]
+            motivo = (
+                f"{elegido} elegido solo: distinto del harness del constructor "
+                f"({constructor})" if constructor else
+                f"{elegido} elegido solo entre los instalados ({', '.join(disponibles)})"
+            )
+            return elegido, motivo
+        elegido = disponibles[0]
+        return elegido, (
+            f"{elegido} es el único harness instalado; revisa igual (agente nuevo, solo "
+            f"lectura) y el modelo distinto lo pone la tabla de la regla 10"
+        )
+    elegido = disponibles[0]
+    return elegido, f"{elegido} elegido solo entre los instalados ({', '.join(disponibles)})"
 
 
 def plan_de_ejecucion(args, datos):
@@ -733,6 +845,23 @@ def sellar_clave(hallazgos, clave, valor):
 def sellar_patch_id(hallazgos, patch_id):
     """R1 (068) — el ancla del contenido revisado, por la misma puerta que la ronda."""
     return sellar_clave(hallazgos, "revisado_patch_id", patch_id)
+
+
+def sellar_firma_del_revisor(hallazgos, modelo, fecha):
+    """Bug 152 — la firma del revisor cuando el revisor NO puede escribirla él.
+
+    Solo se usa bajo el perfil de UNA raíz (Windows): ahí la carpeta de la unidad no es
+    escribible y el agente no llega a `hallazgos.md`. La firma sale del RECIBO —el modelo
+    que el rollout acredita— y la escribe el lanzador, exactamente por la misma puerta que
+    `revisado_patch_id`. No es un auto-sello: precisamente porque la pone la máquina desde
+    una fuente que el agente no controla, sigue siendo imposible fabricarla a mano.
+
+    Sin modelo acreditado no se firma: una firma inventada es peor que ninguna (ADR-029).
+    """
+    if not (modelo or "").strip():
+        return False
+    return (sellar_clave(hallazgos, "revisor", modelo)
+            and sellar_clave(hallazgos, "revisado", fecha))
 
 
 def veredicto_ultimo(texto):
@@ -1089,6 +1218,30 @@ def preparar_claude_home(env, home_original):
 
 
 PERFIL_REVISOR_CODEX = "revisor-solo-lectura"
+PERFIL_REVISOR_CODEX_UNA_RAIZ = "revisor-solo-lectura-una-raiz"
+
+
+def perfil_revisor_codex(directorios, temporal, so=None):
+    """(nombre del perfil, rutas escribibles) del revisor Codex, POR PLATAFORMA. Bug 152.
+
+    En POSIX son dos raíces: la carpeta de la unidad (donde el revisor firma) y el temporal
+    del lanzador (TMPDIR y el `CODEX_HOME` efímero que vive dentro; sin él la sesión no
+    escribe ni su rollout, y sin rollout no hay acreditación).
+
+    En Windows sin elevación eso NO se puede montar: el sandbox no garantiza varios
+    conjuntos de rutas escribibles y `codex exec` muere con `UnsupportedOperation` antes de
+    empezar (P-20260901-cd7b47c6, issue #114). Ahí queda UNA sola raíz, y tiene que ser el
+    temporal: sin él no hay sesión que revisar. La consecuencia se asume y se compensa —
+    bajo ese perfil el revisor no puede escribir `hallazgos.md`, así que su firma
+    (`revisor:`, `revisado:`) la sella el LANZADOR desde el recibo, igual que ya hace con
+    `revisado_patch_id`, y el recibo deja constancia de bajo qué perfil corrió.
+    """
+    escribibles = [str(ruta) for ruta in directorios]
+    if temporal is not None:
+        escribibles.append(str(temporal))
+    if (so or os.name) == "nt":
+        return PERFIL_REVISOR_CODEX_UNA_RAIZ, [str(temporal)] if temporal is not None else []
+    return PERFIL_REVISOR_CODEX, escribibles
 
 
 def opciones_de_perfil_revisor_codex(perfil, escribibles):
@@ -1118,7 +1271,7 @@ def opciones_de_perfil_revisor_codex(perfil, escribibles):
 
 
 def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lecturas=(),
-                 modelo=None, esfuerzo=None, session_id=None, temporal=None):
+                 modelo=None, esfuerzo=None, session_id=None, temporal=None, so=None):
     directorios = sorted({str(ruta.parent) for ruta in documentos})
     if harness == "claude":
         # En claude --add-dir concede acceso de HERRAMIENTAS (lectura incluida): las
@@ -1207,12 +1360,9 @@ def argv_harness(harness, ejecutable, rol, worktree, texto, documentos=(), lectu
     if rol == "revisor":
         # Unidad 108 · R3: la promesa que la 100 tuvo que retirar, cumplida por otra vía.
         # El cwd sigue siendo el worktree (ADR-022); lo que cambia es qué puede ESCRIBIR.
-        escribibles = list(directorios)
-        if temporal is not None:
-            # TMPDIR (y el CODEX_HOME efímero, que vive dentro): sin él la sesión no puede
-            # ni escribir su propio rollout, y sin rollout no hay acreditación.
-            escribibles.append(str(temporal))
-        argv.extend(opciones_de_perfil_revisor_codex(PERFIL_REVISOR_CODEX, escribibles))
+        # Bug 152: cuántas raíces caben lo decide la PLATAFORMA, no el gusto de nadie.
+        perfil, escribibles = perfil_revisor_codex(directorios, temporal, so=so)
+        argv.extend(opciones_de_perfil_revisor_codex(perfil, escribibles))
     else:
         argv.extend(("-s", "workspace-write"))
         for directorio in directorios:
@@ -1327,6 +1477,9 @@ def recibo_inicial(args, id_ejecucion, worktree, session_id, fencing, git_inicia
         "id": id_ejecucion,
         "unidad": args.unidad,
         "harness": args.harness,
+        # Bug 152: POR QUÉ este harness y no el otro. Lo que se elige solo se explica solo.
+        "harness_origen": getattr(args, "harness_origen", "") or "",
+        "perfil_revisor": None,
         "rol": args.rol,
         "modelo": modelo,
         "esfuerzo": esfuerzo,
@@ -1880,6 +2033,19 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                 session_id=sesion_harness,
                 temporal=tmp,
             )
+            # Bug 152: bajo qué perfil corrió el revisor Codex queda ESCRITO, no supuesto.
+            # Es lo que permite leer después un `hallazgos.md` sin firma del agente y saber
+            # que no falta una firma: es que la plataforma no dejó al revisor escribirla.
+            if args.harness == "codex" and args.rol == "revisor":
+                nombre_perfil, escribibles_perfil = perfil_revisor_codex(
+                    sorted({str(ruta.parent) for ruta in documentos}), tmp)
+                recibo["perfil_revisor"] = {
+                    "nombre": nombre_perfil,
+                    "escribibles": [str(ruta) for ruta in escribibles_perfil],
+                    "so": os.name,
+                }
+                checkpoint(recibo, "perfil-revisor", "ok",
+                           f"{nombre_perfil} · {len(escribibles_perfil)} raíz(ces) escribible(s)")
             contexto_ficha = (
                 _ficha_solo_lectura(ficha_bloqueada)
                 if ficha_bloqueada is not None
@@ -1995,6 +2161,25 @@ def _lanzar_bajo_lease(args, ficha, datos, manager, autoridades):
                     ),
                 }
                 recibo["resultado"] = "ok" if trabajo_acreditado else "ok_sin_trabajo"
+                # Bug 152 · el perfil de UNA raíz (Windows) deja al revisor sin poder tocar
+                # `hallazgos.md`. Va DESPUÉS de `huella_posterior`, como `cerrar_la_ronda`:
+                # lo que escribe el lanzador no puede contar como trabajo del agente.
+                perfil = recibo.get("perfil_revisor") or {}
+                if perfil.get("nombre") == PERFIL_REVISOR_CODEX_UNA_RAIZ and documentos:
+                    firmada = sellar_firma_del_revisor(
+                        documentos[0], recibo.get("modelo") or "",
+                        dt.date.today().isoformat())
+                    recibo["firma_sellada_por_el_lanzador"] = firmada
+                    if firmada:
+                        recibo["trabajo"] = {
+                            "acreditado": True,
+                            "detalle": (
+                                f"bajo el perfil {PERFIL_REVISOR_CODEX_UNA_RAIZ} el revisor "
+                                f"no puede escribir la carpeta de la unidad: la firma la "
+                                f"selló el lanzador desde el recibo"
+                            ),
+                        }
+                        recibo["resultado"] = "ok"
             else:
                 recibo["resultado"] = "fail"
             aviso_ronda = cerrar_la_ronda(
@@ -2108,6 +2293,13 @@ def lanzar(args):
     try:
         with manager.acquire(f"unit:{args.unidad}") as autoridad_unidad:
             ficha, datos = ficha_unidad(args.unidad, rol=args.rol)
+            # Bug 152: qué harness sale de aquí lo decide la MÁQUINA, no quien teclea. Va
+            # DESPUÉS de la puerta de estado (R2 de la 034: «el binario del harness se busca
+            # mucho después de validar la ficha») y ANTES de la tabla de modelos, que ya es
+            # por harness. El porqué de la elección viaja al recibo, no se queda en el chat.
+            args.harness, args.harness_origen = elegir_harness(
+                getattr(args, "harness", None), args.rol, args.unidad)
+            print(f"harness: {args.harness_origen}")
             recursos = recursos_de(datos)
             scopes_recursos = [f"resource:{ruta}" for ruta in recursos]
             contexto = (
@@ -2136,7 +2328,11 @@ def main():
     sub = parser.add_subparsers(dest="comando", required=True)
     p = sub.add_parser("lanzar", help="valida y lanza un agente en una unidad")
     p.add_argument("unidad")
-    p.add_argument("--harness", required=True, choices=("claude", "codex"))
+    p.add_argument("--harness", default="auto", choices=("claude", "codex", "auto"),
+                   help="qué agente lanzar. Por defecto `auto`: el que esté instalado en "
+                        "esta máquina, prefiriendo para el revisor el DISTINTO del que "
+                        "construyó (lo dicen los recibos). Nombrarlo a mano manda, pero "
+                        "tiene que existir")
     p.add_argument("--rol", choices=("constructor", "revisor"), default="constructor")
     p.add_argument("--skill-tecnica", action="append", default=[])
     p.add_argument("--prompt", required=True)

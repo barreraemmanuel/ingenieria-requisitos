@@ -2949,7 +2949,7 @@ def comando_revision(nombre):
     ayer sería hoy un comando que ni arranca.
     """
     return (f"python3 docs/00-metodo/scripts/ejecucion.py lanzar {nombre} "
-            f"--harness claude --rol revisor --prompt \"{PROMPT_REVISION}\"")
+            f"--rol revisor --prompt \"{PROMPT_REVISION}\"")
 
 
 def mensaje_sin_recibo_revisor(nombre):

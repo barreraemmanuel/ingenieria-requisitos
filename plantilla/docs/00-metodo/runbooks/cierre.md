@@ -152,12 +152,26 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    mapa o toca hotspots; en `directo` es además obligado, porque ahí quien construyó fue el
    padre (regla 1 de `AGENTS.md`).
 
-   Se lanza por `ejecucion.py lanzar NNN-slug --harness claude --rol revisor --prompt
+   Se lanza por `ejecucion.py lanzar NNN-slug --rol revisor --prompt
    "Revisa el diff contra el contrato y firma hallazgos.md"`. **Sin `--modelo`**: el del
-   revisor lo deriva la tabla de la regla 10 (`roles.md` §Modelo y esfuerzo del subagente), y
-   por eso mismo el harness es `claude` — `codex` queda inejecutable bajo esa regla. El perfil
-   hace read-only el código y solo permite como escritura persistente la firma derivada de esa
-   unidad; cwd, rama, modelo y esfuerzo quedan en el recibo `ejecucion/v1` (ADR-022).
+   revisor lo deriva la tabla de la regla 10 (`roles.md` §Modelo y esfuerzo del subagente).
+   **Y sin `--harness`**: el lanzador usa el que esté **disponible** en esta máquina y
+   prefiere, para revisar, el distinto del que construyó (se lo dicen los recibos, no la
+   memoria de nadie). Si solo hay uno instalado, revisa con ese: la revisión fresca la define
+   que el agente sea nuevo y de solo lectura, no la marca del binario, y el modelo distinto lo
+   sigue poniendo la tabla. Si no hay ninguno, el rechazo dice cuál instalar y cómo. Nombrar
+   uno a mano (`--harness claude`, `--harness codex`) sigue valiendo cuando lo quieras forzar.
+   El perfil hace read-only el código y solo permite como escritura persistente la firma
+   derivada de esa unidad; cwd, rama, harness, modelo y esfuerzo quedan en el recibo
+   `ejecucion/v1` (ADR-022).
+
+   **En Windows la firma la sella el lanzador.** El sandbox de Windows sin elevación no admite
+   varios conjuntos de rutas escribibles, así que allí el revisor Codex corre bajo un perfil de
+   **una sola raíz** (el temporal de la sesión) y no puede escribir `hallazgos.md`: su
+   `revisor:`/`revisado:` los pone el lanzador desde el recibo —la misma puerta que
+   `revisado_patch_id`—, y el recibo deja escrito bajo qué perfil corrió. No es un auto-sello:
+   el nombre sale del modelo que el rollout acredita, que el agente no controla. El veredicto
+   sí lo dice el revisor por su salida, y se transcribe a la sección Revisión tal cual.
 
    **Si el worktree ya no existe** (la unidad está en `en_validacion` o `mergeada` y el cierre
    se lo llevó), el mismo comando sigue valiendo: el lanzador se crea uno efímero, detached
