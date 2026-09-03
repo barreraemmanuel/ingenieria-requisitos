@@ -38,6 +38,11 @@ La señal **ya existe**: el plan de trabajo se marca casilla a casilla según se
   tamaño de la unidad ES la frecuencia del parte.
 - **Atascado se dice, no se disimula.** Dos intentos con el mismo error, o el mismo comando
   repetido, se cuentan en vez de seguir probando en silencio.
+- **El parte de un lote de retoques visuales** (`runbooks/expres.md` § Retoques visuales) es
+  **una línea por retoque: «hecho · dónde mirarlo»** (la captura o la URL de la app corriendo),
+  y el siguiente retoque no empieza hasta que el usuario ha visto ese. El cierre del lote es
+  el de exprés —merge, tests del área, borrar rama— **sin OK por la web**: el OK es el «vale»
+  del usuario sobre cada retoque visto, y queda escrito en el mensaje de commit del lote.
 
 Y un aviso que conviene tener presente: **enseñar el trabajo hace la espera más llevadera, pero
 el efecto se invierte si el resultado es malo.** Contar bien lo que se hace sube la apuesta, no

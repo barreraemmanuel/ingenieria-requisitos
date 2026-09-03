@@ -12,7 +12,8 @@ Cabe en una frase (si necesitas dos, no es exprés) **y** nadie que use la app n
 
 | SÍ | NO |
 |---|---|
-| errata en un comentario o docstring | cualquier texto que ve el usuario |
+| errata en un comentario o docstring | un texto visible que es un dato o codifica un estado (un importe, un «vencido») |
+| **retoque visual sin regla** (color, tamaño, texto visible, orden de una tabla, espaciado): **SÍ, en lote «a la vista»** (§ abajo) | un retoque que cambia comportamiento: un color que depende de una regla, un texto que era un dato calculado → **directo** |
 | formateo, orden de imports | tocar lógica, aunque sea "una línea" |
 | bump de una dependencia **de desarrollo** | cualquier dependencia de producción |
 | añadir un fichero al `.gitignore` | añadir/borrar ficheros que la app carga |
@@ -30,6 +31,28 @@ tres cosas que hacen verificable el arreglo de un bug. Si lo que llega es "esto 
 exprés mal clasificado es código sin contrato entrando en main. El escalón de al lado no es el
 ritual completo: es el **carril directo** (`runbooks/directo.md`), ficha de una pantalla y dos
 puertas, que es donde cae casi todo lo que se cuela mal por aquí.
+
+## Retoques visuales: el lote «a la vista» (unidad 159)
+
+Un retoque estético que no cambia comportamiento —color, tamaño de letra, texto visible,
+orden de una tabla, espaciado— **no espera a que el usuario pida la vía corta: el agente la
+ofrece en su primera respuesta**, con estas palabras:
+*"esto va por la vía corta: lo cambio y te lo enseño"*. Sin ficha, sin `NNN`, sin lecturas
+del router.
+
+- **Una captura por lote**, no por retoque: `peticion.py capturar` una vez con la lista de
+  retoques, y `peticion.py abrir-expres P-ID <slug>` una rama exprés para todo el lote.
+- **Cada retoque se enseña antes del siguiente** (captura o URL de la app corriendo). El
+  «vale» del usuario sobre cada uno es su OK: no hay OK por la web, y ese «vale» se escribe
+  en el mensaje de commit del lote (qué retoque, quién dijo vale).
+- **El parte del lote es una línea por retoque** —«hecho · dónde mirarlo»— y lo fija
+  `comunicacion.md` (§ El parte de avance).
+- **Cierre del lote: el de exprés** (paso 5): tests del área verdes, merge, borrar worktree y
+  rama. Nada que archivar.
+- **Caso límite:** si al hacer un retoque resulta que cambia comportamiento (un texto que era
+  un dato calculado, un color que codifica un estado con regla), el agente lo dice con esta
+  frase —*"esto cambia comportamiento: lo saco del lote y va con ficha"*—, lo saca del lote y
+  lo sube a **directo**; el lote sigue con el resto. Un bug sigue sin ser exprés nunca.
 
 ## El flujo, paso a paso
 

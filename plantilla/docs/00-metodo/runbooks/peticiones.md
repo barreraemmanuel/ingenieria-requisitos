@@ -17,6 +17,13 @@ enlaza. La cola decide qué se pidió; cada proceso conserva su contrato de cier
 
    Esto no interrumpe la unidad en vuelo. La petición queda visible en cola; prioridad y P0
    deciden si desplaza trabajo, no el mero hecho de llegar.
+   **Retoques visuales (unidad 159):** un cambio estético que no cambia comportamiento —color,
+   tamaño, texto visible, orden de una tabla, espaciado— es **exprés en lote «a la vista»**
+   (`runbooks/expres.md` § Retoques visuales): el agente decide el carril en su primera
+   respuesta y **ofrece** la vía corta él mismo, sin esperar a que el usuario la pida:
+   «esto va por la vía corta: lo cambio y te lo enseño». Una sola captura para todo el lote,
+   una rama exprés, cada retoque enseñado antes del siguiente; sin ficha ni lecturas de este
+   router. Si un retoque cambia comportamiento, sale del lote y sube a directo.
    Si una sesión muere dejando un lock, `peticion.py desbloquear P-ID` solo lo retira cuando
    el proceso local ya no existe; un lock de otro host exige `--forzar --motivo`.
 3. **Contrastar tres anclajes:** flujo aprobado, código real con SHA y conocimiento vigente.
