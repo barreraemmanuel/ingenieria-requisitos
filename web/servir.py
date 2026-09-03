@@ -27,6 +27,11 @@ un segundo escritor para el mismo fichero. Las tres exigen cliente local, y admi
 la huella de lo que se sirvió: si el fichero cambió desde entonces, se manda releer.
 Con `--solo-lectura` las tres responden 405 y ningún botón se pinta.
 
+Con `--lan` (unidad 162) el bind se abre a la red local y aparece la única forma de
+escribir desde fuera de esta máquina: un ENLACE FIRMADO de un uso, quince minutos y
+un solo contrato (o una sola entrega), que emite `web/abrir.py --lan`. Sin ese flag
+nada de esto existe y la web es exactamente la de antes.
+
 Los cuatro visores anteriores siguen siendo los dueños de sus datos y de sus
 rastros: esta cáscara IMPORTA su `hacer_handler` y le delega la petición con la
 ruta ya sin prefijo. Por eso las tres puertas duras del método (`despachar`,
@@ -39,12 +44,14 @@ Uso:
 import argparse
 import email.message
 import hashlib
+import hmac
 import http.server
 import importlib.util
 import io
 import json
 import os
 import re
+import secrets
 import signal
 import socket
 import sys
@@ -88,6 +95,179 @@ LINEA_APROBADO_POR = re.compile(r"^aprobado_por:[^\n]*$", re.M)
 CUALQUIER_APROBADO = re.compile(r"^aprobado:[^\n]*$", re.M)
 MENSAJE_RELEER = ("lo que tienes delante ya no es lo que hay en disco: relee la página "
                   "antes de aprobar (recárgala y vuelve a pulsar)")
+
+
+# ------------------------------------ unidad 162: aprobar desde la LAN con enlace firmado
+# El bind a `127.0.0.1` dejaba fuera al usuario que trabaja desde el móvil con el PC en
+# casa. `--lan` abre el bind a la red local y, a la vez, pone la llave: desde fuera de
+# esta máquina sólo se escribe con un ENLACE FIRMADO, que emite `web/abrir.py --lan`.
+#
+# Un enlace es un token aleatorio de 256 bits que:
+#   · vale para UNA cosa (un contrato o una entrega, con su huella al emitirlo),
+#   · vale UNA vez (el consumo es un `os.rename`, que es atómico),
+#   · caduca a los 15 minutos,
+#   · y JAMÁS se guarda en claro: en disco vive su SHA-256, y la comparación es en
+#     tiempo constante (`hmac.compare_digest`).
+# El recibo vive en `.runtime/`, que está fuera de git: el token no viaja a ningún sitio
+# más que al chat donde el agente se lo enseña al usuario.
+CARPETA_ENLACES = ".runtime/enlaces-lan"
+MINUTOS_ENLACE = 15
+BYTES_TOKEN = 32                      # 256 bits, muy por encima del mínimo de 128 (R1)
+VIA_LAN = "lan-enlace-firmado"
+COOKIE_ENLACE = "enlace"
+PARAM_ENLACE = "enlace"
+CABECERA_ENLACE = "X-Enlace-Firmado"
+TIPOS_ENLACE = ("contrato", "validacion")
+SUFIJO_ACTIVO = ".enlace.json"
+SUFIJO_USADO = ".usado"
+PIDE_OTRO = "SALIDA: pide al agente un enlace nuevo"
+SALIDA_SOLO_LOCAL = ("solo se aprueba desde esta máquina (127.0.0.1). SALIDA: abre la "
+                     "web en el ordenador donde corre el método y pulsa allí")
+SALIDA_NO_ES_DE_LA_LAN = ("desde la red local sólo se aprueba un contrato o se confirma "
+                          "una entrega; esto no. SALIDA: hazlo en el ordenador donde "
+                          "corre el método")
+
+
+def direccion_de_bind(lan=False):
+    """Dónde escucha la web: la red local sólo si se ha pedido (R1)."""
+    return "0.0.0.0" if lan else "127.0.0.1"
+
+
+def ip_de_la_lan():
+    """La IP de esta máquina en su red, o `None`.
+
+    Un socket UDP «conectado» no manda ni un byte: sólo hace que el sistema elija la
+    interfaz por la que saldría, que es justo la que el móvil tiene que marcar. Sin
+    dependencias y sin preguntarle a nadie de fuera.
+    """
+    for destino in (("8.8.8.8", 9), ("192.0.2.1", 9)):
+        try:
+            with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as sonda:
+                sonda.settimeout(0.3)
+                sonda.connect(destino)
+                ip = sonda.getsockname()[0]
+        except OSError:
+            continue
+        if ip and not ip.startswith("127."):
+            return ip
+    return None
+
+
+def carpeta_enlaces(workspace):
+    return Path(workspace) / CARPETA_ENLACES
+
+
+def huella_token(token):
+    """El SHA-256 con el que el token vive en disco. En claro no se guarda nunca."""
+    return hashlib.sha256(b"enlace-lan\0" + str(token).encode("utf-8")).hexdigest()
+
+
+def emitir_enlace(workspace, puerto, tipo, ref, huella, minutos=MINUTOS_ENLACE):
+    """Emite un enlace firmado y devuelve `(token, recibo)` (R1).
+
+    El token se devuelve UNA vez, aquí, para que el lanzador lo imprima: quien lo
+    pierda pide otro. En el recibo queda todo lo demás, que es lo que la puerta
+    vuelve a comprobar: para qué es, con qué contenido se emitió y hasta cuándo.
+    """
+    if tipo not in TIPOS_ENLACE:
+        raise ValueError("un enlace firmado es de %s, no de %r"
+                         % (" o de ".join(TIPOS_ENLACE), tipo))
+    if not NOMBRE_UNIDAD.match(str(ref or "")):
+        raise ValueError("el enlace se emite para una unidad (NNN-slug), no para %r"
+                         % (ref,))
+    token = secrets.token_urlsafe(BYTES_TOKEN)
+    firma = huella_token(token)
+    ahora = time.time()
+    caduca = ahora + minutos * 60
+    recibo = {"lan": "sí", "puerto": int(puerto), "tipo": tipo, "ref": str(ref),
+              "huella": str(huella), "token_sha256": firma,
+              "emitido": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(ahora)),
+              "caduca": time.strftime("%Y-%m-%dT%H:%M:%S", time.localtime(caduca)),
+              "caduca_en": caduca, "usos": 1, "usado": None}
+    carpeta = carpeta_enlaces(workspace)
+    carpeta.mkdir(parents=True, exist_ok=True)
+    try:
+        os.chmod(carpeta, 0o700)
+    except OSError:
+        pass
+    destino = carpeta / (firma[:16] + SUFIJO_ACTIVO)
+    cuerpo = json.dumps(recibo, ensure_ascii=False, indent=2) + "\n"
+    descriptor = os.open(str(destino), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    with os.fdopen(descriptor, "w", encoding="utf-8") as fichero:
+        fichero.write(cuerpo)
+    return token, destino
+
+
+def enlaces_activos(workspace):
+    """Los recibos de enlaces todavía sin gastar, tal cual están en disco."""
+    carpeta = carpeta_enlaces(workspace)
+    if not carpeta.is_dir():
+        return
+    for fichero in sorted(carpeta.glob("*" + SUFIJO_ACTIVO)):
+        try:
+            yield fichero, json.loads(fichero.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+
+
+def buscar_enlace(workspace, token):
+    """`(recibo, fichero, None)` si el token vale; `(None, None, motivo)` si no.
+
+    Se recorre la carpeta entera y se compara con `hmac.compare_digest` en vez de
+    buscar el fichero por su nombre: así el «existe / no existe» no se lee en el
+    tiempo de respuesta. Aquí NO se consume nada; consumir es un paso aparte.
+    """
+    if not token:
+        return None, None, "esta aprobación viene de fuera y no trae enlace firmado"
+    esperado = huella_token(token)
+    hallado = None
+    for fichero, recibo in enlaces_activos(workspace):
+        if hmac.compare_digest(str(recibo.get("token_sha256") or ""), esperado):
+            hallado = (fichero, recibo)
+    if hallado is None:
+        return None, None, "ese enlace no existe o ya se usó"
+    fichero, recibo = hallado
+    try:
+        vigente = time.time() <= float(recibo.get("caduca_en") or 0)
+    except (TypeError, ValueError):
+        vigente = False
+    if not vigente:
+        return None, None, "ese enlace ha caducado"
+    return recibo, fichero, None
+
+
+def consumir_enlace(fichero):
+    """Un uso y no más. El `rename` es atómico: si dos peticiones llegan a la vez,
+    exactamente una se lleva el fichero y la otra se encuentra con que ya no está."""
+    fichero = Path(fichero)
+    usado = fichero.with_name(fichero.name[:-len(SUFIJO_ACTIVO)] + SUFIJO_USADO)
+    try:
+        os.rename(str(fichero), str(usado))
+    except OSError:
+        return False
+    try:
+        recibo = json.loads(usado.read_text(encoding="utf-8"))
+        recibo["usado"] = time.strftime("%Y-%m-%dT%H:%M:%S")
+        usado.write_text(json.dumps(recibo, ensure_ascii=False, indent=2) + "\n",
+                         encoding="utf-8")
+    except (OSError, ValueError):
+        pass
+    return True
+
+
+def escritura_para_lan(pedida):
+    """Las DOS únicas escrituras que un enlace firmado puede disparar (R2 y R3).
+
+    Aprobar un contrato y confirmar una entrega. Todo lo demás que escribe la web
+    —los planos, pedir cambios, las decisiones del visor— sigue siendo de la
+    máquina donde corre el método, con token o sin él.
+    """
+    contrato = RUTA_APROBAR_CONTRATO.match(pedida)
+    if contrato:
+        return ("contrato", contrato.group(1))
+    if pedida == API_VALIDAR_OK:
+        return ("validacion", None)
+    return None
 
 
 def cliente_local(direccion):
@@ -587,7 +767,8 @@ PRESTADOS = ("rfile", "wfile", "headers", "command", "request_version",
              "connection", "raw_requestline")
 
 
-def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
+def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False,
+                  lan=False):
     workspace = str(Path(workspace).resolve())
     planos = str(Path(planos).resolve()) if planos else None
     estado = estado if estado is not None else {"ultimo": time.time()}
@@ -630,7 +811,14 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
 
         def do_GET(self):
             estado["ultimo"] = time.time()
-            pedida = urlsplit(self.path).path
+            partes = urlsplit(self.path)
+            pedida = partes.path
+            # El enlace llega en la URL porque es lo que se puede teclear en un móvil;
+            # de ahí pasa a una cookie del propio origen y se va de la barra, para que
+            # no acabe en el historial, en un `Referer` ni en una captura de pantalla.
+            if lan and not cliente_local(self.client_address) \
+                    and PARAM_ENLACE in parse_qs(partes.query or ""):
+                return self._sembrar_cookie(partes)
             if pedida == "/render.js":
                 return self._fichero(ruta_render_js(),
                                      "text/javascript; charset=utf-8")
@@ -644,6 +832,7 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
                     "workspace": workspace,
                     "huella_workspace": huella_workspace(workspace),
                     "apartados": list(CLAVES),
+                    "lan": bool(lan),
                 })
             return self._enrutar("GET", pedida)
 
@@ -652,15 +841,19 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
             pedida = urlsplit(self.path).path
             # R6 y R4: la frontera se comprueba ANTES de mirar qué se pedía, para que
             # una ruta nueva no pueda nacer por fuera de ella sin darse cuenta.
-            if es_escritura(pedida):
-                if solo_lectura:
-                    return self._json(405, {"error": (
-                        "esta web se lanzó en solo lectura (--solo-lectura): aquí no se "
-                        "aprueba nada. SALIDA: relánzala sin ese flag y vuelve a pulsar")})
-                if not cliente_local(self.client_address):
-                    return self._json(403, {"error": (
-                        "solo se aprueba desde esta máquina (127.0.0.1). SALIDA: abre la "
-                        "web en el ordenador donde corre el método y pulsa allí")})
+            self._via = None
+            self._enlace = None
+            if es_escritura(pedida) and solo_lectura:
+                return self._json(405, {"error": (
+                    "esta web se lanzó en solo lectura (--solo-lectura): aquí no se "
+                    "aprueba nada. SALIDA: relánzala sin ese flag y vuelve a pulsar")})
+            # Unidad 162: la frontera se comprueba para CUALQUIER método que escriba,
+            # no sólo para las rutas de `es_escritura`. Con la web en `0.0.0.0` una
+            # ruta nueva que escribiera quedaría abierta a toda la red sin que nadie
+            # se diera cuenta; así nace cerrada.
+            if not cliente_local(self.client_address) \
+                    and self._puerta_de_la_lan(pedida):
+                return None
             aprobar = RUTA_APROBAR_CONTRATO.match(pedida)
             if aprobar:
                 return self._aprobar_contrato(aprobar.group(1))
@@ -801,6 +994,102 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
             direccion = getattr(self, "client_address", None)
             return direccion[0] if direccion else "desconocido"
 
+        def _token_del_enlace(self):
+            """El token de esta petición: la cabecera (curl, tests) o la cookie que
+            sembró el GET (el navegador del móvil)."""
+            cabecera = (self.headers.get(CABECERA_ENLACE) or "").strip()
+            if cabecera:
+                return cabecera
+            for trozo in (self.headers.get("Cookie") or "").split(";"):
+                nombre, _, valor = trozo.strip().partition("=")
+                if nombre == COOKIE_ENLACE:
+                    return valor.strip()
+            return ""
+
+        def _sembrar_cookie(self, partes):
+            """`?enlace=<token>` → cookie del mismo origen y redirección sin el token.
+
+            `SameSite=Strict` es lo que impide que otra página de la red dispare la
+            aprobación con la cookie del usuario; `HttpOnly`, que un script se la lleve.
+            Un token que no vale no siembra nada: la página se sigue LEYENDO igual.
+            """
+            consulta = parse_qs(partes.query or "")
+            token = (consulta.pop(PARAM_ENLACE, None) or [""])[0]
+            recibo, _fichero, _motivo = buscar_enlace(workspace, token)
+            resto = "&".join("%s=%s" % (clave, valor)
+                             for clave, valores in sorted(consulta.items())
+                             for valor in valores)
+            self.send_response(303)
+            self.send_header("Location", partes.path + ("?" + resto if resto else ""))
+            if recibo is not None:
+                restante = max(1, int(float(recibo["caduca_en"]) - time.time()))
+                self.send_header("Set-Cookie", "%s=%s; Path=/; Max-Age=%d; HttpOnly; "
+                                               "SameSite=Strict"
+                                 % (COOKIE_ENLACE, token, restante))
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+
+        def _huella_de_lo_firmado(self, recibo):
+            """La huella HOY de aquello para lo que se emitió el enlace."""
+            ref = recibo.get("ref") or ""
+            if recibo.get("tipo") == "contrato":
+                ruta = modulo("contratos").ruta_contrato(workspace, ref)
+            else:
+                ruta = carpeta_presentaciones(workspace) / ref / "manifiesto.json"
+                ruta = ruta if ruta.is_file() else None
+            if not ruta:
+                return None
+            try:
+                return huella_fichero(ruta)
+            except OSError:
+                return None
+
+        def _puerta_de_la_lan(self, pedida):
+            """R2 y R3 — quién escribe desde fuera de esta máquina.
+
+            Devuelve `True` cuando YA ha contestado el 403 (con su SALIDA) y la
+            petición NO debe seguir; `False` para dejarla pasar. Es un booleano y no
+            «lo que devuelva `_json`» a propósito: `_json` devuelve `None`, y un
+            `if fallo is not None` sobre eso deja pasar todo lo que acaba de rechazar.
+            El enlace se consume al final, cuando todo lo demás ya ha dicho que sí: un
+            POST que ni siquiera se admite no puede dejar al usuario sin llave.
+            """
+            def no(error):
+                self._json(403, {"error": error})
+                return True
+
+            if not lan:
+                return no(SALIDA_SOLO_LOCAL)
+            quiere = escritura_para_lan(pedida)
+            if quiere is None:
+                return no(SALIDA_NO_ES_DE_LA_LAN)
+            tipo, ref = quiere
+            recibo, fichero, motivo = buscar_enlace(workspace,
+                                                    self._token_del_enlace())
+            if recibo is None:
+                return no("%s. %s" % (motivo, PIDE_OTRO))
+            if int(recibo.get("puerto") or 0) != self.server.server_address[1]:
+                return no("ese enlace se emitió para otra web del método. %s"
+                          % PIDE_OTRO)
+            if recibo.get("tipo") != tipo or (ref is not None
+                                              and recibo.get("ref") != ref):
+                return no("ese enlace se emitió para otra cosa (%s de %s). %s"
+                          % (recibo.get("tipo"), recibo.get("ref"), PIDE_OTRO))
+            actual = self._huella_de_lo_firmado(recibo)
+            if actual is None or not hmac.compare_digest(
+                    str(recibo.get("huella") or ""), actual):
+                return no("lo que ibas a aprobar ha cambiado desde que se emitió el "
+                          "enlace. %s" % PIDE_OTRO)
+            if not consumir_enlace(fichero):
+                return no("ese enlace ya se usó. %s" % PIDE_OTRO)
+            self._via = VIA_LAN
+            self._enlace = recibo
+            return False
+
+        def _por_donde(self):
+            """Lo que el rastro añade cuando la aprobación entró por la red local."""
+            return {"via": self._via} if getattr(self, "_via", None) else {}
+
         def _aprobar_contrato(self, nombre):
             """R1 — el clic sobre un contrato PENDIENTE.
 
@@ -840,7 +1129,7 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
                 return self._json(400, {"error": str(exc)})
             anotar_aprobado_por(ruta)
             rastro = escribir_rastro_aprobacion(workspace, nombre, ruta, huella,
-                                                self._cliente())
+                                                self._cliente(), self._por_donde())
             return self._json(200, {"unidad": nombre, "aprobado": fecha,
                                     "aprobado_por": QUIEN,
                                     "rastro": str(rastro) if rastro else None})
@@ -881,9 +1170,10 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
                 return self._json(400, {"error": str(exc)})
             except OSError as exc:
                 return self._json(400, {"error": str(exc)})
+            extra = {"version": recibo.get("version")}
+            extra.update(self._por_donde())
             rastro = escribir_rastro_aprobacion(workspace, "planos", mapa, huella,
-                                                self._cliente(),
-                                                {"version": recibo.get("version")})
+                                                self._cliente(), extra)
             return self._json(200, {"aprobacion": recibo,
                                     "rastro": str(rastro) if rastro else None})
 
@@ -912,6 +1202,10 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
             except (ValueError, TypeError, json.JSONDecodeError) as exc:
                 return self._json(400, {"error": str(exc)})
             unidad = str(datos.pop("unidad", "") or "")
+            enlace = getattr(self, "_enlace", None)
+            if enlace is not None and enlace.get("ref") != unidad:
+                return self._json(403, {"error": "ese enlace no es de esa entrega. "
+                                                 "%s" % PIDE_OTRO})
             if not NOMBRE_UNIDAD.match(unidad):
                 return self._json(400, {"error": (
                     "falta la unidad de la validación guiada (NNN-slug). SALIDA: pulsa el "
@@ -932,9 +1226,10 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False):
                                  json.dumps(datos, ensure_ascii=False).encode("utf-8"))
             despues = len(list(recibos.glob("*.json"))) if recibos.is_dir() else 0
             if despues > antes:
+                extra = {"eleccion": datos.get("eleccion")}
+                extra.update(self._por_donde())
                 escribir_rastro_aprobacion(workspace, unidad, manifiesto, huella,
-                                           self._cliente(),
-                                           {"eleccion": datos.get("eleccion")})
+                                           self._cliente(), extra)
 
         def _delegar_cuerpo(self, clase, ruta, cuerpo):
             """Como `_delegar_a`, pero con un cuerpo YA leído: el visor de presentaciones
@@ -1160,6 +1455,10 @@ def main():
                         "Por defecto, %d" % MINUTOS_POR_DEFECTO)
     p.add_argument("--sin-navegador", action="store_true",
                    help="No abrir el navegador")
+    p.add_argument("--lan", action="store_true",
+                   help="escuchar también en la red local (0.0.0.0). Desde fuera de "
+                        "esta máquina sólo se aprueba con el enlace firmado que emite "
+                        "`web/abrir.py --lan` (unidad 162)")
     p.add_argument("--solo-lectura", action="store_true",
                    help="la web sin manos: ningún botón de aprobar y los endpoints de "
                         "aprobación responden 405 (unidad 107, R6)")
@@ -1182,9 +1481,9 @@ def main():
 
     estado = {"ultimo": time.time()}
     try:
-        servidor = ServidorWeb(("127.0.0.1", args.puerto),
+        servidor = ServidorWeb((direccion_de_bind(args.lan), args.puerto),
                                hacer_handler(workspace, estado, args.planos,
-                                             args.solo_lectura))
+                                             args.solo_lectura, args.lan))
     except OSError as exc:
         sys.exit("No pude abrir el puerto %d: %s" % (args.puerto, exc))
     puerto = servidor.server_address[1]
@@ -1195,6 +1494,13 @@ def main():
     url = "http://127.0.0.1:%d/" % puerto
     print("La web del método está en pie: %s" % url, flush=True)
     print("Workspace: %s" % workspace, flush=True)
+    if args.lan:
+        # El token JAMÁS se imprime aquí: esta salida se guarda en `.runtime/web-<puerto>.log`.
+        # Quien lo emite y lo enseña es `web/abrir.py --lan`, una sola vez.
+        ip = ip_de_la_lan()
+        print("Escuchando también en la red local%s: desde fuera sólo se aprueba con "
+              "el enlace firmado que emite `web/abrir.py --lan`."
+              % (" (%s)" % ip if ip else ""), flush=True)
     if args.solo_lectura:
         print("Solo lectura: aquí no se aprueba nada.", flush=True)
     if args.minutos:

@@ -13,6 +13,11 @@ es la dirección concreta a la que se abre el navegador.
     python3 web/abrir.py --workspace . --apartado flujos --sin-navegador
     python3 web/abrir.py --workspace . --apartado tablero
     python3 web/abrir.py --workspace . --apartado plan
+    python3 web/abrir.py --workspace . --apartado contratos#162-x --lan
+
+Lo último es la unidad 162: la misma web, escuchando también en la red local, y un
+ENLACE FIRMADO que el agente imprime para que el usuario apruebe desde el móvil. El
+enlace vale para ESE contrato (o esa entrega), una sola vez y quince minutos.
 """
 
 import argparse
@@ -29,10 +34,12 @@ from dataclasses import dataclass
 from pathlib import Path
 
 try:
-    from .servir import CLAVES, SERVICIO, huella_workspace
+    from .servir import (CLAVES, MINUTOS_ENLACE, NOMBRE_UNIDAD, PARAM_ENLACE,
+                         SERVICIO, emitir_enlace, huella_workspace, ip_de_la_lan)
 except ImportError:  # También funciona como `python3 web/abrir.py`.
     sys.path.insert(0, str(Path(__file__).resolve().parent))
-    from servir import CLAVES, SERVICIO, huella_workspace
+    from servir import (CLAVES, MINUTOS_ENLACE, NOMBRE_UNIDAD, PARAM_ENLACE,
+                        SERVICIO, emitir_enlace, huella_workspace, ip_de_la_lan)
 
 
 BASE = Path(__file__).resolve().parent
@@ -52,6 +59,9 @@ class Resultado:
     url: str
     proceso: object = None
     navegador: bool = False
+    # Sólo con `--lan`: hasta cuándo vale el enlace que lleva la URL, para poder
+    # decírselo al usuario. El token va DENTRO de `url` y no se guarda en otro sitio.
+    caduca_en_minutos: float = 0
 
 
 # Bug 057: pedir un OK dejó de depender de que el agente se acordara de abrir la web. El
@@ -131,11 +141,12 @@ def puerto_de(workspace):
     return PUERTO_BASE + (int(huella_workspace(workspace)[:8], 16) % 1000)
 
 
-def url_de(puerto, apartado):
+def url_de(puerto, apartado, host="127.0.0.1", token=None):
     """La URL del apartado pedido: `contratos#081-x`, `presentaciones/081-x`…
 
     El apartado se escribe como se lee en la barra de direcciones, con su ancla
-    si la tiene. `tablero` es la portada y por tanto `/`.
+    si la tiene. `tablero` es la portada y por tanto `/`. `host` y `token` son de
+    la unidad 162: la misma dirección, vista desde el móvil y con la llave.
     """
     destino = (apartado or "tablero").strip().lstrip("/")
     camino, _, ancla = destino.partition("#")
@@ -148,7 +159,50 @@ def url_de(puerto, apartado):
         ruta = "/" + camino[len("tablero"):].lstrip("/")
     else:
         ruta = "/" + camino
-    return "http://127.0.0.1:%d%s%s" % (puerto, ruta, "#" + ancla if ancla else "")
+    consulta = "?%s=%s" % (PARAM_ENLACE, token) if token else ""
+    return "http://%s:%d%s%s%s" % (host, puerto, ruta, consulta,
+                                   "#" + ancla if ancla else "")
+
+
+def enlace_pedido(apartado):
+    """QUÉ se va a aprobar desde el móvil, leído del apartado (unidad 162).
+
+    Un enlace firmado vale para UNA cosa, así que hay que saber cuál: el contrato
+    (`contratos#NNN-slug`) o la entrega (`presentaciones/NNN-slug`). Abrir la LAN
+    «por si acaso», sin nada concreto que aprobar, no es una comodidad: es dejar la
+    puerta puesta sin saber para qué.
+    """
+    destino = (apartado or "").strip().lstrip("/")
+    camino, _, ancla = destino.partition("#")
+    trozos = [trozo for trozo in camino.strip("/").split("/") if trozo]
+    primero = trozos[0] if trozos else ""
+    ref = None
+    if primero == "contratos":
+        ref, tipo = ancla.strip(), "contrato"
+    elif primero == "presentaciones":
+        ref = trozos[1] if len(trozos) > 1 else ancla.strip()
+        tipo = "validacion"
+    if not ref or not NOMBRE_UNIDAD.match(ref):
+        raise ValueError(
+            "--lan necesita saber QUÉ vas a aprobar desde el móvil, porque el enlace "
+            "vale para una sola cosa. SALIDA: --apartado contratos#NNN-slug (un "
+            "contrato) o --apartado presentaciones/NNN-slug (una entrega)")
+    return tipo, ref
+
+
+def _huella_servida(puerto, tipo, ref):
+    """La huella de lo que se va a aprobar, se la pedimos a la propia web.
+
+    Es el mismo `/api/huella` que usa la página para no aprobar algo que ya cambió
+    (unidad 107): el enlace queda atado a ESE contenido, no sólo a ese nombre.
+    """
+    direccion = ("http://127.0.0.1:%d/api/huella?tipo=%s&ref=%s"
+                 % (puerto, tipo, ref))
+    try:
+        with urllib.request.urlopen(direccion, timeout=2) as respuesta:
+            return json.loads(respuesta.read()).get("huella")
+    except (OSError, ValueError, urllib.error.URLError):
+        return None
 
 
 def _meta(puerto):
@@ -216,10 +270,21 @@ def abrir(workspace, args):
         args.puerto = puerto
     apartado = getattr(args, "apartado", None)
     url = url_de(puerto, apartado)      # valida el apartado ANTES de levantar nada
+    lan = bool(getattr(args, "lan", False))
+    # Igual que el apartado: si `--lan` no sabe qué se aprueba, se dice AHORA y no
+    # después de haber dejado una web escuchando en la red.
+    tipo, ref = enlace_pedido(apartado) if lan else (None, None)
 
     vivo = servidor_vivo(workspace, puerto)
     if vivo is not None:
+        if lan and not _meta(vivo).get("lan"):
+            raise ValueError(
+                "ya hay una web de este taller en pie (:%d) y NO escucha en la red "
+                "local. SALIDA: ciérrala (Ctrl-C donde la lanzaste, o espera a que "
+                "caduque) y vuelve a abrirla con --lan" % vivo)
         url = url_de(vivo, apartado)
+        if lan:
+            return _con_enlace(workspace, vivo, apartado, tipo, ref)
         return Resultado(url, navegador=abrir_navegador(url, args))
     meta = _meta(puerto)
     if meta is not None:
@@ -233,6 +298,8 @@ def abrir(workspace, args):
                "--workspace", str(workspace), "--puerto", str(puerto),
                "--minutos", str(minutos_efectivos(args)),
                "--sin-navegador"]
+    if lan:
+        comando.append("--lan")
     with registro.open("ab") as salida:
         # Desasido a propósito: la web tiene que seguir en pie cuando el comando
         # que la levantó termine — es lo que el usuario va a mirar.
@@ -243,12 +310,38 @@ def abrir(workspace, args):
 
     for _ in range(100):
         if _identidad(_meta(puerto), workspace):
+            if lan:
+                return _con_enlace(workspace, puerto, apartado, tipo, ref, proceso)
             return Resultado(url, proceso, abrir_navegador(url, args))
         if proceso.poll() is not None:
             break
         time.sleep(0.1)
     detener(proceso)
     raise RuntimeError("la web del método no llegó a arrancar; mira %s" % registro)
+
+
+def _con_enlace(workspace, puerto, apartado, tipo, ref, proceso=None):
+    """La URL para el móvil: la IP de la red, el apartado y el enlace firmado.
+
+    El navegador NO se abre: esta dirección no es para esta máquina, es para el
+    teléfono que la va a teclear. El token se devuelve UNA vez, dentro de la URL;
+    en disco sólo queda su hash, y quien lo pierda pide otro.
+    """
+    ip = ip_de_la_lan()
+    if not ip:
+        raise RuntimeError(
+            "no encuentro la IP de esta máquina en la red local. SALIDA: conéctate a "
+            "la wifi (o al cable) y vuelve a lanzarlo, o apruébalo desde este mismo "
+            "ordenador sin --lan")
+    huella = _huella_servida(puerto, tipo, ref)
+    if not huella:
+        raise ValueError(
+            "no hay nada que aprobar en %s: la web no encuentra ese %s. SALIDA: "
+            "comprueba el nombre (NNN-slug) en el apartado correspondiente"
+            % (ref, tipo))
+    token, _recibo = emitir_enlace(workspace, puerto, tipo, ref, huella)
+    return Resultado(url_de(puerto, apartado, host=ip, token=token), proceso,
+                     navegador=False, caduca_en_minutos=MINUTOS_ENLACE)
 
 
 def detener(proceso):
@@ -274,6 +367,11 @@ def main():
                         help="minutos sin actividad antes de apagarse; 0 = no caduca. "
                              "Por defecto, %d" % MINUTOS_POR_DEFECTO)
     parser.add_argument("--sin-navegador", action="store_true")
+    parser.add_argument("--lan", action="store_true",
+                        help="servir también en la red local y emitir un enlace "
+                             "firmado de un uso para aprobar desde el móvil; hay que "
+                             "decir QUÉ se aprueba (--apartado contratos#NNN-slug o "
+                             "presentaciones/NNN-slug)")
     args = parser.parse_args()
     # Haberlo escrito en la línea de órdenes es lo que distingue «no caduca» (0 pedido)
     # de «lo de siempre» (nada dicho): ver `minutos_efectivos`.
@@ -281,6 +379,10 @@ def main():
     try:
         resultado = abrir(args.workspace, args)
         print(resultado.url)
+        if args.lan:
+            print("Ábrelo en el móvil (misma red). Vale para ESA aprobación, una vez "
+                  "y %g minutos." % resultado.caduca_en_minutos)
+            return 0
         if not resultado.navegador:
             print("(no abro el navegador: %s)" % (
                 "--sin-navegador" if args.sin_navegador else "sesión sin pantalla"))
