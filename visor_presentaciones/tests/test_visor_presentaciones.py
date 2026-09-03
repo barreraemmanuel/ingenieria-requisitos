@@ -230,7 +230,11 @@ class PruebasServidor(unittest.TestCase):
         self.assertEqual(primero["version"], "3")
         self.assertIn("fecha", primero)
 
+        # Bug 153: la MISMA decisión dos veces en la misma sesión ya no es un segundo
+        # recibo (409); una decisión distinta sí crea otro, con otro id.
         estado, _, cuerpo = self.pedir("POST", "/decisiones", decision)
+        self.assertEqual(estado, 409, cuerpo)
+        estado, _, cuerpo = self.pedir("POST", "/decisiones", dict(decision, comentario="Adelante ya"))
         self.assertEqual(estado, 201, cuerpo)
         segundo = json.loads(cuerpo)["recibo"]
         self.assertNotEqual(primero["id"], segundo["id"])

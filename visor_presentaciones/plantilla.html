@@ -428,13 +428,32 @@
     if (irBoton) { irA(irBoton.dataset.id, "detalle"); return; }
   });
 
+  // Bug 153: tras confirmar, la página LO DICE (hora y qué hacer ahora), apaga el
+  // formulario y no vuelve a enviar: sin bandeja no cambiaba nada visible, el botón
+  // seguía activo y cada clic dejaba otro recibo idéntico.
+  function bloquearDecision(form) {
+    form.querySelectorAll("input, textarea, button").forEach(function (el) { el.disabled = true; });
+  }
+
+  function horaAhora() {
+    var d = new Date();
+    return ("0" + d.getHours()).slice(-2) + ":" + ("0" + d.getMinutes()).slice(-2);
+  }
+
+  var enviando = false;
+
   panel.addEventListener("submit", function (ev) {
     var form = ev.target.closest("#decision");
     if (!form) return;
     ev.preventDefault();
+    if (enviando) return;
     var elegida = form.querySelector('input[name="eleccion"]:checked');
     var mensaje = form.querySelector("#mensaje");
     if (!elegida) { mensaje.textContent = "Elige una opción antes de confirmar."; return; }
+    enviando = true;
+    var boton = form.querySelector("#confirmar");
+    boton.disabled = true;
+    mensaje.textContent = "Guardando…";
     fetch(RUTA("/decisiones"), {
       method: "POST",
       headers: {"Content-Type": "application/json"},
@@ -446,12 +465,30 @@
         confirmado: true
       })
     }).then(function (r) {
-      return r.json().then(function (j) { if (!r.ok) throw new Error(j.error); return j; });
-    }).then(function () {
+      return r.json().then(function (j) {
+        if (r.status === 409) { j.yaGuardado = true; return j; }
+        if (!r.ok) throw new Error(j.error);
+        return j;
+      });
+    }).then(function (j) {
+      enviando = false;
       decididas[actual.id] = true;
-      // R3: tras confirmar, se vuelve a la bandeja con el estado ya actualizado.
-      if (bandeja) irA(bandeja.id, "detalle");
+      bloquearDecision(form);
+      if (j.yaGuardado) {
+        // El servidor ya tenía este recibo (un clic anterior llegó): se dice y se apaga.
+        mensaje.textContent = j.error;
+        return;
+      }
+      var hora = horaAhora();
+      mensaje.textContent = elegida.value === "problema"
+        ? "Problema registrado a las " + hora + ": queda anotado para el agente; puedes cerrar la pestaña."
+        : "Guardado a las " + hora + ": puedes cerrar la pestaña.";
+      // R3 (056): con bandeja se vuelve a ella con el estado ya actualizado, pero después
+      // de que la señal se haya visto.
+      setTimeout(function () { if (bandeja) irA(bandeja.id, "detalle"); }, 2500);
     }).catch(function (err) {
+      enviando = false;
+      boton.disabled = false;
       mensaje.textContent = err.message;
     });
   });

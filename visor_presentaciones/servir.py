@@ -169,6 +169,23 @@ def filtrar_adjunto(texto, total=None):
     return (SENSIBLE_ADJUNTO.sub(REDACTADO, recorte) + aviso).encode("utf-8")
 
 
+def _huella_de_decision(recibo):
+    """Lo que hace «idéntica» a una decisión: misma presentación, versión, contenido
+    revisado, elección y comentario. La fecha y el id no cuentan: son los que cambian
+    entre dos clics seguidos."""
+    return tuple(str(recibo.get(campo, "")) for campo in
+                 ("presentacion", "version", "contenido_revisado", "eleccion", "comentario"))
+
+
+def _hora_local(fecha_iso):
+    """HH:MM en la hora del ordenador del usuario, a partir de la fecha ISO del recibo."""
+    try:
+        from datetime import datetime
+        return datetime.fromisoformat(fecha_iso).astimezone().strftime("%H:%M")
+    except (TypeError, ValueError):
+        return "?"
+
+
 def hacer_handler(datos, estado, workspace=None):
     datos = Path(datos).resolve()
     workspace = Path(workspace).resolve() if workspace is not None else detectar_workspace(datos)
@@ -262,12 +279,24 @@ def hacer_handler(datos, estado, workspace=None):
                     raise ValueError("tamaño de JSON inválido")
                 peticion = json.loads(self.rfile.read(longitud))
                 recibo = self._validar_decision(peticion)
+                # Bug 153: un segundo clic con la MISMA decisión no crea otro recibo.
+                # El candado vive en la sesión del servidor (`estado`), no en disco:
+                # otra sesión —otro `unidad.py validar`— vuelve a empezar de cero.
+                huella = _huella_de_decision(recibo)
+                emitidos = estado.setdefault("recibos_emitidos", {})
+                if huella in emitidos:
+                    previo = emitidos[huella]
+                    return self._json(409, {
+                        "error": "esta decisión ya se guardó a las %s: no hace falta "
+                                 "volver a confirmar" % _hora_local(previo["fecha"]),
+                        "recibo": previo})
                 carpeta = _ruta_en_datos(datos, datos / "recibos")
                 carpeta.mkdir(mode=0o700, exist_ok=True)
                 ruta = _ruta_en_datos(datos, carpeta / (recibo["id"] + ".json"))
                 with ruta.open("x", encoding="utf-8") as salida:
                     json.dump(recibo, salida, ensure_ascii=False, indent=2)
                     salida.write("\n")
+                emitidos[huella] = recibo
                 return self._json(201, {"recibo": recibo})
             except (ValueError, TypeError, KeyError, OSError, json.JSONDecodeError) as exc:
                 return self._json(400, {"error": str(exc) or "decisión inválida"})
