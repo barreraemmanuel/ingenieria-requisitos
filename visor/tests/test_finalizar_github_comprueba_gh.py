@@ -4,10 +4,12 @@ con «Password authentication is not supported» tras un `gh auth login` recién
 con su salida escrita: gh instalado · sesión iniciada · credential helper de gh."""
 
 import importlib.util
+import shutil
 import subprocess
 import sys
 import unittest
 from pathlib import Path
+from unittest import mock
 
 RAIZ = Path(__file__).resolve().parent.parent.parent
 if str(RAIZ / "visor") not in sys.path:
@@ -52,7 +54,14 @@ class ComprobacionesAntesDePublicarTest(unittest.TestCase):
 
     def publicar(self, terminal):
         f = self.finalizar
-        f.ejecutar, f.shutil.which = terminal.ejecutar, terminal.which
+        # `f.shutil` ES el módulo global de la stdlib: se parchea con `mock.patch.object`
+        # y se restaura al acabar (ronda 2 del revisor: dejarlo pisado rompía otros tests
+        # de la suite que llaman a `shutil.which("git")`). `ejecutar` es del módulo recién
+        # cargado en setUp, así que morirá con él.
+        parche = mock.patch.object(shutil, "which", terminal.which)
+        parche.start()
+        self.addCleanup(parche.stop)
+        f.ejecutar = terminal.ejecutar
         f.commit_inicial_o_aviso = lambda repo: None
         f.configurar_remoto = lambda repo, url: None
         f.commit_si_hay_cambios = lambda repo, mensaje, incluir_todo=False: None
