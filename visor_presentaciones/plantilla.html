@@ -495,6 +495,19 @@
 
   /* ---------- carga de datos ---------- */
 
+  // Bug 154 (issue #117): el refresco de cada 10 s no pisa lo que estás escribiendo.
+  // Se está editando si el comentario tiene texto, hay una opción elegida o el foco
+  // está dentro del formulario; un formulario ya enviado (bloqueado) no cuenta.
+  function editandoDecision() {
+    var form = panel.querySelector("#decision");
+    if (!form) return false;
+    var comentario = form.querySelector("#comentario");
+    if (comentario && comentario.disabled) return false;
+    if (comentario && comentario.value.trim()) return true;
+    if (form.querySelector('input[name="eleccion"]:checked')) return true;
+    return form.contains(document.activeElement);
+  }
+
   function cargar() {
     return Promise.all([
       fetch(RUTA("/manifiesto.json"), {cache: "no-store"}).then(function (r) { return r.json(); }),
@@ -510,11 +523,14 @@
       var pendientes = otras.filter(function (o) { return !o.decidida; }).length + (Object.keys(decididas).length ? 0 : 1);
       sub.textContent = (otras.length + 1) + " entregas · " + pendientes + " esperan tu decisión";
       pintarListado();
-      var h = hashActual();
-      if (h.id) {
-        abrir(h.id, h.pestana);
-      } else if (bandeja) {
-        abrir(bandeja.id, "detalle");
+      // El panel solo se repinta si no hay una decisión a medio escribir (bug 154).
+      if (!editandoDecision()) {
+        var h = hashActual();
+        if (h.id) {
+          abrir(h.id, h.pestana);
+        } else if (bandeja) {
+          abrir(bandeja.id, "detalle");
+        }
       }
     }).catch(function () { banner.classList.add("visible"); });
   }
