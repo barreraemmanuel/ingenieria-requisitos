@@ -79,6 +79,10 @@ no es un directo, es un refactor o una feature. Las reglas de diseño están en
 - **Si el cambio crece, toca un hotspot o hay que mover el mapa → PARA y devuelve la tarea.**
   Eso ya no es un directo (escalada de `runbooks/directo.md`).
 - No mergeas tú: tu trabajo termina en el PR abierto. Prohibido `git stash`.
+- **Sin gasto real:** tus tests NO llaman a servicios de pago. Toda llamada a un proveedor
+  externo va con mock (`unittest.mock.patch`, `responses`, `respx`, `vcr`, `jest.mock`) o contra
+  un sandbox declarado en `docs/01-constitucion/bias.md`; las credenciales de pago no entran en
+  tu entorno. Lo comprueba `lint_ci.py` (`gasto-real`) antes del merge.
 - Nada está "hecho" sin el output del check en verde. Evidencia, no afirmación.
 
 ## Definición de hecho

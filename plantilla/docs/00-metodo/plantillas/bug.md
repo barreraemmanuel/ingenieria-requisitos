@@ -98,6 +98,10 @@ hipótesis, se escribe la siguiente fila; no se salta directamente a otra soluci
   end-to-end sobre main y el lanzamiento de la instancia para que el usuario valide los hace
   el padre, a petición del usuario. Ni `git merge`, ni `gh pr merge`, ni push a la principal.
 - Los tests escritos no se debilitan ni se borran. Arreglas el defecto y NADA más.
+- **Sin gasto real:** tus tests NO llaman a servicios de pago. Toda llamada a un proveedor
+  externo va con mock (`unittest.mock.patch`, `responses`, `respx`, `vcr`, `jest.mock`) o contra
+  un sandbox declarado en `docs/01-constitucion/bias.md`; las credenciales de pago no entran en
+  tu entorno. Lo comprueba `lint_ci.py` (`gasto-real`) antes del merge.
 - Nada está "hecho" sin el output del check en verde. Evidencia, no afirmación.
 
 ## 6 · Cierre (el padre, a petición del usuario)
