@@ -192,20 +192,21 @@ def _ancestro(repo, base, punta):
     return proceso.returncode == 0
 
 
-def hechos_recuperacion(worktree, base, commit):
+def hechos_recuperacion(worktree, base, commit, comprobar_rama=True):
     """Reconstruye la evidencia desde Git; jamás confía en campos del recibo."""
     worktree = Path(worktree)
     if Path(_git(worktree, "rev-parse", "--show-toplevel")).resolve() != worktree.resolve():
         raise ErrorEntrega("la ruta no es la raíz del repositorio de código esperado")
     base = _commit_exacto(worktree, base)
     commit = _commit_exacto(worktree, commit)
-    actual = hechos_git(worktree)
-    if actual["status_porcelain"]:
-        raise ErrorEntrega("worktree sucio después del anclaje")
     if not _ancestro(worktree, base, commit) or base == commit:
         raise ErrorEntrega("commit fuera de base o sin cambios")
-    if not _ancestro(worktree, commit, actual["head"]):
-        raise ErrorEntrega("commit fuera de la rama vigente")
+    if comprobar_rama:
+        actual = hechos_git(worktree)
+        if actual["status_porcelain"]:
+            raise ErrorEntrega("worktree sucio después del anclaje")
+        if not _ancestro(worktree, commit, actual["head"]):
+            raise ErrorEntrega("commit fuera de la rama vigente")
     tree = _git(worktree, "rev-parse", f"{commit}^{{tree}}")
     if tree == _git(worktree, "rev-parse", f"{base}^{{tree}}"):
         raise ErrorEntrega("base y commit tienen el mismo árbol")
@@ -225,15 +226,50 @@ def validar_recuperacion(worktree, unidad, recibo):
     existe_worktree = worktree.is_dir()
     repo = worktree if existe_worktree else worktree.parent.parent / "main"
     try:
-        hechos = hechos_recuperacion(repo, datos.get("base"), datos.get("commit"))
+        hechos = hechos_recuperacion(repo, datos.get("base"), datos.get("commit"),
+                                     comprobar_rama=existe_worktree)
     except (ErrorEntrega, OSError) as exc:
         return [_problema(f"recuperación Git de {unidad} inválida: {exc}")], []
     if recibo.get("unidad") != unidad or any(datos.get(k) != v for k, v in hechos.items()):
         return [_problema(f"recuperación Git de {unidad} no coincide con los hechos actuales")], []
-    actual = hechos_git(repo)
-    if existe_worktree and (actual["head"] != datos["commit"] or actual["tree"] != datos["tree"]):
-        return [_problema(f"recuperación Git de {unidad} obsoleta: cambió el contenido")], []
+    if existe_worktree:
+        actual = hechos_git(repo)
+        if actual["head"] != datos["commit"] or actual["tree"] != datos["tree"]:
+            return [_problema(f"recuperación Git de {unidad} obsoleta: cambió el contenido")], []
     return [], []
+
+
+def ancla_entrega_git(repo, unidad, recibo, worktree=None):
+    """Base, punta y árbol de la entrega vigente, derivados de objetos Git."""
+    if not recibo or recibo.get("unidad") != unidad or recibo.get("resultado") != "ok":
+        raise ErrorEntrega("falta una entrega vigente terminada de esta unidad")
+    if recibo.get("schema") == "entrega-git/v1":
+        problemas, _ = validar_recuperacion(worktree or repo, unidad, recibo)
+        if problemas:
+            raise ErrorEntrega(problemas[0])
+        hechos = recibo["recuperacion"]
+        return {k: hechos[k] for k in ("base", "commit", "tree", "diff_sha256")}
+    if recibo.get("schema") != "ejecucion/v1":
+        raise ErrorEntrega("recibo sin ancla Git verificable")
+    if recibo.get("protocolo") == "nativo/v1":
+        problema = validar_vinculo_nativo(recibo)
+        if problema:
+            raise ErrorEntrega(problema)
+    inicial = (recibo.get("git") or {}).get("inicial") or {}
+    final = (recibo.get("git") or {}).get("final") or {}
+    base = _commit_exacto(repo, recibo.get("base") or inicial.get("head"))
+    commit = _commit_exacto(repo, final.get("head"))
+    if base == commit or not _ancestro(repo, base, commit):
+        raise ErrorEntrega("la punta entregada no desciende de su base")
+    tree = _git(repo, "rev-parse", f"{commit}^{{tree}}")
+    if tree != final.get("tree") or tree == _git(repo, "rev-parse", f"{base}^{{tree}}"):
+        raise ErrorEntrega("árbol final no coincide con el commit entregado")
+    diff = subprocess.run(["git", "diff", "--binary", "--full-index", base, commit],
+                          cwd=str(repo), capture_output=True, check=False)
+    if diff.returncode or not diff.stdout:
+        raise ErrorEntrega("diff de la entrega vacío o ilegible")
+    return {"base": base, "commit": commit, "tree": tree,
+            "diff_sha256": hashlib.sha256(diff.stdout).hexdigest()}
 
 
 def recibo_vigente_constructor(unidad, recibos):

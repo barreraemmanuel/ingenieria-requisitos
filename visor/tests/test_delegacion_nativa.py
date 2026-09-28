@@ -8,6 +8,7 @@ import subprocess
 import re
 import tempfile
 import shutil
+import stat
 import unittest
 from contextlib import redirect_stdout
 from pathlib import Path
@@ -532,20 +533,74 @@ class NativoTest(unittest.TestCase):
         self.assertNotEqual(base, head)
         self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", base)[0])
 
-    def test_R3_rama_borrada_fusionada_con_base_no_raiz_exige_testigo_git(self):
+    def test_R3_rama_borrada_fusionada_con_base_no_raiz_y_recibo(self):
         git(self.wt.ruta, "checkout", "main")
         (self.wt.ruta / "base-adicional.txt").write_text("preexistente", encoding="utf-8")
         git(self.wt.ruta, "add", "base-adicional.txt")
         git(self.wt.ruta, "commit", "-m", "base real no raíz")
+        base = git(self.wt.ruta, "rev-parse", "HEAD").strip()
+        ficha = self.docs / "especificacion.md"
+        ficha.write_text(ficha.read_text().replace(self.wt.base_head, base), encoding="utf-8")
         git(self.wt.ruta, "checkout", self.name)
         git(self.wt.ruta, "merge", "--ff-only", "main")
         head = self.wt.commitear("trabajo entregado")
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", base,
+                                   "--commit", head), 0)
         git(self.wt.ruta, "checkout", "main")
         git(self.wt.ruta, "merge", "--ff-only", self.name)
         git(self.wt.ruta, "branch", "-d", self.name)
-        self.assertTrue(unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)[0])
-        git(self.wt.ruta, "reflog", "expire", "--expire=now", "--all")
-        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)[0])
+        self.wt.ruta.rename(self.root / "main")
+        self.assertTrue(unidad.rama_mergeada(self.root / "main", self.name, "main", head)[0])
+        git(self.root / "main", "reflog", "expire", "--expire=now", "--all")
+        self.assertTrue(unidad.rama_mergeada(self.root / "main", self.name, "main", head)[0])
+
+    def test_R3_ff_sin_rama_ni_recibo_exige_recuperacion(self):
+        head = self.wt.commitear("entrega completa")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        git(self.wt.ruta, "branch", "-d", self.name)
+        resultado = unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)
+        self.assertFalse(resultado[0])
+        self.assertIn("SALIDA:", resultado[1])
+
+    def test_R3_entrega_nativa_fusionada_con_rama_retirada(self):
+        builder = self.prepare()
+        self.bind(builder, "builder", "constructor")
+        head = self.wt.commitear("entrega nativa")
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.finish(builder, "builder"), 0, self.last_output)
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        git(self.wt.ruta, "branch", "-d", self.name)
+        self.wt.ruta.rename(self.root / "main")
+        self.assertTrue(unidad.rama_mergeada(self.root / "main", self.name, "main", head)[0])
+
+    def test_R3_reflog_antiguo_no_oculta_correccion_B_pendiente(self):
+        a = self.wt.commitear("entrega A")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        git(self.wt.ruta, "checkout", self.name)
+        b = self.wt.commitear("corrección B pendiente")
+        git(self.wt.ruta, "checkout", "-b", "respaldo")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "branch", "-D", self.name)
+        self.assertNotEqual(a, b)
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", a)[0])
+
+    def test_R5_recuperacion_squash_tras_retirar_worktree(self):
+        self.wt.commitear("primero")
+        head = self.wt.commitear("segundo")
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--squash", self.name)
+        git(self.wt.ruta, "commit", "-m", "entrega squash")
+        squash = git(self.wt.ruta, "rev-parse", "HEAD").strip()
+        git(self.wt.ruta, "branch", "-D", self.name)
+        self.wt.ruta.rename(self.root / "main")
+        self.assertTrue(unidad.rama_mergeada(self.root / "main", self.name, "main", squash)[0])
 
     def test_R2_nativo_posterior_sustituye_recuperacion_antigua_en_cierre(self):
         head = self.wt.commitear()
@@ -680,7 +735,18 @@ class NativoTest(unittest.TestCase):
         r = self.prepare()
         self.bind(r, model="observado")
         (self.root / (r["id"] + "-metadata.jsonl")).unlink()
-        shutil.rmtree(self.wt.ruta)
+        def retirar_objeto_solo_lectura(func, path, error):
+            archivo = Path(path).resolve()
+            if (not archivo.is_relative_to(self.wt.ruta.resolve())
+                    or not archivo.is_file()
+                    or not isinstance(error[1], PermissionError)
+                    or not (getattr(archivo.stat(), "st_file_attributes", 0)
+                            & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0))):
+                raise error[1]
+            archivo.chmod(stat.S_IREAD | stat.S_IWRITE)
+            func(path)
+
+        shutil.rmtree(self.wt.ruta, onerror=retirar_objeto_solo_lectura)
         self.assertEqual(self.finish(r, result="cancelado"), 0)
         final = json.loads(Path(r["_ruta"]).read_text())
         self.assertEqual(final["git"]["final"], {})
