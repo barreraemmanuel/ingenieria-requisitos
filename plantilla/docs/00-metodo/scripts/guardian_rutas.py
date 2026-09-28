@@ -153,12 +153,14 @@ def _resolver(token, cwd):
         if cwd is None:
             return None
         token = os.path.join(_normalizar(cwd), token)
-    return os.path.realpath(token)
+    return _normalizar(os.path.realpath(token))
 
 
 def _bajo(ruta, main):
     if not ruta:
         return False
+    ruta = _normalizar(os.path.normcase(ruta))
+    main = _normalizar(os.path.normcase(main))
     return ruta == main or ruta.startswith(main + "/")
 
 

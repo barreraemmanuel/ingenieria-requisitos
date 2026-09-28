@@ -21,7 +21,10 @@ el criterio portante no es el recall, es el recall CON los falsos por debajo de 
 
 import importlib.util
 import json
+import os
 import re
+import subprocess
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -104,6 +107,68 @@ class GuardianRutas(unittest.TestCase):
         decision = self.decidir("rm -rf main/visor/.runtime")
         self.assertTrue(re.search(r"\.runtime/|worktrees/", decision.salida),
                         decision.salida)
+
+
+class RutasEfectivas(unittest.TestCase):
+    """Compara rutas reales del sistema, incluidos separadores y enlaces en Windows."""
+
+    def setUp(self):
+        self.mod = _cargar("guardian_rutas_efectivas", GUARDIAN)
+        self.temporal = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temporal.cleanup)
+        self.raiz = Path(self.temporal.name) / "taller"
+        for nombre in ("main/visor", "main-vecino", "worktrees/140", ".runtime"):
+            (self.raiz / nombre).mkdir(parents=True)
+
+    def decidir(self, herramienta, entrada, cwd=None):
+        return self.mod.decidir(herramienta, entrada, str(cwd or self.raiz),
+                                str(self.raiz))
+
+    def test_escrituras_en_main_y_controles_fuera(self):
+        dentro = self.raiz / "main" / "visor" / "x.py"
+        muestras = (
+            ("Edit", {"file_path": "main/visor/x.py"}, None, "deny"),
+            ("Write", {"file_path": str(dentro)}, None, "deny"),
+            ("Bash", "rm -rf visor/x.py", self.raiz / "main", "deny"),
+            ("Bash", "cd main && echo x > visor/x.py", None, "deny"),
+            ("Bash", "cat main/visor/x.py", None, "allow"),
+            ("Edit", {"file_path": "worktrees/140/x.py"}, None, "allow"),
+            ("Write", {"file_path": ".runtime/x.py"}, None, "allow"),
+            ("Edit", {"file_path": "main-vecino/x.py"}, None, "allow"),
+            ("Edit", {"file_path": str(self.raiz.parent / "fuera" / "x.py")}, None,
+             "allow"),
+        )
+        for herramienta, entrada, cwd, esperado in muestras:
+            with self.subTest(entrada=entrada):
+                self.assertEqual(esperado, self.decidir(herramienta, entrada, cwd).veredicto)
+
+    def test_mayusculas_siguen_la_plataforma(self):
+        ruta = str(self.raiz / "MAIN" / "visor" / "x.py")
+        esperado = "deny" if os.name == "nt" else "allow"
+        self.assertEqual(esperado, self.decidir("Edit", {"file_path": ruta}).veredicto)
+
+    def test_rutas_irresolubles_conservan_su_politica(self):
+        self.assertEqual("aviso", self.decidir(
+            "Edit", {"file_path": "$DEST/x.py"}).veredicto)
+        self.assertEqual("aviso", self.decidir(
+            "Bash", "rm -rf $DEST/x.py").veredicto)
+        self.assertEqual("allow", self.decidir(
+            "Bash", "echo x > $DEST/x.py").veredicto)
+
+    def test_enlace_real_hacia_main(self):
+        enlace = self.raiz / "atajo"
+        destino = self.raiz / "main"
+        try:
+            os.symlink(destino, enlace, target_is_directory=True)
+        except (OSError, NotImplementedError) as error:
+            if os.name != "nt":
+                self.skipTest(f"no se pudo crear enlace real: {error}")
+            creado = subprocess.run(["cmd", "/c", "mklink", "/J", str(enlace),
+                                     str(destino)], capture_output=True)
+            if creado.returncode:
+                self.skipTest("no se pudo crear symlink ni junction real")
+        self.assertEqual("deny", self.decidir(
+            "Edit", {"file_path": str(enlace / "visor" / "x.py")}).veredicto)
 
 
 class UmbralesSobreLaFixture(unittest.TestCase):
