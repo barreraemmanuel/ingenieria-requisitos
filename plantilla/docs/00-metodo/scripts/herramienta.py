@@ -105,7 +105,8 @@ def git(*args, cwd=None, timeout=TIMEOUT):
     try:
         return subprocess.run(["git", *args], cwd=str(cwd) if cwd else None,
                               capture_output=True, text=True, encoding="utf-8",
-                              errors="replace", timeout=timeout, env=entorno)
+                              errors="replace", timeout=timeout, env=entorno,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     except (OSError, subprocess.SubprocessError):
         return None
 
@@ -295,6 +296,60 @@ def es_herramienta(ruta):
         return False
 
 
+def version_numerica(ruta):
+    """VERSION válida, con comparación por componentes numéricos."""
+    try:
+        texto = ruta.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeError):
+        return None
+    if not re.fullmatch(r"[0-9]+(?:\.[0-9]+)*", texto):
+        return None
+    componentes = [int(parte) for parte in texto.split(".")]
+    while len(componentes) > 1 and componentes[-1] == 0:
+        componentes.pop()
+    return tuple(componentes)
+
+
+def candidata_configurada(workspace):
+    """Clon de código declarado en repos.yaml, confinado al workspace."""
+    config = workspace / "repos.yaml"
+    try:
+        lineas = config.read_text(encoding="utf-8").splitlines()
+    except (OSError, UnicodeError):
+        return None
+    en_codigo = False
+    ruta = "main/"
+    for linea in lineas:
+        if not linea.strip() or linea.lstrip().startswith("#"):
+            continue
+        if not linea[0].isspace():
+            en_codigo = linea.split("#", 1)[0].strip() == "codigo:"
+        elif en_codigo:
+            encontrada = re.match(r"\s+ruta_local:\s*([^#]+)", linea)
+            if encontrada:
+                ruta = encontrada.group(1).strip().strip("'\"")
+    relativa = Path(ruta)
+    if relativa.is_absolute() or ".." in relativa.parts or not ruta:
+        return None
+    candidata = (workspace / relativa).resolve()
+    if not candidata.is_relative_to(workspace.resolve()):
+        return None
+    return candidata if es_herramienta(candidata) else None
+
+
+def version_admisible(ruta, instalada):
+    origen_version = ruta / "plantilla/docs/00-metodo/VERSION"
+    candidata = version_numerica(origen_version)
+    if candidata is None:
+        print(f"    Descarto {ruta}: VERSION ausente o ilegible ({origen_version}).")
+        return False
+    if candidata < instalada:
+        print(f"    Descarto {ruta}: VERSION {'.'.join(map(str, candidata))} "
+              f"es inferior a la instalada {'.'.join(map(str, instalada))}.")
+        return False
+    return True
+
+
 def normalizar_remoto(url):
     """La identidad de un repositorio, comparable entre dos formas de escribirlo.
 
@@ -356,6 +411,7 @@ def motivo_de_descarte(ruta, url):
     r = git_leer(ruta, "remote", "get-url", remoto)
     if not (r and r.returncode == 0 and r.stdout.strip()):
         return "no declara la URL de su remoto"
+    remoto_url = r.stdout.strip()
     if normalizar_remoto(r.stdout) != esperado:
         return "apunta a otro repositorio ({}), no al origen de este workspace".format(
             r.stdout.strip())
@@ -364,12 +420,23 @@ def motivo_de_descarte(ruta, url):
         return "no se puede leer su estado"
     if r.stdout.strip():
         return "tiene cambios sin guardar"
-    r = git_leer(ruta, "rev-list", "--count", "@{upstream}..HEAD")
-    if not (r and r.returncode == 0 and r.stdout.strip().isdigit()):
+    r = git_leer(ruta, "rev-list", "--left-right", "--count", "HEAD...@{upstream}")
+    cuentas = r.stdout.strip().split() if r and r.returncode == 0 else []
+    if len(cuentas) != 2 or not all(numero.isdigit() for numero in cuentas):
         return "no se puede comparar con su remoto"
-    if r.stdout.strip() != "0":
-        return "tiene {} commit(s) propios: su historia ha divergido".format(
-            r.stdout.strip())
+    if cuentas[0] != "0" and cuentas[1] != "0":
+        return "tiene historia divergente ({} commit(s) propios y {} remotos)".format(
+            *cuentas)
+    if cuentas[0] != "0":
+        # Un commit local adelantado se conserva si el remoto sigue en el ancestro
+        # conocido. Comprobarlo con ls-remote evita un fetch sobre historia divergente.
+        ref = git_leer(ruta, "config", "--get", f"branch.{rama}.merge")
+        base = git_leer(ruta, "rev-parse", "@{upstream}")
+        actual = (git("ls-remote", remoto_url, ref.stdout.strip())
+                  if ref and ref.returncode == 0 and ref.stdout.strip() else None)
+        sha = actual.stdout.split("\t", 1)[0].strip() if actual and actual.returncode == 0 else ""
+        if not (base and base.returncode == 0 and sha and sha == base.stdout.strip()):
+            return "tiene commits propios y el remoto ha avanzado: su historia ha divergido"
     return None
 
 
@@ -420,7 +487,7 @@ def candidata_anotada(workspace):
     return ruta if es_herramienta(ruta) else None
 
 
-def usar_copia_local(ruta, url):
+def usar_copia_local(ruta, url, instalada):
     """¿Nos sirve esta copia? Solo si es del origen esperado y está impecable.
 
     Si no lo es, se dice por qué y se deja EXACTAMENTE como estaba: ni un fetch."""
@@ -431,36 +498,42 @@ def usar_copia_local(ruta, url):
     if not pull_ff(ruta):
         print(f"    Dejo intacta tu copia de {ruta}: no admite `git pull --ff-only`.")
         return False
+    if not version_admisible(ruta, instalada):
+        return False
     print(f"    Uso tu copia de la herramienta, al día con git pull: {ruta}")
     return True
 
 
-def asegurar_herramienta(workspace, url):
+def asegurar_herramienta(workspace, url, instalada):
     """La herramienta utilizable, o None. Nunca repara la carpeta del usuario.
 
-    Orden: la ruta anotada (si sigue siendo válida) → búsqueda acotada en el disco →
-    clon nuevo en temporal. Una copia que no sea del origen esperado, esté sucia o haya
+    Orden: clon configurado → ruta anotada → búsqueda acotada → clon temporal.
+    Una copia que no sea del origen esperado, esté sucia o haya
     divergido se descarta SIN tocarla —la comprobación es de solo lectura—: enderezarla
     sería tocar una carpeta que no es nuestra, y ejecutar el `visor/actualizar.py` de un
     repositorio que no es el origen del método sería ejecutar código de un desconocido.
     """
+    configurada = candidata_configurada(workspace)
     anotada = candidata_anotada(workspace)
     descartadas = set()
-    for ruta in ([anotada] if anotada else []):
-        if usar_copia_local(ruta, url):
+    for ruta in (configurada, anotada):
+        if ruta is None or ruta.resolve() in descartadas:
+            continue
+        if usar_copia_local(ruta, url, instalada):
             return ruta
         descartadas.add(ruta.resolve())
     for ruta in buscar_en_disco():
         if ruta.resolve() in descartadas:
             continue
-        if usar_copia_local(ruta, url):
+        if usar_copia_local(ruta, url, instalada):
             if not anotada:
                 guardar_preferencia(workspace, "herramienta", str(ruta))
             return ruta
     if not url:
         print("    No sé de dónde descargarla: falta `origen` en METODO.json.")
         return None
-    return clonar_en_temporal(url)
+    temporal = clonar_en_temporal(url)
+    return temporal if temporal and version_admisible(temporal, instalada) else None
 
 
 def registro_conocido(herramienta):
@@ -474,8 +547,15 @@ def registro_conocido(herramienta):
 
 
 def cmd_aplicar(workspace, args):
+    version_instalada = workspace / "docs/00-metodo/VERSION"
+    instalada = version_numerica(version_instalada)
+    if instalada is None:
+        # salida:por-diseño conocimiento-del-operador: solo el dueño conoce la fuente fiable de esa VERSION
+        print(f"    No puedo leer una VERSION instalada válida en {version_instalada}. "
+              "Recupérala desde su fuente conocida antes de aplicar.")
+        return 1
     url = origen(workspace)
-    herramienta = asegurar_herramienta(workspace, url)
+    herramienta = asegurar_herramienta(workspace, url, instalada)
     if herramienta is None:
         print("    No he podido conseguir la herramienta de ingeniería de requisitos. "
               "No he tocado nada.")
@@ -483,11 +563,13 @@ def cmd_aplicar(workspace, args):
     actualizar = str(herramienta / "visor/actualizar.py")
     if args.todos and not registro_conocido(herramienta):
         print("    Primero busco tus workspaces en el disco (esta copia acaba de nacer).")
-        subprocess.run([sys.executable, actualizar, "buscar"], cwd=str(herramienta))
+        subprocess.run([sys.executable, actualizar, "buscar"], cwd=str(herramienta),
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
     objetivo = ["--todos"] if args.todos else [str(workspace)]
     salida = subprocess.run(
         [sys.executable, actualizar, "aplicar", *objetivo],
         cwd=str(herramienta),
+        creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
     ).returncode
     if salida == 0 and not args.todos:
         print(f"\n¿Actualizo también tus otros workspaces? → {ORDEN} aplicar --todos")

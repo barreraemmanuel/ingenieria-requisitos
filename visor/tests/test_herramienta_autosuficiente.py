@@ -81,6 +81,7 @@ class HerramientaAutosuficienteTest(unittest.TestCase):
         return subprocess.run(["git", "-C", str(repo), *args], text=True,
                               encoding="utf-8", errors="replace",
                               capture_output=True, env=self.entorno,
+                              creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                               check=kwargs.pop("check", True), **kwargs)
 
     def ejecutar(self, script, *args, cwd=None, entorno=None):
@@ -88,6 +89,7 @@ class HerramientaAutosuficienteTest(unittest.TestCase):
             [sys.executable, str(script), *args],
             cwd=str(cwd or RAIZ), text=True, encoding="utf-8", errors="replace",
             capture_output=True, env=entorno or self.entorno,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
 
     def herramienta_remota(self):
@@ -187,6 +189,99 @@ class HerramientaAutosuficienteTest(unittest.TestCase):
     def clones_completos(self, raiz):
         """Copias enteras de la herramienta bajo `raiz` (para detectar descargas)."""
         return sorted(p.parents[1] for p in Path(raiz).rglob("visor/actualizar.py"))
+
+    def clonar_herramienta(self, url, destino):
+        destino.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "clone", "-q", url, str(destino)], check=True,
+                       env=self.entorno, capture_output=True,
+                       creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        return destino
+
+    def version_de_copia(self, copia, version):
+        (copia / "plantilla/docs/00-metodo/VERSION").write_text(
+            version + "\n", encoding="utf-8")
+        self.git(copia, "add", "plantilla/docs/00-metodo/VERSION")
+        self.git(copia, "commit", "-qm", f"versión local {version}")
+
+    def origen_sintetico(self, version):
+        origen, url = self.herramienta_remota()
+        self.publicar_version(origen, version)
+        # El ensayo observa la fuente elegida sin ejecutar una actualización real.
+        (origen / "visor/actualizar.py").write_text(
+            "import pathlib, sys\n"
+            "origen = pathlib.Path(__file__).resolve().parents[1]\n"
+            "version = (origen / 'plantilla/docs/00-metodo/VERSION').read_text(encoding='utf-8')\n"
+            "(pathlib.Path(sys.argv[2]) / 'docs/00-metodo/VERSION').write_text(version, encoding='utf-8')\n",
+            encoding="utf-8")
+        self.git(origen, "add", "visor/actualizar.py")
+        self.git(origen, "commit", "-qm", "actualizador sintético aislado")
+        return origen, url
+
+    def test_aplicar_prioriza_clon_configurado_frente_a_anotado(self):
+        origen, url = self.origen_sintetico("9.9.9")
+        anotada = self.clonar_herramienta(url, self.base / "anotada")
+        ws = self.workspace(url, version="9.9.8")
+        (ws / "repos.yaml").write_text(
+            "codigo:\n  ruta_local: codigo-propio/\n", encoding="utf-8")
+        (ws / ".gitignore").write_text("codigo-propio/\n", encoding="utf-8")
+        self.git(ws, "add", "repos.yaml", ".gitignore")
+        self.git(ws, "commit", "-qm", "configurar clon de código")
+        configurada_en_ws = self.clonar_herramienta(url, ws / "codigo-propio")
+        self.version_de_copia(configurada_en_ws, "9.9.10")
+        (ws / ".claude").mkdir()
+        (ws / ".claude/actualizaciones.md").write_text(
+            f"herramienta: {anotada}\n", encoding="utf-8")
+
+        salida = self.aplicar(ws)
+
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn(str(configurada_en_ws), salida.stdout)
+        self.assertEqual((ws / "docs/00-metodo/VERSION").read_text(
+            encoding="utf-8").strip(), "9.9.10")
+        self.assertEqual(self.git(configurada_en_ws, "rev-list", "--count",
+                                  "@{upstream}..HEAD").stdout.strip(), "1")
+
+    def test_aplicar_descarta_descarga_temporal_inferior(self):
+        _origen, url = self.origen_sintetico("1.9")
+        ws = self.workspace(url, version="1.10")
+        antes = self.foto(ws / "docs")
+
+        salida = self.aplicar(ws)
+
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn("inferior a la instalada", salida.stdout)
+        self.assertEqual(self.foto(ws / "docs"), antes)
+
+    def test_aplicar_para_si_version_instalada_es_ilegible(self):
+        _origen, url = self.origen_sintetico("2.0")
+        ws = self.workspace(url)
+        (ws / "docs/00-metodo/VERSION").write_text("informe roto\n", encoding="utf-8")
+        antes = self.foto(ws / "docs")
+
+        salida = self.aplicar(ws)
+
+        self.assertEqual(salida.returncode, 1, salida.stdout + salida.stderr)
+        self.assertIn(str(ws / "docs/00-metodo/VERSION"), salida.stdout)
+        self.assertIn("fuente conocida", salida.stdout)
+        self.assertEqual(self.foto(ws / "docs"), antes)
+        self.assertEqual(self.clones_completos(self.temporales), [])
+
+    def test_aplicar_descarta_clon_inferior_y_usa_temporal_igual(self):
+        origen, url = self.origen_sintetico("1.10")
+        ws = self.workspace(url, version="1.10")
+        configurada = self.clonar_herramienta(url, ws / "codigo")
+        self.version_de_copia(configurada, "1.9")
+        (ws / "repos.yaml").write_text("codigo:\n  ruta_local: codigo/\n", encoding="utf-8")
+
+        salida = self.aplicar(ws)
+
+        self.assertEqual(salida.returncode, 0, salida.stdout + salida.stderr)
+        self.assertIn("inferior a la instalada", salida.stdout)
+        self.assertIn("Descargo la herramienta", salida.stdout)
+        self.assertEqual((ws / "docs/00-metodo/VERSION").read_text(
+            encoding="utf-8").strip(), "1.10")
+        self.assertEqual((configurada / "plantilla/docs/00-metodo/VERSION").read_text(
+            encoding="utf-8").strip(), "1.9")
 
     # --- R1 -----------------------------------------------------------------
 
