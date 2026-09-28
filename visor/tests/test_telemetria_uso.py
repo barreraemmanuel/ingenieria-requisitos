@@ -408,7 +408,9 @@ class TelemetriaUso(unittest.TestCase):
             "commit", "-m", "versión anterior sin telemetría")
         update = run(ROOT / "visor/actualizar.py", "aplicar", ws)
         self.assertEqual(update.returncode, 0, update.stdout + update.stderr)
-        self.assertEqual(installed.read_bytes(), SCRIPT.read_bytes())
+        # Modo D publica texto UTF-8; el checkout de la fuente puede usar CRLF.
+        self.assertEqual(installed.read_text(encoding="utf-8"),
+                         SCRIPT.read_text(encoding="utf-8"))
         capture2 = run(ws / "docs/00-metodo/scripts/peticion.py", "capturar", "--resumen",
                        "Otra", "--texto", "privado", "--autor", "sintetico")
         self.assertEqual(capture2.returncode, 0, capture2.stdout + capture2.stderr)
