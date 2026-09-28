@@ -284,7 +284,8 @@
     var k = c.canario;
     html += k.estado === "ok"
       ? dato("Canario", esc(k.veredicto) + (k.porcentaje === null ? "" :
-             " <small>" + k.porcentaje.toFixed(0) + " % de " + esc(String(k.modelo)) +
+             " <small>" + k.porcentaje.toFixed(0) +
+             (k.modelo ? " % de " + esc(String(k.modelo)) : " % · modelo desconocido") +
              "</small>"))
       : dato("Canario", esc(k.detalle || "no se pudo comprobar"), true);
     /* Unidad 121: los servidores ya NO se cuentan aquí. La cabecera sólo miraba

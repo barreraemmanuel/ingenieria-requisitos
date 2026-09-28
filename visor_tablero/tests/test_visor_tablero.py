@@ -1072,5 +1072,44 @@ class FrontmatterTest(unittest.TestCase):
         self.assertEqual("2026-08-25", fm["aprobado"])
 
 
+class CanarioModeloVisibleTest(unittest.TestCase):
+    def test_renderiza_modelo_conocido_desconocido_y_porcentaje_ausente(self):
+        from visor_tablero.tests.test_navegacion_tablero import STUBS, scripts_inline
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("requiere Node para ejecutar el render real")
+        plantilla = PLANTILLA.read_text(encoding="utf-8")
+        # Expose an internal function only in the test copy, using the existing test bank.
+        ancla = "pintarTaller: pintarTaller}"
+        self.assertEqual(1, plantilla.count(ancla))
+        plantilla = plantilla.replace(ancla, "pintarTaller: pintarTaller, cabecera: pintarCabecera}")
+        partes = [STUBS, "var nodos = {}; document.getElementById = function(id) {"
+                  "return nodos[id] || (nodos[id] = nodoFalso()); };",
+                  RENDER_JS_CONTRATOS.read_text(encoding="utf-8")]
+        partes += scripts_inline(plantilla)
+        casos = [(44, None), (44, "modelo de prueba"), (None, None)]
+        partes.append("var resultados = []; var casos = " + json.dumps(casos) + ";"
+                      "casos.forEach(function(caso) { window.tablero.cabecera({"
+                      "version: {estado: 'ok', local: '1', publicada: '1', al_dia: true},"
+                      "sin_empujar: {main: {estado: 'ok', commits: 0}, meta: {estado: 'ok', commits: 0}},"
+                      "canario: {estado: 'ok', veredicto: 'sano', porcentaje: caso[0], modelo: caso[1]}"
+                      "}); resultados.push(nodos.cabecera.innerHTML); });"
+                      "process.stdout.write(JSON.stringify(resultados));")
+        with tempfile.TemporaryDirectory() as tmp:
+            guion = Path(tmp) / "canario.js"
+            guion.write_text("\n".join(partes), encoding="utf-8")
+            r = subprocess.run([node, str(guion)], capture_output=True, text=True, encoding="utf-8")
+        self.assertEqual(0, r.returncode, r.stderr)
+        desconocido, conocido, sin_porcentaje = json.loads(r.stdout)
+        self.assertNotIn("null", desconocido)
+        self.assertIn("44 %", desconocido)
+        self.assertIn("modelo desconocido", desconocido)
+        self.assertIn("44 % de modelo de prueba", conocido)
+        self.assertNotIn("%", sin_porcentaje)
+        self.assertNotIn("null", sin_porcentaje)
+        for html in (desconocido, conocido, sin_porcentaje):
+            self.assertIn("sano", html)
+
+
 if __name__ == "__main__":
     unittest.main()
