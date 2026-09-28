@@ -3039,6 +3039,7 @@ class SalidaDelTrabajoProbadaTest(unittest.TestCase):
         (self.repo / "base.txt").write_text("base\n", encoding="utf-8")
         self.git("add", ".")
         self.git("commit", "-m", "base")
+        self.base = self.git("rev-parse", "HEAD")
         self.unidad = cargar_modulo_unidad()
 
     def git(self, *args):
@@ -3054,6 +3055,22 @@ class SalidaDelTrabajoProbadaTest(unittest.TestCase):
         self.git("commit", "-m", "Edicion de paquetes (R1-R3)")
         self.git("checkout", "main")
         return rama
+
+    def comprobar_con_recibo_git(self, rama):
+        punta = self.git("rev-parse", rama)
+        hechos = self.unidad.entrega.hechos_recuperacion(
+            self.repo, self.base, punta, comprobar_rama=False
+        )
+        recibo = {"schema": "entrega-git/v1", "unidad": rama, "rol": "constructor",
+                  "resultado": "ok", "recuperacion": hechos}
+        return recibo
+
+    def verificar_rama_retirada(self, rama, recibo, fusion_declarada=""):
+        with mock.patch.object(self.unidad.entrega, "recibos_de", return_value=[recibo]), \
+             mock.patch.object(self.unidad, "WORKTREES", Path(self.tmp.name) / "worktrees"):
+            return self.unidad.rama_mergeada(
+                self.repo, rama, "main", fusion_declarada=fusion_declarada
+            )
 
     def test_rama_borrada_sin_fusionar_no_cuenta_como_mergeada(self):
         rama = self.commit_en_rama()
@@ -3085,28 +3102,36 @@ class SalidaDelTrabajoProbadaTest(unittest.TestCase):
 
     def test_fusion_anotada_reanuda_un_cierre_sin_rama(self):
         rama = self.commit_en_rama()
+        recibo = self.comprobar_con_recibo_git(rama)
         self.git("merge", "--ff-only", rama)
         sha = self.git("rev-parse", "main")
         self.git("branch", "-d", rama)
 
-        mergeada, motivo, fuerte, _ = self.unidad.rama_mergeada(
-            self.repo, rama, "main", fusion_declarada=sha
-        )
+        sin_recibo = self.unidad.rama_mergeada(self.repo, rama, "main", fusion_declarada=sha)
+        self.assertFalse(sin_recibo[0], sin_recibo[1])
+        self.assertIn("SALIDA:", sin_recibo[1])
+
+        mergeada, motivo, fuerte, _ = self.verificar_rama_retirada(rama, recibo, sha)
 
         self.assertTrue(mergeada, motivo)
         self.assertTrue(fuerte)
 
-    def test_squash_borrada_es_prueba_debil_y_lo_dice(self):
+    def test_squash_borrada_con_recibo_y_arbol_exacto_es_prueba_fuerte(self):
         rama = self.commit_en_rama("002-squash")
+        recibo = self.comprobar_con_recibo_git(rama)
         self.git("merge", "--squash", rama)
         self.git("commit", "-m", f"{rama}: edición de paquetes")
         self.git("branch", "-D", rama)
 
-        mergeada, motivo, fuerte, _ = self.unidad.rama_mergeada(self.repo, rama, "main")
+        sin_recibo = self.unidad.rama_mergeada(self.repo, rama, "main")
+        self.assertFalse(sin_recibo[0], sin_recibo[1])
+        self.assertIn("SALIDA:", sin_recibo[1])
+
+        mergeada, motivo, fuerte, _ = self.verificar_rama_retirada(rama, recibo)
 
         self.assertTrue(mergeada, motivo)
-        self.assertFalse(fuerte)
-        self.assertIn("INDIRECTA", motivo)
+        self.assertTrue(fuerte)
+        self.assertIn("MISMO árbol", motivo)
 
     def test_ficheros_de_unifica_grafias_del_mismo_fichero(self):
         fm = {"ficheros": "[api/x.py, ./api/x.py, API/x.py, api\\x.py]"}
