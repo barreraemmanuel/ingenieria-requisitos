@@ -38,6 +38,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+# Reparar protege los archivos del método incluso antes de procesar sus opciones:
+# los imports locales tampoco deben crear o reemplazar archivos de bytecode.
+if sys.argv[1:2] == ["reparar"]:
+    sys.dont_write_bytecode = True
+
 import control_plane  # noqa: E402
 import repo_config  # noqa: E402
 import workspace_paths  # noqa: E402

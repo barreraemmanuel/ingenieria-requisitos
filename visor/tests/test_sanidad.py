@@ -50,16 +50,18 @@ VEREDICTOS = {"OK", "WARN", "FAIL", "NO_COMPROBADO"}
 
 
 def hash_arbol(*carpetas):
-    """Huella del contenido de unas carpetas: nombre + bytes de cada fichero regular."""
+    """Huella de cada carpeta: nombres de directorios y nombres y bytes de archivos."""
     resumen = hashlib.sha256()
     for carpeta in carpetas:
         if not carpeta.exists():
             resumen.update(b"\0AUSENTE\0" + str(carpeta.name).encode("utf-8"))
             continue
-        for ruta in sorted(p for p in carpeta.rglob("*") if p.is_file()):
+        for ruta in sorted(carpeta.rglob("*")):
+            resumen.update(("D:" if ruta.is_dir() else "F:").encode("ascii"))
             resumen.update(str(ruta.relative_to(carpeta)).encode("utf-8"))
             resumen.update(b"\0")
-            resumen.update(ruta.read_bytes())
+            if ruta.is_file():
+                resumen.update(ruta.read_bytes())
             resumen.update(b"\0")
     return resumen.hexdigest()
 
@@ -372,12 +374,23 @@ class RepararTest(BaseSanidad):
         )
 
     def test_simular_lista_y_no_escribe_nada(self):
-        antes = hash_arbol(self.w.ws / "docs", self.w.ws / "main")
-        resultado = self.w.correr("reparar", "--simular")
-        self.assertEqual(resultado.returncode, 0, resultado.stderr)
-        self.assertIn("SIMULADO", resultado.stdout)
-        self.assertNotIn("REPARADO", resultado.stdout)
-        self.assertEqual(hash_arbol(self.w.ws / "docs", self.w.ws / "main"), antes)
+        self.w.escribir("worktrees/unidad/privado.txt", "trabajo paralelo\n")
+        self.w.escribir(".private/credencial-sintetica.txt", "dato de prueba\n")
+        entorno = {"PYTHONDONTWRITEBYTECODE": ""}
+        for cache_previa in (False, True):
+            with self.subTest(cache_previa=cache_previa):
+                if cache_previa:
+                    cache = self.w.scripts / "__pycache__"
+                    cache.mkdir(exist_ok=True)
+                    for nombre in ("control_plane", "repo_config", "workspace_paths"):
+                        (cache / f"{nombre}.{sys.implementation.cache_tag}.pyc").write_bytes(
+                            b"cache invalida")
+                antes = hash_arbol(self.w.ws)
+                resultado = self.w.correr("reparar", "--simular", entorno=entorno)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+                self.assertIn("SIMULADO", resultado.stdout)
+                self.assertNotIn("REPARADO", resultado.stdout)
+                self.assertEqual(hash_arbol(self.w.ws), antes)
 
     def test_archiva_las_actas_y_reescribe_las_referencias(self):
         resultado = self.w.correr("reparar")
