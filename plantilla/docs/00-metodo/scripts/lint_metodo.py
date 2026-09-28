@@ -1419,6 +1419,9 @@ PIEZAS_CI = (
     ".github/dependabot.yml",
 )
 presentes_ci = [ruta for ruta in PIEZAS_CI if (repo_cod / ruta).is_file()]
+remoto_materializado = any(
+    (repo_cod / ruta).is_file() for ruta in PIEZAS_CI if ruta.startswith(".github/")
+)
 lint_ci = RAIZ / "docs/00-metodo/scripts/lint_ci.py"
 if not lint_ci.is_file():
     warn("no se pudo comprobar el contrato de CI: falta "
@@ -1439,17 +1442,22 @@ else:
     # tener un returncode≠0 que delatarlo, y se reconoce por el marcador `DEUDA-CI:` que
     # imprime en su lugar. returncode≠0 sigue significando FAIL real (contrato parcial).
     deuda_sin_materializar = "DEUDA-CI:" in resultado_ci.stdout
-    if (presentes_ci or requiere_e2e) and resultado_ci.returncode:
-        warn("la materialización del CI está incompleta; ejecuta "
+    if resultado_ci.returncode:
+        alcance = ("el contrato remoto está incompleto" if remoto_materializado
+                   else "los checks locales exigidos están incompletos")
+        warn(f"{alcance}; ejecuta "
              "`python3 docs/00-metodo/scripts/lint_ci.py --repo main"
              f"{' --require-e2e' if requiere_e2e else ''}` para ver el detalle", id_='materializacion-ci-incompleta-ejecuta-python3-docs')
-    elif presentes_ci:
-        ok("contrato CI materializado y completo")
-    elif resultado_ci.returncode or deuda_sin_materializar:
-        warn("CI real aún sin materializar: en brownfield debe ser la primera unidad técnica "
-             "tras la adopción; en proyectos nuevos nace con el esqueleto", id_='ci-real-aun-materializar-brownfield-debe')
+    elif remoto_materializado:
+        ok("contrato remoto materializado y comprobado")
+    elif deuda_sin_materializar:
+        warn("los checks locales deben declararse en AGENTS.md; ejecuta "
+             "`python3 docs/00-metodo/scripts/lint_ci.py --repo main` para ver el detalle",
+             id_='ci-real-aun-materializar-brownfield-debe')
+    elif "repositorio todavía vacío" in resultado_ci.stdout:
+        ok("repo de código todavía vacío: los checks nacerán cuando se conozca el stack")
     else:
-        ok("repo de código todavía vacío: el CI nacerá cuando se conozca el stack")
+        ok("checks locales declarados y comprobados")
 
 # --- 7c. Git sabe quién eres, y este repo tiene historia ---
 # El bootstrap avisa una vez si no pudo cerrar el commit inicial (falta identidad de git en la

@@ -11,8 +11,8 @@ import unittest
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent.parent / "plantilla/docs/00-metodo/scripts"
-DETALLE_INCOMPLETO = "la materialización del CI está incompleta"
-DETALLE_SIN_MATERIALIZAR = "CI real aún sin materializar"
+DETALLE_INCOMPLETO = "los checks locales exigidos están incompletos"
+DETALLE_SIN_MATERIALIZAR = "los checks locales deben declararse"
 DETALLE_SIN_REPO = "no se pudo comprobar el contrato de CI"
 
 
@@ -83,7 +83,7 @@ class LintCiEsGuiaTest(unittest.TestCase):
 
     # R3: con piezas parciales/mal formadas el sistema sigue señalando el detalle, solo
     # baja de FAIL a WARN.
-    def test_piezas_parciales_sigue_senalando_el_detalle_como_aviso(self):
+    def test_scripts_locales_sin_checks_declarados_avisan(self):
         self.repo_con_codigo_sin_ci()
         (self.repo / "scripts/ci").mkdir(parents=True)
         (self.repo / "scripts/ci/lint").write_text("<pega aquí tu lint>\n", encoding="utf-8")
@@ -91,8 +91,8 @@ class LintCiEsGuiaTest(unittest.TestCase):
         resultado = self.lint()
         salida = resultado.stdout + resultado.stderr
 
-        self.assertIn(f"WARN {DETALLE_INCOMPLETO}", salida)
-        self.assertNotIn(f"FAIL {DETALLE_INCOMPLETO}", salida)
+        self.assertIn(f"WARN {DETALLE_SIN_MATERIALIZAR}", salida)
+        self.assertNotIn(f"FAIL {DETALLE_SIN_MATERIALIZAR}", salida)
         self.assertIn("para ver el detalle", salida)
 
     # R4 (caso límite): si lint_ci.py no puede ejecutarse porque el repo de código no
@@ -105,10 +105,6 @@ class LintCiEsGuiaTest(unittest.TestCase):
         self.assertIn(DETALLE_SIN_REPO, salida)
         self.assertIn("FAIL ·", salida)  # el linter llegó al resumen final, no reventó a medias
         self.assertNotIn("Traceback", salida)
-
-
-if __name__ == "__main__":
-    unittest.main()
 
 
 # --------------------------------------------------------------------------- unidad 097
@@ -304,6 +300,15 @@ class LintCiSinCiRemotoTest(unittest.TestCase):
         self.assertIn("DEUDA-CI", salida)
         self.assertIn("WARN", salida)
 
+    def test_bias_remoto_sin_workflows_avisa_tambien_con_flag_local(self):
+        self.declarar_checks_locales()
+        self.declarar_bias("sí")
+        resultado = self.lint_ci("--require-e2e")
+        self.assertEqual(resultado.returncode, 1, resultado.stdout)
+        self.assertIn("WARN DEUDA-CI", resultado.stdout)
+        self.assertIn("FAIL falta scripts/ci/e2e", resultado.stdout)
+        self.assertNotIn("FAIL falta .github/", resultado.stdout)
+
     # R3 (límite): `ci_remoto: no` explícito se comporta como la ausencia de la clave.
     def test_r3_bias_dice_no_y_se_comporta_como_la_ausencia(self):
         self.declarar_checks_locales()
@@ -329,7 +334,7 @@ class LintCiSinCiRemotoTest(unittest.TestCase):
         salida = resultado.stdout + resultado.stderr
 
         self.assertEqual(resultado.returncode, 0, salida)
-        self.assertIn("materializados", salida)
+        self.assertIn("contrato remoto", salida)
 
     # R4: y si esos workflows están mal formados, sigue siendo FAIL (no lo relaja ADR-035).
     def test_r4_workflows_mal_formados_siguen_siendo_fail(self):
@@ -344,3 +349,30 @@ class LintCiSinCiRemotoTest(unittest.TestCase):
 
         self.assertEqual(resultado.returncode, 1, resultado.stdout)
         self.assertIn("no está fijada a un SHA", resultado.stdout)
+
+    def test_solo_artefactos_remotos_canonicos_activan_contrato_remoto(self):
+        self.declarar_checks_locales()
+        (self.repo / "scripts/ci").mkdir(parents=True)
+        workflows = self.repo / ".github/workflows"
+        workflows.mkdir(parents=True)
+        (workflows / "otro.yml").write_text("name: externo\n", encoding="utf-8")
+        for nombre in (None, ".github/dependabot.yml", ".github/workflows/tests.yml",
+                       ".github/workflows/quality-security.yml"):
+            if nombre:
+                ruta = self.repo / nombre
+                ruta.parent.mkdir(parents=True, exist_ok=True)
+                ruta.write_text("parcial\n", encoding="utf-8")
+            resultado = self.lint_ci()
+            with self.subTest(nombre=nombre):
+                self.assertEqual(resultado.returncode, 0 if nombre is None else 1,
+                                 resultado.stdout)
+                if nombre is None:
+                    self.assertNotIn(".github/dependabot.yml", resultado.stdout)
+                else:
+                    self.assertIn(".github/", resultado.stdout)
+            if nombre:
+                ruta.unlink()
+
+
+if __name__ == "__main__":
+    unittest.main()

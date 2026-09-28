@@ -221,6 +221,11 @@ class ContratoCITest(unittest.TestCase):
         return 'provisionar-datos --database "$E2E_DATABASE"\n'
 
     def crear_contrato_e2e(self, repo, provision_seguro=True):
+        tests_e2e = repo / "tests/e2e"
+        tests_e2e.mkdir(parents=True, exist_ok=True)
+        (tests_e2e / "test_viaje.py").write_text(
+            "def test_viaje():\n    assert True\n", encoding="utf-8"
+        )
         e2e = repo / "scripts" / "ci" / "e2e"
         e2e.write_text(
             "#!/bin/sh\n"
@@ -259,6 +264,186 @@ class ContratoCITest(unittest.TestCase):
             + "- Datos E2E: `scripts/ci/provision-e2e`\n",
             encoding="utf-8",
         )
+
+    def crear_contrato_local_e2e(self, repo):
+        self.crear_contrato_ci(repo)
+        self.crear_contrato_e2e(repo)
+        shutil.rmtree(repo / ".github")
+
+    def test_e2e_local_completo_no_exige_workflows(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_local_e2e(repo)
+        resultado = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout)
+        self.assertNotIn(".github/", resultado.stdout)
+
+    def test_e2e_local_exige_seleccion_resoluble(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_local_e2e(repo)
+        (repo / "tests/e2e/test_viaje.py").unlink()
+        resultado = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(resultado.returncode, 1, resultado.stdout)
+        self.assertIn("scripts/ci/e2e", resultado.stdout)
+
+    def test_e2e_local_rechaza_etiqueta_sola_y_codigo_inalcanzable(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_local_e2e(repo)
+        e2e = repo / "scripts/ci/e2e"
+        original = e2e.read_text(encoding="utf-8")
+        full = repo / "scripts/ci/full-suite"
+        for cambio in ("pytest -m e2e", "pytest tests/no-e2e", "pytest"):
+            e2e.write_text(original.replace("pytest tests/e2e", cambio), encoding="utf-8")
+            resultado = self.ejecutar_lint_ci(repo, "--require-e2e")
+            with self.subTest(cambio=cambio):
+                self.assertEqual(resultado.returncode, 1, resultado.stdout)
+                self.assertIn("scripts/ci/e2e", resultado.stdout)
+        e2e.write_text(original, encoding="utf-8")
+        full.write_text(full.read_text(encoding="utf-8").replace(
+            "scripts/ci/e2e\n", "exit 0\nscripts/ci/e2e\n"), encoding="utf-8")
+        inalcanzable = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(inalcanzable.returncode, 1, inalcanzable.stdout)
+        self.assertIn("scripts/ci/full-suite", inalcanzable.stdout)
+
+    def crear_contrato_python_e2e(self, repo):
+        self.crear_contrato_local_e2e(repo)
+        ci = repo / "scripts/ci"
+        (ci / "full-suite").write_text(
+            "#!/usr/bin/env python3\nimport subprocess\nimport sys\n"
+            "subprocess.run([sys.executable, 'scripts/ci/e2e'], check=True)\n",
+            encoding="utf-8",
+        )
+        (ci / "e2e").write_text(
+            "#!/usr/bin/env python3\nimport subprocess\nimport sys\n"
+            "subprocess.run([sys.executable, 'scripts/ci/provision-e2e'], check=True)\n"
+            "subprocess.run([sys.executable, '-m', 'pytest', 'tests/e2e'], check=True)\n",
+            encoding="utf-8",
+        )
+        (ci / "provision-e2e").write_text(
+            "#!/usr/bin/env python3\nimport os\nimport subprocess\n"
+            "env = os.environ['APP_ENV']\n"
+            "target = os.environ['E2E_DATABASE']\n"
+            "if env not in ('local', 'test', 'e2e'): raise SystemExit(1)\n"
+            "if target not in ('local', 'test', 'e2e'): raise SystemExit(1)\n"
+            "subprocess.run(['provisionar-datos', '--database', target], check=True)\n",
+            encoding="utf-8",
+        )
+
+    def test_python_portable_local_valido(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_python_e2e(repo)
+        resultado = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(resultado.returncode, 0, resultado.stdout)
+
+    def test_python_rechaza_error_neutralizado_y_codigo_inalcanzable(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_python_e2e(repo)
+        e2e = repo / "scripts/ci/e2e"
+        original = e2e.read_text(encoding="utf-8")
+        for cambio in (
+            original.replace("check=True", "check=False"),
+            original.replace("subprocess.run([sys.executable, '-m'", "return\nsubprocess.run([sys.executable, '-m'"),
+            original.replace("subprocess.run([sys.executable, '-m'", "try:\n    subprocess.run([sys.executable, '-m'") + "except Exception: pass\n",
+        ):
+            e2e.write_text(cambio, encoding="utf-8")
+            with self.subTest(cambio=cambio):
+                resultado = self.ejecutar_lint_ci(repo, "--require-e2e")
+                self.assertEqual(resultado.returncode, 1, resultado.stdout)
+                self.assertIn("scripts/ci/e2e", resultado.stdout)
+
+    def test_python_workspace_y_manifiesto_resuelven_casos(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_python_e2e(repo)
+        ci = repo / "scripts/ci"
+        (ci / "full-suite").write_text(
+            "#!/usr/bin/env python3\nimport subprocess\nimport sys\n"
+            "workspace = sys.argv[2]\n"
+            "subprocess.run([sys.executable, 'visor/tests/correr.py'], check=True)\n"
+            "subprocess.run([sys.executable, 'scripts/ci/e2e', '--workspace', workspace], check=True)\n",
+            encoding="utf-8",
+        )
+        (ci / "e2e").write_text(
+            "#!/usr/bin/env python3\nimport subprocess\nimport sys\n"
+            "workspace = sys.argv[2]\n"
+            "subprocess.run([sys.executable, 'scripts/ci/provision-e2e', '--workspace', workspace], check=True)\n"
+            "subprocess.run([sys.executable, 'visor/tests/e2e/correr.py', '--manifest', "
+            "'visor/tests/e2e/seleccion.json', '--workspace', workspace], check=True)\n",
+            encoding="utf-8",
+        )
+        e2e_tests = repo / "visor/tests/e2e"
+        e2e_tests.mkdir(parents=True)
+        (e2e_tests / "test_viaje.py").write_text(
+            "import unittest\nclass Viaje(unittest.TestCase):\n"
+            "    def test_viaje(self):\n        self.assertTrue(True)\n",
+            encoding="utf-8",
+        )
+        (e2e_tests / "seleccion.json").write_text(json.dumps({
+            "cases": [{"id": "E2E-1601", "tests": [
+                "visor.tests.e2e.test_viaje.Viaje.test_viaje"]}]
+        }), encoding="utf-8")
+        runner = e2e_tests / "correr.py"
+        runner.write_text(
+            "import json\nimport sys\nimport unittest\nfrom pathlib import Path\n"
+            "data = json.loads(Path(sys.argv[2]).read_text(encoding='utf-8'))\n"
+            "suite = unittest.TestSuite()\n"
+            "for case in data['cases']:\n"
+            "    for name in case['tests']:\n"
+            "        suite.addTests(unittest.TestLoader().loadTestsFromName(name))\n"
+            "count = suite.countTestCases()\n"
+            "result = unittest.TextTestRunner().run(suite)\n"
+            "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)\n",
+            encoding="utf-8",
+        )
+        valido = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(valido.returncode, 0, valido.stdout)
+        runner.write_text("print('OK')\n", encoding="utf-8")
+        noop = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(noop.returncode, 1, noop.stdout)
+        self.assertIn("scripts/ci/e2e", noop.stdout)
+        (e2e_tests / "seleccion.json").write_text(json.dumps({
+            "cases": [{"id": "E2E-1601", "tests": ["no.existe.Caso.test_fake"]}]
+        }), encoding="utf-8")
+        inexistente = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(inexistente.returncode, 1, inexistente.stdout)
+
+    def test_python_control_plane_guarda_antes_de_mutar(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_python_e2e(repo)
+        provision = repo / "scripts/ci/provision-e2e"
+        original = provision.read_text(encoding="utf-8")
+        self.crear_manifiesto_control_plane(repo)
+        guard = repo / "scripts/ci/control-plane-guard"
+        guard.write_text(
+            "#!/usr/bin/env python3\nimport subprocess\nimport sys\n"
+            "subprocess.run([sys.executable, 'docs/00-metodo/scripts/control_plane.py', "
+            "'guard-test', '--env-json', '.runtime/control-plane-env.json'], check=True)\n",
+            encoding="utf-8",
+        )
+        guard_call = "subprocess.run([sys.executable, 'scripts/ci/control-plane-guard'], check=True)\n"
+        original = original.replace("import subprocess\n", "import subprocess\nimport sys\n")
+        original = original.replace("subprocess.run(['provisionar-datos'", guard_call + "subprocess.run(['provisionar-datos'")
+        provision.write_text(original, encoding="utf-8")
+        valido = self.ejecutar_lint_ci(repo, "--require-e2e", "--require-control-plane")
+        self.assertEqual(valido.returncode, 0, valido.stdout)
+        provision.write_text(original.replace(guard_call, "") + guard_call, encoding="utf-8")
+        tarde = self.ejecutar_lint_ci(repo, "--require-e2e", "--require-control-plane")
+        self.assertEqual(tarde.returncode, 1, tarde.stdout)
+        self.assertIn("control-plane.json", tarde.stdout)
+
+    def test_manifiesto_local_presente_sin_flag_y_gasto_real_se_validan(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_local_e2e(repo)
+        self.crear_manifiesto_control_plane(repo, productivo=True)
+        sin_flag = self.ejecutar_lint_ci(repo)
+        self.assertEqual(sin_flag.returncode, 1, sin_flag.stdout)
+        self.assertIn("control-plane.json", sin_flag.stdout)
+        (repo / "scripts/ci/control-plane.json").unlink()
+        test_pago = repo / "tests/test_pago.py"
+        test_pago.parent.mkdir(exist_ok=True)
+        test_pago.write_text("from openai import OpenAI\nclient = OpenAI()\n",
+                             encoding="utf-8")
+        gasto = self.ejecutar_lint_ci(repo)
+        self.assertEqual(gasto.returncode, 1, gasto.stdout)
+        self.assertIn("gasto-real", gasto.stdout)
 
     def ejecutar_git(self, repo, *args):
         resultado = subprocess.run(
@@ -576,7 +761,7 @@ class ContratoCITest(unittest.TestCase):
             self.assertEqual(resultado.returncode, 1, invocacion)
             self.assertIn("scripts/ci/full-suite", resultado.stdout)
             self.assertIn(
-                "no acredita invocación autónoma con set -e activo",
+                "scripts/ci/e2e` directamente; en shell usa set -e",
                 resultado.stdout,
             )
 
@@ -685,7 +870,7 @@ class ContratoCITest(unittest.TestCase):
 
         self.assertEqual(resultado.returncode, 1)
         self.assertIn(
-            "no acredita provision como primera orden con fail-fast continuo",
+            "como primera orden con fail-fast",
             resultado.stdout,
         )
 
@@ -791,7 +976,7 @@ class ContratoCITest(unittest.TestCase):
             self.assertIn("scripts/ci/e2e", resultado.stdout)
             self.assertIn("scripts/ci/provision-e2e", resultado.stdout)
             self.assertIn(
-                "no acredita provision como primera orden con fail-fast continuo",
+                "como primera orden con fail-fast",
                 resultado.stdout,
             )
 
@@ -1093,6 +1278,12 @@ class ContratoCITest(unittest.TestCase):
 
     def test_lint_metodo_activa_require_e2e_desde_mapa_o_actividad(self):
         workspace = self.crear_workspace_metodo()
+        main = workspace / "main"
+        main.mkdir(exist_ok=True)
+        self.ejecutar_git(main, "init", "-b", "main")
+        (main / "app.py").write_text("print('demo')\n", encoding="utf-8")
+        self.ejecutar_git(main, "add", "app.py")
+        self.ejecutar_git(main, "commit", "-m", "Fixture E2E")
         planos = workspace / "docs" / "02-flujos" / "planos"
         sin_e2e = subprocess.run(
             [sys.executable, str(workspace / "docs/00-metodo/scripts/lint_metodo.py")],
@@ -1101,7 +1292,7 @@ class ContratoCITest(unittest.TestCase):
             capture_output=True,
             env=self.git_env,
         )
-        self.assertNotIn("materialización del CI está incompleta", sin_e2e.stdout)
+        self.assertNotIn("contrato remoto está incompleto", sin_e2e.stdout)
 
         ubicaciones = (
             planos / "planos.json",
@@ -1126,7 +1317,7 @@ class ContratoCITest(unittest.TestCase):
             )
 
             self.assertIn(
-                "materialización del CI está incompleta",
+                "contrato remoto está incompleto",
                 resultado.stdout,
                 f"No activó E2E para {ubicacion}:\n{resultado.stdout}{resultado.stderr}",
             )

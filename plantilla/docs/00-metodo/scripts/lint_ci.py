@@ -20,6 +20,7 @@ ya conoce lenguaje, framework y gestor de paquetes. El repo vacío es válido; u
 código no puede dar verde con huecos o saltos silenciosos.
 """
 import argparse
+import ast
 import importlib.util
 import json
 import os
@@ -60,6 +61,7 @@ REQUERIDOS = (
     ".github/workflows/quality-security.yml",
     ".github/dependabot.yml",
 )
+REQUERIDOS_LOCALES = REQUERIDOS[:4]
 WORKFLOWS_METODO = (
     ".github/workflows/tests.yml",
     ".github/workflows/quality-security.yml",
@@ -160,6 +162,8 @@ def full_suite_invoca_e2e(texto):
     for linea in texto.splitlines():
         if linea.rstrip().endswith("\\") or tokens_shell(linea) is None:
             return False
+        if (tokens_shell(linea) or [""])[0] in {"exit", "return", "false"}:
+            return False
         if linea_es_invocacion_directa(linea, "scripts/ci/e2e", admite_exec=True):
             return errexit
         cambio = cambio_errexit(linea)
@@ -230,7 +234,208 @@ def linea_ejecuta_pruebas(linea):
     return comando in gestores and any(marcador.search(token) for token in tokens[1:])
 
 
-def e2e_provisiona_antes_de_pruebas(texto):
+def _seleccion_e2e_resuelta(repo, tokens, nivel=0):
+    """Sigue rutas o targets locales hasta archivos de pruebas existentes."""
+    if nivel > 2 or not tokens:
+        return False
+    comando = Path(tokens[0]).stem.lower()
+    args = tokens[1:]
+    if comando in {"python", "python3", "py"} and args[:2] == ["-m", "pytest"]:
+        comando, args = "pytest", args[2:]
+    if comando in {"npm", "pnpm", "yarn"} and len(args) >= 2 and args[0] == "run":
+        try:
+            scripts = json.loads(leer(repo, "package.json"))["scripts"]
+            target = scripts[args[1]]
+            return _seleccion_e2e_resuelta(repo, shlex.split(target), nivel + 1)
+        except (ValueError, KeyError, TypeError):
+            return False
+    if comando == "make" and len(args) == 1:
+        lines = leer(repo, "Makefile").splitlines()
+        header = f"{args[0]}:"
+        for i, line in enumerate(lines):
+            if line.startswith(header):
+                commands = []
+                for recipe in lines[i + 1:]:
+                    if not recipe.startswith("\t"):
+                        break
+                    commands.append(recipe.strip())
+                return any(_seleccion_e2e_resuelta(repo, tokens_shell(c) or [], nivel + 1)
+                           for c in commands)
+        return False
+    if comando not in RUNNERS_DE_TEST:
+        return False
+    if comando == "pytest" and any(x in args for x in ("-m", "-k")):
+        # Una etiqueta sola no demuestra dónde están los tests E2E.
+        return False
+    for arg in args:
+        if (not isinstance(arg, str) or arg.startswith("-") or
+                not re.search(r"(^|[/_.-])e2e([/_.-]|$)", arg, re.I)):
+            continue
+        selected = arg.split("::", 1)[0]
+        path = (repo / selected).resolve()
+        try:
+            path.relative_to(repo.resolve())
+        except ValueError:
+            continue
+        if path.is_file() and re.search(r"(^test_|_test\.|\.spec\.|\.test\.)", path.name):
+            return True
+        if path.is_dir() and any(
+            p.is_file() and re.search(r"(^test_|_test\.|\.spec\.|\.test\.)", p.name)
+            for p in path.rglob("*")
+        ):
+            return True
+    return False
+
+
+def _caso_python_existe(repo, nombre):
+    partes = nombre.split(".")
+    if len(partes) < 3 or any(not p.isidentifier() for p in partes):
+        return False
+    modulo = repo.joinpath(*partes[:-2]).with_suffix(".py")
+    try:
+        modulo.resolve().relative_to(repo.resolve())
+        tree = ast.parse(modulo.read_text(encoding="utf-8"))
+    except (OSError, ValueError, SyntaxError):
+        return False
+    return any(
+        isinstance(n, ast.ClassDef) and n.name == partes[-2] and
+        any(isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef)) and
+            m.name == partes[-1] and m.name.startswith("test") for m in n.body)
+        for n in tree.body
+    )
+
+
+def _runner_manifest_valido(tree):
+    # Forma acotada: el programa principal carga argv[2], itera cases/tests y
+    # ejecuta la suite. Las funciones no llamadas y los try/except quedan fuera.
+    if any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Try,
+                          ast.While, ast.If, ast.Continue, ast.Break, ast.Return))
+           for n in ast.walk(tree)):
+        return False
+    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
+    attrs = {c.func.attr for c in calls if isinstance(c.func, ast.Attribute)}
+    if not {"loads", "read_text", "loadTestsFromName", "addTests", "run",
+            "wasSuccessful", "countTestCases"} <= attrs:
+        return False
+    if not any(
+        isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute)
+        and isinstance(n.value.value, ast.Name) and n.value.value.id == "sys"
+        and n.value.attr == "argv" and isinstance(n.slice, ast.Constant)
+        and n.slice.value == 2 for n in ast.walk(tree)
+    ):
+        return False
+    loops = [n for n in ast.walk(tree) if isinstance(n, ast.For)]
+    if len(loops) != 2 or not isinstance(loops[0].target, ast.Name):
+        return False
+    outer, inner = loops
+    if (inner not in outer.body or not isinstance(inner.target, ast.Name) or
+            not isinstance(outer.iter, ast.Subscript) or
+            not isinstance(outer.iter.value, ast.Name) or
+            outer.iter.value.id != "data" or
+            not isinstance(outer.iter.slice, ast.Constant) or
+            outer.iter.slice.value != "cases" or
+            not isinstance(inner.iter, ast.Subscript) or
+            not isinstance(inner.iter.value, ast.Name) or
+            inner.iter.value.id != outer.target.id or
+            not isinstance(inner.iter.slice, ast.Constant) or
+            inner.iter.slice.value != "tests"):
+        return False
+    if not any(
+        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "loadTestsFromName" and len(n.args) == 1
+        and isinstance(n.args[0], ast.Name) and n.args[0].id == inner.target.id
+        for n in ast.walk(inner)
+    ):
+        return False
+    top_names = [n.targets[0].id for n in tree.body
+                 if isinstance(n, ast.Assign) and len(n.targets) == 1
+                 and isinstance(n.targets[0], ast.Name)]
+    if not {"data", "suite", "count", "result"} <= set(top_names):
+        return False
+    positions = {name: next(i for i, stmt in enumerate(tree.body)
+                            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                            and isinstance(stmt.targets[0], ast.Name)
+                            and stmt.targets[0].id == name)
+                 for name in ("data", "suite", "count", "result")}
+    assignments = {name: tree.body[index].value for name, index in positions.items()}
+    def call_attr(node, attr):
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == attr)
+    if (not call_attr(assignments["data"], "loads") or
+            not any(call_attr(n, "read_text") for n in ast.walk(assignments["data"])) or
+            not call_attr(assignments["count"], "countTestCases") or
+            not isinstance(assignments["count"].func.value, ast.Name) or
+            assignments["count"].func.value.id != "suite" or
+            not call_attr(assignments["result"], "run") or
+            len(assignments["result"].args) != 1 or
+            not isinstance(assignments["result"].args[0], ast.Name) or
+            assignments["result"].args[0].id != "suite"):
+        return False
+    outer_index = tree.body.index(outer)
+    if not (positions["data"] < outer_index and positions["suite"] < outer_index
+            < positions["count"] < positions["result"]):
+        return False
+    # La última sentencia debe cerrar con estado no cero ante fallo o suite vacía.
+    ultimo = tree.body[-1] if tree.body else None
+    return (isinstance(ultimo, ast.Raise) and isinstance(ultimo.exc, ast.Call)
+            and isinstance(ultimo.exc.func, ast.Name)
+            and ultimo.exc.func.id == "SystemExit" and len(ultimo.exc.args) == 1
+            and isinstance(ultimo.exc.args[0], ast.IfExp)
+            and isinstance(ultimo.exc.args[0].orelse, ast.Constant)
+            and ultimo.exc.args[0].orelse.value == 1
+            and {"count", "result"} <= {n.id for n in ast.walk(ultimo.exc.args[0].test)
+                                           if isinstance(n, ast.Name)})
+
+
+def _seleccion_manifest_resuelta(repo, tokens):
+    if (len(tokens) not in (4, 6) or tokens[:2] !=
+            ["PYTHON", "visor/tests/e2e/correr.py"] or tokens[2] != "--manifest"):
+        return False
+    if len(tokens) == 6 and tokens[4:] != ["--workspace", ("ARG", "workspace")]:
+        return False
+    manifest = tokens[3]
+    if not isinstance(manifest, str) or not manifest.startswith("visor/tests/e2e/"):
+        return False
+    try:
+        data = json.loads((repo / manifest).read_text(encoding="utf-8"))
+        cases = data["cases"]
+        if not isinstance(cases, list) or not cases:
+            return False
+        ids = [case["id"] for case in cases]
+        if len(ids) != len(set(ids)) or any(not re.fullmatch(r"E2E-[0-9]+", x) for x in ids):
+            return False
+        for case in cases:
+            names = case["tests"]
+            if not isinstance(names, list) or not names or not all(
+                isinstance(n, str) and _caso_python_existe(repo, n) for n in names
+            ):
+                return False
+        runner = (repo / "visor/tests/e2e/correr.py").read_text(encoding="utf-8")
+        tree = ast.parse(runner)
+    except (OSError, KeyError, TypeError, ValueError, SyntaxError):
+        return False
+    return _runner_manifest_valido(tree)
+
+
+def _python_e2e_valido(repo):
+    full = _python_programa(leer(repo, "scripts/ci/full-suite"))
+    e2e = _python_programa(leer(repo, "scripts/ci/e2e"))
+    full_pasos = full[0] if full else []
+    e2e_pasos = e2e[0] if e2e else []
+    cadena = bool(full_pasos) and any(
+        _python_invoca(tokens, "scripts/ci/e2e") for tokens, _ in full_pasos
+    )
+    seleccion = e2e_pasos[1][0] if len(e2e_pasos) == 2 else []
+    pruebas = (len(e2e_pasos) == 2
+               and _python_invoca(e2e_pasos[0][0], "scripts/ci/provision-e2e")
+               and (_seleccion_manifest_resuelta(repo, seleccion) or
+                    _seleccion_e2e_resuelta(repo, [
+                        sys.executable if x == "PYTHON" else x for x in seleccion
+                    ])))
+    return cadena, pruebas
+
+
+def e2e_provisiona_antes_de_pruebas(texto, repo=None):
     """Valida orden, fail-fast y propagación de rojos en todo el runner E2E."""
     codigo = sin_comentarios_de_linea(texto)
     if (contiene_or_shell(texto) or RE_DESACTIVA_ERREXIT.search(codigo)
@@ -255,7 +460,11 @@ def e2e_provisiona_antes_de_pruebas(texto):
         elif linea_es_invocacion_directa(linea, "scripts/ci/provision-e2e"):
             return False
         elif linea_ejecuta_pruebas(linea):
+            if repo is not None and not _seleccion_e2e_resuelta(repo, tokens_shell(linea) or []):
+                return False
             prueba = True
+        elif (tokens_shell(linea) or [""])[0] in {"exit", "return", "false"}:
+            return False
         cambio = cambio_errexit(linea)
         if cambio is not None:
             errexit = cambio
@@ -391,7 +600,133 @@ def guarda_case_segura(lineas):
 
 def provision_tiene_guarda_segura(texto):
     lineas = sin_comentarios_de_linea(texto).splitlines()
+    if any(re.fullmatch(r"\s*(?:exit\s+0|return(?:\s+.*)?|false)\s*", linea)
+           for linea in lineas):
+        return False
     return guarda_case_segura(lineas)
+
+
+def _es_python(texto):
+    return bool(re.match(r"^#![^\n]*\bpython(?:3)?\b", texto))
+
+
+def _python_programa(texto):
+    """Subconjunto deliberado: imports, lecturas de entorno, guardas y run directo.
+
+    Cada llamada es una sentencia alcanzable; no se aceptan funciones, try/except,
+    bucles ni comandos construidos. `check=True` conserva el error del hijo.
+    """
+    try:
+        tree = ast.parse(texto)
+    except SyntaxError:
+        return None
+    imports, variables, guardas, pasos = set(), {}, set(), []
+    for stmt in tree.body:
+        if isinstance(stmt, ast.Import) and all(
+            alias.asname is None and alias.name in {"os", "sys", "subprocess"}
+            for alias in stmt.names
+        ):
+            imports.update(alias.name for alias in stmt.names)
+            continue
+        if (isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Name)):
+            name = stmt.targets[0].id
+            value = stmt.value
+            if (isinstance(value, ast.Subscript) and isinstance(value.value, ast.Attribute)
+                    and isinstance(value.value.value, ast.Name)
+                    and value.value.value.id == "os" and value.value.attr == "environ"
+                    and isinstance(value.slice, ast.Constant)
+                    and value.slice.value in {"APP_ENV", "E2E_DATABASE", "E2E_DB", "E2E_TENANT"}
+                    and name not in variables and "os" in imports):
+                variables[name] = value.slice.value
+                continue
+            if (isinstance(value, ast.Subscript) and isinstance(value.value, ast.Attribute)
+                    and isinstance(value.value.value, ast.Name)
+                    and value.value.value.id == "sys" and value.value.attr == "argv"
+                    and isinstance(value.slice, ast.Constant) and value.slice.value == 2
+                    and name == "workspace" and "sys" in imports and name not in variables):
+                variables[name] = "ARGV_WORKSPACE"
+                continue
+            return None
+        if isinstance(stmt, ast.If):
+            cond = stmt.test
+            if (stmt.orelse or len(stmt.body) != 1 or
+                    not isinstance(stmt.body[0], ast.Raise) or
+                    not isinstance(cond, ast.Compare) or len(cond.ops) != 1 or
+                    not isinstance(cond.ops[0], ast.NotIn) or
+                    not isinstance(cond.left, ast.Name) or
+                    cond.left.id not in variables or
+                    not isinstance(cond.comparators[0], (ast.Tuple, ast.List))):
+                return None
+            allowed = cond.comparators[0].elts
+            if (set(x.value for x in allowed if isinstance(x, ast.Constant))
+                    != {"local", "test", "e2e"} or len(allowed) != 3):
+                return None
+            failure = stmt.body[0].exc
+            if (not isinstance(failure, ast.Call) or
+                    not isinstance(failure.func, ast.Name) or
+                    failure.func.id != "SystemExit" or
+                    len(failure.args) != 1 or
+                    not isinstance(failure.args[0], ast.Constant) or
+                    failure.args[0].value != 1):
+                return None
+            guardas.add(cond.left.id)
+            continue
+        if not isinstance(stmt, ast.Expr) or not isinstance(stmt.value, ast.Call):
+            return None
+        call = stmt.value
+        if (not isinstance(call.func, ast.Attribute) or
+                not isinstance(call.func.value, ast.Name) or
+                call.func.value.id != "subprocess" or call.func.attr != "run" or
+                "subprocess" not in imports or len(call.args) != 1 or
+                not isinstance(call.args[0], (ast.List, ast.Tuple)) or
+                len(call.keywords) != 1 or call.keywords[0].arg != "check" or
+                not isinstance(call.keywords[0].value, ast.Constant) or
+                call.keywords[0].value.value is not True):
+            return None
+        tokens = []
+        for value in call.args[0].elts:
+            if isinstance(value, ast.Constant) and isinstance(value.value, str):
+                tokens.append(value.value)
+            elif (isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name)
+                  and value.value.id == "sys" and value.attr == "executable"
+                  and "sys" in imports):
+                tokens.append("PYTHON")
+            elif isinstance(value, ast.Name) and value.id in variables:
+                tokens.append(("ARG" if variables[value.id] == "ARGV_WORKSPACE" else "ENV", value.id))
+            else:
+                return None
+        if not tokens:
+            return None
+        pasos.append((tokens, frozenset(guardas)))
+    return pasos, variables, guardas
+
+
+def _python_invoca(tokens, ruta):
+    for prefix in (["PYTHON", ruta], ["PYTHON", "./" + ruta]):
+        if tokens == prefix or tokens == prefix + ["--workspace", ("ARG", "workspace")]:
+            return True
+    return False
+
+
+def _python_provision_seguro(texto):
+    programa = _python_programa(texto)
+    if programa is None:
+        return False
+    pasos, variables, _ = programa
+    entornos = {k for k, v in variables.items() if v == "APP_ENV"}
+    destinos = {k for k, v in variables.items() if v in {"E2E_DATABASE", "E2E_DB", "E2E_TENANT"}}
+    if len(entornos) != 1 or len(destinos) != 1 or not pasos:
+        return False
+    for tokens, guardas in pasos:
+        if _python_invoca(tokens, "scripts/ci/control-plane-guard"):
+            continue
+        if not entornos <= guardas or not destinos <= guardas:
+            return False
+        if (len(tokens) < 3 or tokens[0] in {"PYTHON", "echo", "print"}
+                or ("ENV", next(iter(destinos))) not in tokens):
+            return False
+    return True
 
 
 def exigir_fragmentos(texto, relativa, fragmentos):
@@ -475,15 +810,20 @@ def revisar_e2e(repo):
     fallos = []
     rutas = ("scripts/ci/e2e", "scripts/ci/provision-e2e")
     fallos += revisar_scripts(repo, rutas)
-    if not full_suite_invoca_e2e(leer(repo, "scripts/ci/full-suite")):
+    full_texto = leer(repo, "scripts/ci/full-suite")
+    e2e_texto = leer(repo, "scripts/ci/e2e")
+    python_cadena, python_pruebas = _python_e2e_valido(repo)
+    if not (python_cadena if _es_python(full_texto)
+            else full_suite_invoca_e2e(full_texto)):
         fallos.append(
-            "scripts/ci/full-suite: no acredita invocación autónoma con set -e activo "
-            "de `scripts/ci/e2e`"
+            "scripts/ci/full-suite: invoca `scripts/ci/e2e` directamente; "
+            "en shell usa set -e, en Python subprocess.run([sys.executable, ruta], check=True)"
         )
-    if not e2e_provisiona_antes_de_pruebas(leer(repo, "scripts/ci/e2e")):
+    if not (python_pruebas if _es_python(e2e_texto)
+            else e2e_provisiona_antes_de_pruebas(e2e_texto, repo)):
         fallos.append(
-            "scripts/ci/e2e: no acredita provision como primera orden con fail-fast "
-            "continuo mediante `scripts/ci/provision-e2e`"
+            "scripts/ci/e2e: exige `scripts/ci/provision-e2e` como primera orden con fail-fast y "
+            "un runner que seleccione archivos E2E existentes (p. ej. `pytest tests/e2e`)"
         )
     fallos += exigir_fragmentos(
         leer(repo, "AGENTS.md"),
@@ -492,17 +832,27 @@ def revisar_e2e(repo):
     )
 
     provision = leer(repo, "scripts/ci/provision-e2e")
-    if not provision_tiene_guarda_segura(provision):
+    if not (_python_provision_seguro(provision) if _es_python(provision)
+            else provision_tiene_guarda_segura(provision)):
         fallos.append(
             "scripts/ci/provision-e2e: no demuestra dos guardas independientes: "
             "entorno y destino (DB/tenant/instancia) local/test/E2E, con rechazo "
-            "explícito de producción"
+            "explícito de producción; en Python usa os.environ, if ... not in "
+            "('local', 'test', 'e2e'): raise SystemExit(1), y subprocess.run(..., check=True)"
         )
     return fallos
 
 
 def control_plane_guard_valido(texto):
     """El wrapper solo puede ejecutar el guard canónico, sin neutralizadores."""
+    if _es_python(texto):
+        programa = _python_programa(texto)
+        if programa is None or len(programa[0]) != 1:
+            return False
+        tokens = programa[0][0][0]
+        return (len(tokens) == 5 and tokens[:3] ==
+                ["PYTHON", "docs/00-metodo/scripts/control_plane.py", "guard-test"]
+                and tokens[3] == "--env-json" and tokens[4].startswith(".runtime/"))
     if contiene_or_shell(texto) or contiene_pipe_shell(texto) or contiene_sintaxis_de_bloque(texto):
         return False
     sustantivas = []
@@ -528,6 +878,10 @@ def control_plane_guard_valido(texto):
 
 def provision_invoca_guard_antes_de_mutar(texto):
     """El guard es la primera orden sustantiva y su rojo detiene el provisionador."""
+    if _es_python(texto):
+        programa = _python_programa(texto)
+        return bool(programa and programa[0] and _python_invoca(
+            programa[0][0][0], "scripts/ci/control-plane-guard"))
     codigo = sin_comentarios_de_linea(texto)
     if (contiene_or_shell(texto) or contiene_pipe_shell(texto)
             or RE_DESACTIVA_ERREXIT.search(codigo)):
@@ -557,8 +911,10 @@ def revisar_control_plane(repo, required=False, trusted_allow_hosts=()):
         if manifiesto.get("guard_script") != "scripts/ci/control-plane-guard":
             raise control_plane.InvalidManifest("guard_script canónico obligatorio")
         guard = repo / "scripts/ci/control-plane-guard"
-        if (not guard.is_file() or not os.access(guard, os.X_OK)
-                or not control_plane_guard_valido(leer(repo, manifiesto["guard_script"]))):
+        guard_texto = leer(repo, manifiesto["guard_script"])
+        if (not guard.is_file() or
+                (not _es_python(guard_texto) and not os.access(guard, os.X_OK))
+                or not control_plane_guard_valido(guard_texto)):
             raise control_plane.InvalidManifest(
                 "scripts/ci/control-plane-guard no ejecuta únicamente guard-test"
             )
@@ -607,15 +963,7 @@ def ci_remoto_pedido(workspace):
 
 
 def contrato_ci_materializado(repo):
-    """¿El repo empezó a construir su contrato de CI, aunque sea a medias?
-
-    Ausente (ni `scripts/ci/` ni ningún workflow del método) es un proyecto que nunca tuvo
-    el esqueleto: eso es deuda declarable, no una rotura. Cualquier rastro de haber
-    empezado (el directorio existe, o algún workflow existe) ya es "parcial": ahí sí falta
-    una pieza concreta, y eso es un FAIL como siempre.
-    """
-    if (repo / "scripts/ci").is_dir():
-        return True
+    """Solo los tres artefactos canónicos activan la revisión remota completa."""
     return any((repo / relativa).is_file() for relativa in WORKFLOWS_METODO)
 
 
@@ -867,18 +1215,23 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
             control_plane_allow_hosts=(), workspace=RAIZ):
     if not repo.is_dir():
         return [f"el repo no existe o no es una carpeta: {repo}"]
-    if not repo_tiene_codigo(repo):
-        print("  OK   repositorio todavía vacío: el CI real nacerá cuando se conozca el stack")
-        return []
     # `gasto-real` (163) NO depende del contrato de CI: un repo puede no tener workflows y
     # aun así tener tests que llaman a un proveedor de pago. Se mide siempre y se suma a
     # todas las salidas, incluida la degradada a WARN de deuda.
     gasto = revisar_gasto_real(repo, workspace=workspace)
-    if (not require_e2e and not require_control_plane
-            and not contrato_ci_materializado(repo)):
+    if not repo_tiene_codigo(repo) and not (require_e2e or require_control_plane):
+        print("  OK   repositorio todavía vacío: los checks nacerán cuando se conozca el stack")
+        return gasto + revisar_control_plane(repo, trusted_allow_hosts=control_plane_allow_hosts)
+    remoto = contrato_ci_materializado(repo)
+    if not remoto and (require_e2e or require_control_plane) and ci_remoto_pedido(workspace):
+        print(f"  WARN {MARCADOR_DEUDA}: `ci_remoto: sí` en {BIAS_RELATIVA} "
+              "aún no tiene workflows canónicos; materializa ese contrato remoto "
+              "en su propia unidad. Se comprueban los checks locales exigidos.")
+    if not remoto and not (require_e2e or require_control_plane):
         # R6: las puertas explícitas siempre exigen su pieza; sin ellas, un contrato
         # completamente ausente es deuda nombrada (R1/R5), no un FAIL eterno.
         checks = checks_declarados_en_agents(repo)
+        control = revisar_control_plane(repo, trusted_allow_hosts=control_plane_allow_hosts)
         if not ci_remoto_pedido(workspace):
             # ADR-035: no tener CI remoto es la NORMA, no una deuda. Lo que sí se exige es
             # que los checks que de verdad se corren estén escritos donde el siguiente
@@ -886,26 +1239,26 @@ def revisar(repo, require_e2e=False, require_control_plane=False,
             if checks:
                 print("  OK   verificación local declarada en AGENTS.md y sin CI remoto "
                       f"pedido en el bias (ADR-035); los checks son: {checks}")
-                return gasto
+                return gasto + control
             print(f"  WARN {MARCADOR_DEUDA}: este repo no declara en su AGENTS.md los checks "
                   "que corre en local antes de fusionar (tests, lint, seguridad). SALIDA: "
                   "escríbelos ahí con el comando exacto entre comillas invertidas, siguiendo "
                   "plantillas/agents-repo-codigo.md")
-            return gasto
+            return gasto + control
         detalle = (f"los checks locales declarados son: {checks}" if checks
                    else "su AGENTS.md tampoco declara los checks locales: decláralos ahí")
         print(f"  WARN {MARCADOR_DEUDA}: `ci_remoto: sí` en {BIAS_RELATIVA} pide un CI remoto "
-              f"que este repo no tiene (sin scripts/ci/ ni workflows); {detalle}. SALIDA: o "
+              f"que este repo no tiene (sin workflows canónicos); {detalle}. SALIDA: o "
               "abre una unidad que lo materialice siguiendo runbooks/planificacion.md, o pon "
               "`ci_remoto: no` en el bias y quédate con la verificación local (ADR-035)")
-        return gasto
-    requeridos = REQUERIDOS + (("scripts/ci/e2e", "scripts/ci/provision-e2e")
+        return gasto + control
+    requeridos = (REQUERIDOS if remoto else REQUERIDOS_LOCALES) + (("scripts/ci/e2e", "scripts/ci/provision-e2e")
                               if require_e2e else ())
     fallos = [f"falta {relativa}" for relativa in requeridos
               if not (repo / relativa).is_file()]
     if fallos:
         return fallos + gasto
-    fallos = revisar_workflows(repo) + revisar_scripts(repo) + revisar_agents(repo)
+    fallos = (revisar_workflows(repo) if remoto else []) + revisar_scripts(repo) + revisar_agents(repo)
     if require_e2e:
         fallos += revisar_e2e(repo)
     fallos += revisar_control_plane(
@@ -957,10 +1310,10 @@ def main():
     # El bloque "todo materializado" solo aplica si de verdad se comprobó el contrato
     # completo: si se degradó a WARN de deuda (contrato ausente), ese WARN ya lo dijo todo,
     # y repetir un OK aquí contradiría el propio aviso.
-    if (not fallos and repo_tiene_codigo(repo)
-            and (args.require_e2e or args.require_control_plane
-                 or contrato_ci_materializado(repo))):
-        print("  OK   tests, lint, seguridad y actualizaciones están materializados")
+    if not fallos and repo_tiene_codigo(repo) and contrato_ci_materializado(repo):
+        print("  OK   contrato remoto, tests, lint y seguridad comprobados")
+    elif not fallos and repo_tiene_codigo(repo) and (args.require_e2e or args.require_control_plane):
+        print("  OK   checks locales exigidos comprobados")
     print(f"\n{len(fallos)} FAIL")
     return 1 if fallos else 0
 
