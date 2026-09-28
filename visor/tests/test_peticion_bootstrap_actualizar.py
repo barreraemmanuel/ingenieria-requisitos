@@ -1,5 +1,6 @@
 import importlib.util
 import base64
+import errno
 import hashlib
 import json
 import os
@@ -28,10 +29,76 @@ borrar_arbol = ayuda_windows.borrar_arbol
 
 
 def borrar_tmp_silencioso(ruta):
-    """Cleanup del temporal de un test: en Windows un fichero recién reemplazado
-    por una escritura atómica puede seguir retenido; eso es ruido de cleanup, no
-    un fallo del test. (ignore_cleanup_errors de TemporaryDirectory es 3.10+.)"""
-    shutil.rmtree(ruta, ignore_errors=True)
+    """Retira el temporal propio, recuperando readonly y locks breves de Windows.
+
+    Un lock persistente o cualquier otro error debe hacer fallar el test. El
+    presupuesto de dos segundos cubre la llamada entera, incluidos callbacks.
+    """
+    raiz = os.path.abspath(os.fspath(ruta))
+    limite = time.monotonic() + 2.0
+
+    def dentro_sin_enlaces(objetivo):
+        objetivo = os.path.abspath(os.fspath(objetivo))
+        try:
+            dentro = os.path.commonpath((raiz, objetivo)) == raiz
+        except ValueError:  # unidades de disco distintas en Windows
+            dentro = False
+        if not dentro:
+            return False
+        actual = raiz
+        datos = os.lstat(actual)
+        if (stat.S_ISLNK(datos.st_mode)
+                or getattr(datos, "st_file_attributes", 0)
+                & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+            return False
+        partes = os.path.relpath(objetivo, raiz)
+        for parte in (() if partes == os.curdir else Path(partes).parts):
+            actual = os.path.join(actual, parte)
+            datos = os.lstat(actual)
+            if (stat.S_ISLNK(datos.st_mode)
+                    or getattr(datos, "st_file_attributes", 0)
+                    & getattr(stat, "FILE_ATTRIBUTE_REPARSE_POINT", 0)):
+                return False
+        return True
+
+    def recuperar(funcion, objetivo, error):
+        causa = error if isinstance(error, BaseException) else error[1]
+        if time.monotonic() >= limite:
+            raise TimeoutError(f"Limpieza agotó 2 s en {objetivo}: {causa}") from causa
+        # Un callback no puede tocar un destino fuera del temporal ni un enlace.
+        try:
+            seguro = dentro_sin_enlaces(objetivo)
+            datos = os.lstat(objetivo)
+        except OSError:
+            raise causa
+        if (not seguro or not stat.S_ISREG(datos.st_mode)
+                or not isinstance(causa, PermissionError)
+                or causa.errno not in (errno.EACCES, errno.EPERM)
+                or not (getattr(datos, "st_file_attributes", 0)
+                        & getattr(stat, "FILE_ATTRIBUTE_READONLY", 0)
+                        or not datos.st_mode & stat.S_IWRITE)):
+            raise causa
+        os.chmod(objetivo, datos.st_mode | stat.S_IWRITE)
+        if time.monotonic() >= limite:
+            raise TimeoutError(f"Limpieza agotó 2 s en {objetivo}: {causa}") from causa
+        funcion(objetivo)
+
+    if not os.path.lexists(raiz):
+        return
+    while True:
+        try:
+            if sys.version_info >= (3, 12):
+                shutil.rmtree(raiz, onexc=recuperar)
+            else:
+                shutil.rmtree(raiz, onerror=recuperar)
+            return
+        except PermissionError as error:
+            if getattr(error, "winerror", None) not in (32, 33):
+                raise
+            restante = limite - time.monotonic()
+            if restante <= 0:
+                raise PermissionError(error.errno, error.strerror, error.filename or raiz) from error
+            time.sleep(min(.05, restante))
 
 
 class PeticionBootstrapActualizarTest(unittest.TestCase):
