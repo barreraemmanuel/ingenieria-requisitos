@@ -1457,10 +1457,11 @@ def olvidar_registro(workspace, puerto):
     descartar preguntando. Se borra el propio, nunca el de otro puerto."""
     registro = Path(workspace) / ".runtime" / ("web-%d.log" % puerto)
     try:
-        registro.unlink()
-    except OSError:
-        return False
-    return True
+        registro.unlink(missing_ok=True)
+    except OSError as exc:
+        print("ERROR: no pude retirar el registro de esta web (%s): %s"
+              % (registro, exc), file=sys.stderr, flush=True)
+        raise
 
 
 def main():
@@ -1558,8 +1559,9 @@ def main():
     except KeyboardInterrupt:
         pass
     servidor.shutdown()
-    olvidar_registro(workspace, puerto)
+    servidor.server_close()
     print("La web del método se cerró.", flush=True)
+    olvidar_registro(workspace, puerto)
 
 
 if __name__ == "__main__":

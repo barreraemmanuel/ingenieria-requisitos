@@ -255,6 +255,42 @@ def servidor_vivo(workspace, puerto):
     return None
 
 
+def abrir_registro(registro):
+    """Abre el log para stdout sin impedir que el servidor lo retire en Windows."""
+    if sys.platform != "win32":
+        return registro.open("ab")
+    import ctypes
+    import msvcrt
+
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.CreateFileW.argtypes = [ctypes.c_wchar_p, ctypes.c_uint32,
+                                   ctypes.c_uint32, ctypes.c_void_p,
+                                   ctypes.c_uint32, ctypes.c_uint32,
+                                   ctypes.c_void_p]
+    kernel.CreateFileW.restype = ctypes.c_void_p
+    # FILE_SHARE_DELETE acompaña a las opciones normales de lectura y escritura.
+    # El hijo hereda este handle y puede borrar SU log al caducar.
+    GENERIC_WRITE = 0x40000000
+    FILE_SHARE_READ_WRITE_DELETE = 0x1 | 0x2 | 0x4
+    OPEN_ALWAYS = 4
+    FILE_ATTRIBUTE_NORMAL = 0x80
+    handle = kernel.CreateFileW(str(registro), GENERIC_WRITE,
+                                FILE_SHARE_READ_WRITE_DELETE, None,
+                                OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, None)
+    if handle == ctypes.c_void_p(-1).value:
+        raise ctypes.WinError(ctypes.get_last_error())
+    try:
+        descriptor = msvcrt.open_osfhandle(handle, os.O_APPEND | os.O_BINARY)
+    except OSError:
+        kernel.CloseHandle(ctypes.c_void_p(handle))
+        raise
+    try:
+        return os.fdopen(descriptor, "ab")
+    except OSError:
+        os.close(descriptor)
+        raise
+
+
 def abrir(workspace, args):
     """Levanta la web del workspace, o REUTILIZA la que ya esté en pie, y abre
     el navegador en el apartado pedido."""
@@ -300,7 +336,7 @@ def abrir(workspace, args):
                "--sin-navegador"]
     if lan:
         comando.append("--lan")
-    with registro.open("ab") as salida:
+    with abrir_registro(registro) as salida:
         # Desasido a propósito: la web tiene que seguir en pie cuando el comando
         # que la levantó termine — es lo que el usuario va a mirar.
         proceso = subprocess.Popen(

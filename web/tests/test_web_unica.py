@@ -17,12 +17,15 @@ Un test por criterio del contrato (`docs/05-trabajo/081-una-sola-web/especificac
 """
 
 import argparse
+import contextlib
 import http.client
 import importlib.util
+import io
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -30,6 +33,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 AQUI = Path(__file__).resolve().parent
 WEB = AQUI.parent
@@ -105,6 +109,29 @@ def workspace_sintetico(con_planos=True):
     (datos / "manifiesto.json").write_text(
         json.dumps(MANIFIESTO, ensure_ascii=False), encoding="utf-8")
     return raiz
+
+
+def esperar_puerto_libre(puerto, segundos=10):
+    limite = time.monotonic() + segundos
+    while time.monotonic() < limite:
+        with socket.socket() as conexion:
+            conexion.settimeout(0.2)
+            if conexion.connect_ex(("127.0.0.1", puerto)) != 0:
+                return
+        time.sleep(0.05)
+    raise AssertionError("el puerto %d sigue ocupado" % puerto)
+
+
+def limpiar_procesos(workspace, procesos):
+    """Retira únicamente hijos propios; la carpeta se borra después de su salida."""
+    puertos = [int(r.stem.split("-", 1)[1])
+               for r in (workspace / ".runtime").glob("web-*.log")]
+    for proceso in procesos:
+        abrir_mod.detener(proceso)
+    for puerto in puertos:
+        esperar_puerto_libre(puerto)
+    for registro in (workspace / ".runtime").glob("web-*.log"):
+        registro.unlink()
 
 
 class ServidorDePrueba:
@@ -396,19 +423,27 @@ class SinNavegadorTest(unittest.TestCase):
 
     def test_el_lanzador_imprime_la_url_y_no_abre_nada(self):
         raiz = workspace_sintetico()
-        self.addCleanup(shutil.rmtree, raiz, True)
-        salida = subprocess.run(
-            [sys.executable, str(WEB / "abrir.py"), "--workspace", str(raiz),
-             "--apartado", "contratos", "--sin-navegador", "--minutos", "0.05"],
-            capture_output=True, text=True, timeout=60,
-            env=dict(os.environ, PYTHONUTF8="1", IR_SIN_NAVEGADOR="1"))
-        self.addCleanup(self._matar, raiz)
-        self.assertEqual(0, salida.returncode, salida.stderr)
-        self.assertRegex(salida.stdout, r"http://127\.0\.0\.1:\d+/contratos")
+        self.addCleanup(shutil.rmtree, raiz)
+        procesos = []
+        self.addCleanup(limpiar_procesos, raiz, procesos)
+        abrir_real = abrir_mod.abrir
 
-    def _matar(self, raiz):
-        for registro in (raiz / ".runtime").glob("web-*.log"):
-            registro.unlink(missing_ok=True)
+        def guardar_proceso(workspace, args):
+            resultado = abrir_real(workspace, args)
+            procesos.append(resultado.proceso)
+            return resultado
+
+        salida = io.StringIO()
+        with mock.patch.object(abrir_mod, "abrir", side_effect=guardar_proceso), \
+             mock.patch.object(sys, "argv", ["abrir.py", "--workspace", str(raiz),
+                                            "--apartado", "contratos", "--sin-navegador",
+                                            "--minutos", "0.05"]), \
+             mock.patch.object(abrir_mod.webbrowser, "open") as navegador, \
+             contextlib.redirect_stdout(salida):
+            codigo = abrir_mod.main()
+        self.assertEqual(0, codigo)
+        self.assertRegex(salida.getvalue(), r"http://127\.0\.0\.1:\d+/contratos")
+        navegador.assert_not_called()
 
 
 # --------------------------------------------------------------------------- R4
@@ -630,23 +665,93 @@ class LaWebCaducaSolaTest(unittest.TestCase):
             argparse.Namespace(minutos=5, minutos_explicito=True)))
 
     def test_al_caducar_la_web_borra_su_propio_registro(self):
-        """Al apagarse sola, deja de aparecer en Inicio: su `web-<puerto>.log` se va."""
+        """El proceso termina, libera el puerto y retira su log antes del teardown."""
         raiz = workspace_sintetico()
-        self.addCleanup(shutil.rmtree, raiz, True)
-        salida = subprocess.run(
-            [sys.executable, str(WEB / "abrir.py"), "--workspace", str(raiz),
-             "--apartado", "tablero", "--sin-navegador", "--minutos", "0.05"],
-            capture_output=True, text=True, timeout=60,
-            env=dict(os.environ, PYTHONUTF8="1", IR_SIN_NAVEGADOR="1"))
-        self.assertEqual(0, salida.returncode, salida.stderr)
+        self.addCleanup(shutil.rmtree, raiz)
+        procesos = []
+        self.addCleanup(limpiar_procesos, raiz, procesos)
+        resultado = abrir_mod.abrir(raiz, abrir_mod.argumentos_prueba(
+            apartado="tablero", puerto=0, minutos=0.05))
+        procesos.append(resultado.proceso)
+        puerto = int(resultado.url.split(":")[2].split("/")[0])
         registros = sorted((raiz / ".runtime").glob("web-*.log"))
-        self.assertEqual(1, len(registros), salida.stdout)
-        for _ in range(300):
-            if not registros[0].exists():
-                break
-            time.sleep(0.2)
+        self.assertEqual(1, len(registros))
+        self.assertEqual(0, resultado.proceso.wait(timeout=12),
+                         "el servidor no terminó al caducar")
+        esperar_puerto_libre(puerto)
         self.assertFalse(registros[0].exists(),
                          "la web caducó y dejó su registro: Inicio la seguirá contando")
+
+    def test_tras_terminacion_manual_windows_reabre_en_el_mismo_puerto(self):
+        raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz)
+        procesos = []
+        self.addCleanup(limpiar_procesos, raiz, procesos)
+        primera = abrir_mod.abrir(raiz, abrir_mod.argumentos_prueba(
+            apartado="tablero", puerto=0, minutos=0))
+        procesos.append(primera.proceso)
+        puerto = int(primera.url.split(":")[2].split("/")[0])
+        abrir_mod.detener(primera.proceso)
+        self.assertIsNotNone(primera.proceso.poll())
+        esperar_puerto_libre(puerto)
+        segunda = abrir_mod.abrir(raiz, abrir_mod.argumentos_prueba(
+            apartado="contratos", puerto=puerto, minutos=0))
+        procesos.append(segunda.proceso)
+        self.assertIsNotNone(segunda.proceso)
+        self.assertEqual(puerto, int(segunda.url.split(":")[2].split("/")[0]))
+        registro = raiz / ".runtime" / ("web-%d.log" % puerto)
+        self.assertTrue(registro.is_file())
+        self.assertTrue(abrir_mod._identidad(abrir_mod._meta(puerto), raiz))
+
+    def test_al_caducar_una_web_la_vecina_sigue_viva_y_con_su_log(self):
+        raiz = workspace_sintetico()
+        vecina = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz)
+        self.addCleanup(shutil.rmtree, vecina)
+        procesos = []
+        procesos_vecina = []
+        self.addCleanup(limpiar_procesos, raiz, procesos)
+        self.addCleanup(limpiar_procesos, vecina, procesos_vecina)
+        primera = abrir_mod.abrir(raiz, abrir_mod.argumentos_prueba(
+            apartado="tablero", puerto=0, minutos=0.05))
+        procesos.append(primera.proceso)
+        segunda = abrir_mod.abrir(vecina, abrir_mod.argumentos_prueba(
+            apartado="tablero", puerto=0, minutos=0))
+        procesos_vecina.append(segunda.proceso)
+        puerto_primera = int(primera.url.split(":")[2].split("/")[0])
+        puerto_vecina = int(segunda.url.split(":")[2].split("/")[0])
+        self.assertNotEqual(puerto_primera, puerto_vecina)
+        self.assertEqual(0, primera.proceso.wait(timeout=12))
+        esperar_puerto_libre(puerto_primera)
+        self.assertFalse((raiz / ".runtime" / ("web-%d.log" % puerto_primera)).exists())
+        self.assertIsNone(segunda.proceso.poll())
+        self.assertTrue((vecina / ".runtime" / ("web-%d.log" % puerto_vecina)).is_file())
+        self.assertTrue(abrir_mod._identidad(abrir_mod._meta(puerto_vecina), vecina))
+
+    def test_una_asercion_fallida_tambien_libera_el_proceso_y_puerto_propios(self):
+        raiz = workspace_sintetico()
+        self.addCleanup(shutil.rmtree, raiz)
+        procesos = []
+        resultado = abrir_mod.abrir(raiz, abrir_mod.argumentos_prueba(
+            apartado="tablero", puerto=0, minutos=0))
+        procesos.append(resultado.proceso)
+        puerto = int(resultado.url.split(":")[2].split("/")[0])
+        with self.assertRaisesRegex(AssertionError, "fallo provocado"):
+            try:
+                raise AssertionError("fallo provocado")
+            finally:
+                limpiar_procesos(raiz, procesos)
+        self.assertIsNotNone(resultado.proceso.poll())
+        esperar_puerto_libre(puerto)
+
+    def test_un_error_al_retirar_el_registro_se_muestra_y_propaga(self):
+        salida = io.StringIO()
+        with mock.patch.object(Path, "unlink", side_effect=PermissionError("WinError 32")), \
+             contextlib.redirect_stderr(salida), \
+             self.assertRaises(PermissionError):
+            servir.olvidar_registro("C:/taller", 12345)
+        self.assertIn("no pude retirar el registro", salida.getvalue())
+        self.assertIn("WinError 32", salida.getvalue())
 
 
 if __name__ == "__main__":
