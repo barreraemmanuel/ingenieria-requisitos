@@ -69,6 +69,11 @@ barato. Una funcionalidad vive en SU módulo.>
 - Los scripts obligatorios de `scripts/ci/` —los tres base, cinco cuando se conserva el bloque
   E2E— preparan su entorno, usan herramientas fijadas y propagan cualquier rojo. Prohibido
   `|| true` o dar verde por no encontrar tests.
-- `.github/workflows/tests.yml` ejecuta la suite en pull requests;
-  `quality-security.yml` ejecuta lint y seguridad en paralelo en pull requests, al entrar en
-  `main` y semanalmente. `.github/dependabot.yml` propone las actualizaciones normales.
+- La suite, el lint y la seguridad se ejecutan en local antes de fusionar; anota arriba los
+  comandos probados para que cualquier agente pueda repetirlos.
+- Solo si el proyecto pide CI remoto mediante `ci_remoto: sí` en `01-constitucion/bias.md`,
+  crea `.github/workflows/tests.yml` para la suite en pull requests y
+  `quality-security.yml` para lint y seguridad en paralelo en pull requests, al entrar en
+  `main` y semanalmente. En ese caso, `.github/dependabot.yml` propone las
+  actualizaciones normales.
+  Las Actions externas van por SHA; los workflows propagan cualquier fallo.

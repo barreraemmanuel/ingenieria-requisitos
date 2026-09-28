@@ -122,10 +122,9 @@ PLANTILLA = RAIZ_REPO / "plantilla"
 ADR_035 = "035-sin-ci-remoto-por-defecto.md"
 TOPE_AGENTS = 160
 
-# Los dos ficheros del método que HOY siguen mandando crear `.github/workflows/`. No están
-# en el alcance de la unidad 097 (no los posee), así que quedan CONGELADOS: esta lista solo
-# puede encoger. Un fichero nuevo que empuje a montar CI remoto es FAIL.
-PENDIENTES_CI_REMOTO = {
+# Estos dos documentos muestran la opción de CI remoto, condicionada por el bias.
+# La prueba exige que la condición preceda a la instrucción de crear workflows.
+DOCUMENTOS_CI_REMOTO_CONDICIONAL = {
     "docs/00-metodo/runbooks/planificacion.md",
     "docs/00-metodo/plantillas/agents-repo-codigo.md",
 }
@@ -177,6 +176,20 @@ class SinCiRemotoPorDefectoTest(unittest.TestCase):
 
     def test_r5_ningun_papel_nuevo_del_metodo_manda_crear_workflows(self):
         culpables = set()
+        for relativa in DOCUMENTOS_CI_REMOTO_CONDICIONAL:
+            texto = (PLANTILLA / relativa).read_text(encoding="utf-8")
+            with self.subTest(relativa=relativa):
+                self.assertRegex(
+                    texto,
+                    r"(?s)Solo si el proyecto pide CI remoto mediante `ci_remoto: sí`"
+                    r".{0,180}\.github/workflows/",
+                    "la creación de workflows debe depender de ci_remoto: sí",
+                )
+                self.assertEqual(texto.count(".github/workflows/"), 1,
+                                 "hay otra instrucción sobre workflows fuera de la condición")
+                self.assertIn("quality-security.yml", texto)
+                self.assertIn(".github/dependabot.yml", texto)
+                self.assertIn("propagan cualquier fallo", texto)
         for carpeta in ("docs/00-metodo/scripts", "docs/00-metodo/runbooks",
                         "docs/00-metodo/plantillas"):
             for ruta in sorted((PLANTILLA / carpeta).rglob("*")):
@@ -191,11 +204,8 @@ class SinCiRemotoPorDefectoTest(unittest.TestCase):
             if ".github/workflows" in (PLANTILLA / relativa).read_text(encoding="utf-8"):
                 culpables.add(relativa)
 
-        nuevos = culpables - LECTORES_DE_WORKFLOWS - PENDIENTES_CI_REMOTO
+        nuevos = culpables - LECTORES_DE_WORKFLOWS - DOCUMENTOS_CI_REMOTO_CONDICIONAL
         self.assertFalse(nuevos, f"papeles del método que mandan crear CI remoto: {nuevos}")
-        self.assertFalse(PENDIENTES_CI_REMOTO - culpables,
-                         "la lista congelada nombra ficheros ya limpios: bórralos de "
-                         "PENDIENTES_CI_REMOTO, la lista solo puede encoger")
 
 
 class LintCiSinCiRemotoTest(unittest.TestCase):

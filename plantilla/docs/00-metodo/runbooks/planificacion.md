@@ -102,13 +102,16 @@ construcción con el esqueleto andante primero.
 5. **No duplica estado:** el estado vivo está en `ESTADO.md` y en los frontmatters.
 6. **La primera unidad materializa el entorno Y sus guardianes.** Copia
    `plantillas/agents-repo-codigo.md` a `main/AGENTS.md` con comandos probados y crea, para el
-   stack ya decidido: `scripts/ci/full-suite`, `scripts/ci/lint`, `scripts/ci/security`, los
-   workflows `.github/workflows/tests.yml` y `quality-security.yml`, y el
-   `.github/dependabot.yml` del gestor real. Un repositorio vacío no trae CI de mentira: esta
+   stack ya decidido: `scripts/ci/full-suite`, `scripts/ci/lint` y `scripts/ci/security`.
+   Declara en `AGENTS.md` cómo correr suite, lint y seguridad en local antes de fusionar.
+   Un repositorio vacío no trae verificaciones de mentira: esta
    unidad lo estrena y antes de pedir merge ejecuta
    `python3 docs/00-metodo/scripts/lint_ci.py --repo worktrees/NNN-slug`. Sin esas piezas no
-   hay primer merge. Las Actions externas van por SHA; vulnerabilidad = rojo, versión nueva
-   sin vulnerabilidad = propuesta de Dependabot (ADR-018).
+   hay primer merge. Solo si el proyecto pide CI remoto mediante `ci_remoto: sí` en
+   `01-constitucion/bias.md`, crea los workflows `.github/workflows/tests.yml` y
+   `quality-security.yml`, y el `.github/dependabot.yml` del gestor real. Los workflows
+   propagan cualquier fallo; las Actions externas van por SHA; vulnerabilidad = rojo,
+   versión nueva sin vulnerabilidad = propuesta de Dependabot (ADR-018).
    Si los planos declaran `pruebas_e2e`, ESA MISMA primera unidad de código y CI incluye el
    mínimo vertical de autenticación y el harness E2E. En greenfield materializa la
    autenticación mínima que necesitan los recorridos; en brownfield adopta la autenticación

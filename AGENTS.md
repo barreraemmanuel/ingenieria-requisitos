@@ -68,3 +68,9 @@ files) de su aplicación, con una web local para que los valide mirando.
    se entregó y toda la documentación del meta-repo. Sólo lee, no escribe nada:
    `python3 web/abrir.py --workspace <ruta del meta-repo> --apartado tablero`.
    Desde ahí se llega a los otros tres apartados sin cambiar de puerto.
+
+## Checks locales
+
+- Desde este repo de código: `python -m unittest discover -s visor/tests -p 'test_*.py' -v` ejecuta la suite rápida de `visor/tests/run-fast`. Un fallo indica una prueba roja; consérvalo y distingue si pertenece a esta modificación o a un problema previo antes de integrar.
+- Desde la raíz del meta-repo: `python docs/00-metodo/scripts/lint_metodo.py` comprueba el método y el workspace. Corrige los FAIL causados por tu cambio; registra los causados por el método según su regla 13. Un WARN no equivale a suite verde.
+- En sistemas donde `python3` apunta al intérprete instalado, los comandos del método usan `python3`. En Windows, usa `python` si `python3` apunta al alias de Microsoft Store.
