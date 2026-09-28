@@ -152,8 +152,33 @@ class LimpiezaFixturesGitTest(unittest.TestCase):
                             "test_peticion_bootstrap_actualizar.time.sleep"):
             with self.assertRaises(PermissionError) as captura:
                 borrar_tmp_silencioso(temporal)
-        self.assertEqual(intentos, ["primero", "segundo", "segundo"])
+        self.assertEqual(intentos, ["primero", "segundo"])
         self.assertIn("segundo", str(captura.exception))
+
+    def test_no_reintenta_si_sleep_despierta_tras_el_plazo(self):
+        temporal = self.raiz / "temporal"
+        temporal.mkdir()
+        reloj = [0.0]
+        fallo = PermissionError(13, "sharing violation", str(temporal / "retenido"))
+        fallo.winerror = 32
+
+        def retenido(_raiz, **_opciones):
+            raise fallo
+
+        def despertar_tarde(_segundos):
+            reloj[0] = 2.01
+
+        with mock.patch("test_peticion_bootstrap_actualizar.shutil.rmtree",
+                        side_effect=retenido) as rmtree, mock.patch(
+                            "test_peticion_bootstrap_actualizar.time.monotonic",
+                            side_effect=lambda: reloj[0]), mock.patch(
+                            "test_peticion_bootstrap_actualizar.time.sleep",
+                            side_effect=despertar_tarde) as sleep:
+            with self.assertRaises(PermissionError) as captura:
+                borrar_tmp_silencioso(temporal)
+        self.assertEqual(rmtree.call_count, 1)
+        sleep.assert_called_once()
+        self.assertIn("retenido", str(captura.exception))
 
     @unittest.skipUnless(os.name == "nt", "handles de Windows")
     def test_handle_transitorio_y_persistente_tienen_presupuesto_global(self):

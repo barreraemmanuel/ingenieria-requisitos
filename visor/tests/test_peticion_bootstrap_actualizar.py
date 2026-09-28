@@ -85,7 +85,13 @@ def borrar_tmp_silencioso(ruta):
 
     if not os.path.lexists(raiz):
         return
+    ultimo_error = None
     while True:
+        if ultimo_error is not None and time.monotonic() >= limite:
+            raise PermissionError(
+                ultimo_error.errno, ultimo_error.strerror,
+                ultimo_error.filename or raiz,
+            ) from ultimo_error
         try:
             if sys.version_info >= (3, 12):
                 shutil.rmtree(raiz, onexc=recuperar)
@@ -98,6 +104,7 @@ def borrar_tmp_silencioso(ruta):
             restante = limite - time.monotonic()
             if restante <= 0:
                 raise PermissionError(error.errno, error.strerror, error.filename or raiz) from error
+            ultimo_error = error
             time.sleep(min(.05, restante))
 
 
