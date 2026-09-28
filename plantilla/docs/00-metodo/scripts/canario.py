@@ -700,13 +700,48 @@ def _solo_asignaciones(texto):
     return not _ASIGNACION_SHELL.sub("", texto).strip()
 
 
+def _fin_orden_shell(comando, inicio):
+    """Busca el siguiente separador fuera de comillas y escapes."""
+    estado = "normal"
+    indice = inicio
+    while indice < len(comando):
+        caracter = comando[indice]
+        if caracter == "\\" and estado != "simple" and indice + 1 < len(comando):
+            siguiente = comando[indice + 1]
+            if estado == "normal" or siguiente in ('$', '`', '"', '\\', '\n'):
+                indice += 2
+                continue
+        if caracter == "'" and estado == "normal":
+            estado = "simple"
+        elif caracter == "'" and estado == "simple":
+            estado = "normal"
+        elif caracter == '"' and estado == "normal":
+            estado = "doble"
+        elif caracter == '"' and estado == "doble":
+            estado = "normal"
+        elif estado == "normal":
+            if comando.startswith("$(", indice):
+                sustitucion = re.match(r'\$\([^)]*\)', comando[indice:])
+                if sustitucion:
+                    indice += len(sustitucion.group(0))
+                    continue
+                return None
+            if caracter in ";\n()" or comando.startswith(("&&", "||"), indice):
+                return indice
+        indice += 1
+    return indice if estado == "normal" else None
+
+
 def _asignacion_persistente(comando, previo, inicio_orden):
     """Las asignaciones delante de un comando duran solo durante ese comando."""
     prefijo = comando[inicio_orden:previo.start()].strip()
-    resto = comando[previo.end():]
-    limite = re.search(r';|&&|\|\||\n|[()]', resto)
-    sufijo = resto[:limite.start()] if limite else resto
-    return ((_solo_asignaciones(prefijo) or prefijo == "export")
+    limite = _fin_orden_shell(comando, previo.end())
+    if limite is None:
+        return None
+    sufijo = comando[previo.end():limite]
+    prefijo_export = re.fullmatch(r'export(?:[ \t]+(.*))?', prefijo, re.S)
+    exportado = bool(prefijo_export and _solo_asignaciones(prefijo_export.group(1) or ""))
+    return ((_solo_asignaciones(prefijo) or exportado)
             and _solo_asignaciones(sufijo))
 
 
@@ -882,7 +917,11 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
     inicio_orden = 0
     for previo in _PREVIO_SHELL.finditer(comando[:encaje.start()]):
         if previo.group("nombre"):
-            if not _asignacion_persistente(comando, previo, inicio_orden):
+            persistente = _asignacion_persistente(comando, previo, inicio_orden)
+            if persistente is None:
+                ambitos[-1][1].pop(previo.group("nombre"), None)
+                continue
+            if not persistente:
                 continue
             valor = previo.group("valor") or ""
             valor = expandir(valor)

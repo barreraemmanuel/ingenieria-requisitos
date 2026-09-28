@@ -1231,6 +1231,34 @@ class RestauracionesExternasTest(BaseConducta):
                 self.assertEqual(self.hallazgo(
                     comando, cwd=proyecto, entorno=entorno)[0], esperado)
 
+    def test_R2_export_multiple_y_separadores_citados(self):
+        proyecto = "C:/Proyecto"
+        entorno = {"COPIA": "C:/Temp"}
+        internos = (
+            'export OTRO=x COPIA=; git -C "$COPIA" restore -- x',
+            'export OTRO=x COPIA=""; git -C "$COPIA" restore -- x',
+            'export\tOTRO=x COPIA=; git -C "$COPIA" restore -- x',
+            '(export OTRO=x COPIA=; git -C "$COPIA" restore -- x)',
+            'COPIA= OTRO="x;y"; git -C "$COPIA" restore -- x',
+            "COPIA= OTRO='x;y'; git -C \"$COPIA\" restore -- x",
+            'COPIA= OTRO="x(y)"; git -C "$COPIA" restore -- x',
+            'COPIA= OTRO="x&&y"; git -C "$COPIA" restore -- x',
+        )
+        for comando in internos:
+            with self.subTest(comando=comando):
+                self.assertEqual(self.hallazgo(
+                    comando, cwd=proyecto, entorno=entorno)[0], "git_destructivo")
+        externos = (
+            ('export OTRO=x COPIA=C:/Temp; git -C "$COPIA" restore -- x',
+             {"COPIA": "C:/Proyecto"}),
+            ('COPIA= OTRO="x;y" echo inocuo; git -C "$COPIA" restore -- x',
+             {"COPIA": "C:/Temp"}),
+        )
+        for comando, entorno_externo in externos:
+            with self.subTest(comando=comando):
+                self.assertIsNone(self.hallazgo(
+                    comando, cwd=proyecto, entorno=entorno_externo)[0])
+
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"
         eventos = self.turno_con_herramienta(
