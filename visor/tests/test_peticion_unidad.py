@@ -1547,6 +1547,19 @@ class PeticionUnidadTest(unittest.TestCase):
         texto = texto.replace("- **Veredicto:** LIMPIO | HUECOS DE CORRECCIÓN",
                               "- **Veredicto:** LIMPIO")
         hallazgos.write_text(texto, encoding="utf-8")
+        rama = subprocess.run(
+            ["git", "rev-parse", "--verify", f"refs/heads/{nombre}"],
+            cwd=self.repo, text=True, capture_output=True,
+        )
+        if rama.returncode == 0:
+            sha = rama.stdout.strip()
+            texto = hallazgos.read_text(encoding="utf-8")
+            texto = re.sub(
+                r"(?s)```contraprueba\n.*?```",
+                f"```contraprueba\ncriterio: R2\npunta_antes: {sha}\n"
+                f"punta_despues: {sha}\n```", texto, count=1,
+            )
+            hallazgos.write_text(texto, encoding="utf-8")
         ayuda_cierre.escribir_parte_honesto(self.ws, hallazgos)
         self.recibos_de_revision(nombre)
 
@@ -1568,6 +1581,131 @@ class PeticionUnidadTest(unittest.TestCase):
     def cerrar(self, nombre):
         return self.ejecutar(self.unidad, "cerrar", nombre,
                              "--ok-usuario", datetime.date.today().isoformat())
+
+    def _cambiar_contraprueba(self, hallazgos, bloque):
+        texto = hallazgos.read_text(encoding="utf-8")
+        texto = re.sub(r"(?s)```contraprueba\n.*?```", bloque, texto, count=1)
+        hallazgos.write_text(texto, encoding="utf-8")
+
+    def _rechazo_sin_efectos(self, nombre, esperado):
+        carpeta = self.ws / "docs/05-trabajo" / nombre
+        peticiones = list((self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"))
+        antes = {p: p.read_bytes() for p in peticiones}
+        resultado = self.cerrar(nombre)
+        salida = resultado.stdout + resultado.stderr
+        self.assertNotEqual(resultado.returncode, 0, salida)
+        self.assertIn(esperado, salida)
+        self.assertTrue(carpeta.exists())
+        self.assertFalse((self.ws / "docs/05-trabajo/archivo" / nombre).exists())
+        self.assertTrue((self.ws / "worktrees" / nombre).exists())
+        self.assertEqual(antes, {p: p.read_bytes() for p in peticiones})
+        self.assertIn("estado: en_revision", (carpeta / "especificacion.md").read_text(encoding="utf-8"))
+        return salida
+
+    def test_contraprueba_rechaza_bloque_ausente_antes_de_cerrar(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("sin-contraprueba")
+        self._cambiar_contraprueba(hallazgos, "")
+        self._rechazo_sin_efectos(nombre, "contraprueba")
+
+    def test_contraprueba_rechaza_puntas_vacias_y_marcadores(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("puntas-vacias")
+        self._cambiar_contraprueba(hallazgos, "```contraprueba\npunta_antes: —\npunta_despues: \n```")
+        salida = self._rechazo_sin_efectos(nombre, "punta_antes")
+        self.assertIn("punta_despues", salida)
+
+    def test_contraprueba_rechaza_puntas_distintas(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("puntas-distintas")
+        self._cambiar_contraprueba(hallazgos, f"```contraprueba\npunta_antes: {self.sha}\n"
+                                   f"punta_despues: {self._git_sha(nombre)}\n```")
+        self._rechazo_sin_efectos(nombre, "punta_despues")
+
+    def _git_sha(self, referencia):
+        return subprocess.run(["git", "rev-parse", referencia], cwd=self.repo,
+                              check=True, text=True, capture_output=True).stdout.strip()
+
+    def test_contraprueba_rechaza_sha_inexistente(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("sha-inexistente")
+        self._cambiar_contraprueba(hallazgos, "```contraprueba\npunta_antes: " + "a" * 40 +
+                                   "\npunta_despues: " + "a" * 40 + "\n```")
+        self._rechazo_sin_efectos(nombre, "punta_antes")
+
+    def test_contraprueba_rechaza_objeto_que_no_es_commit(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("objeto-no-commit")
+        arbol = self._git_sha(f"{nombre}^{{tree}}")
+        self._cambiar_contraprueba(hallazgos, f"```contraprueba\npunta_antes: {arbol}\n"
+                                   f"punta_despues: {arbol}\n```")
+        self._rechazo_sin_efectos(nombre, "punta_antes")
+
+    def test_R2_contraprueba_rechaza_commit_ajeno_a_la_rama(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("commit-ajeno")
+        subprocess.run(["git", "checkout", "--detach", self.sha], cwd=self.repo, check=True, capture_output=True)
+        (self.repo / "ajeno.txt").write_text("fuera de la rama\n", encoding="utf-8")
+        subprocess.run(["git", "add", "ajeno.txt"], cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "commit", "-m", "ajeno"], cwd=self.repo, check=True, capture_output=True)
+        ajeno = self._git_sha("HEAD")
+        subprocess.run(["git", "checkout", "main"], cwd=self.repo, check=True, capture_output=True)
+        self._cambiar_contraprueba(hallazgos, f"```contraprueba\npunta_antes: {ajeno}\n"
+                                   f"punta_despues: {ajeno}\n```")
+        self._rechazo_sin_efectos(nombre, "punta_antes")
+
+    def test_contraprueba_frontmatter_directo_no_rebaja_despacho_normal(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("rebaja-frontmatter")
+        spec = hallazgos.parent / "especificacion.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace(
+            "carril: normal", "carril: directo", 1), encoding="utf-8")
+        self._cambiar_contraprueba(hallazgos, "")
+        self._rechazo_sin_efectos(nombre, "contraprueba")
+
+    def test_contraprueba_tambien_bloquea_carril_completo(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("carril-completo")
+        spec = hallazgos.parent / "especificacion.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace(
+            "carril: normal", "carril: completo", 1), encoding="utf-8")
+        peticion = next((self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"))
+        datos = json.loads(peticion.read_text(encoding="utf-8"))
+        datos["procesos"][0]["metadata"]["carril"] = "completo"
+        peticion.write_text(json.dumps(datos), encoding="utf-8")
+        self._cambiar_contraprueba(hallazgos, "")
+        self._rechazo_sin_efectos(nombre, "contraprueba")
+
+    def test_contraprueba_no_se_exige_al_directo(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("directo-exento")
+        spec = hallazgos.parent / "especificacion.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace(
+            "carril: normal", "carril: directo", 1), encoding="utf-8")
+        peticion = next((self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"))
+        datos = json.loads(peticion.read_text(encoding="utf-8"))
+        datos["procesos"][0]["metadata"]["carril"] = "directo"
+        peticion.write_text(json.dumps(datos), encoding="utf-8")
+        self._cambiar_contraprueba(hallazgos, "")
+        resultado = self.cerrar(nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+
+    def test_contraprueba_no_se_exige_con_modo_expres_acreditado(self):
+        nombre, hallazgos = self.preparar_unidad_cerrable("modo-expres")
+        spec = hallazgos.parent / "especificacion.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace(
+            "carril: normal", "carril: normal\nejecucion: expres", 1), encoding="utf-8")
+        peticion = next((self.ws / "docs/05-trabajo/peticiones").glob("*/peticion.json"))
+        datos = json.loads(peticion.read_text(encoding="utf-8"))
+        datos["procesos"][0]["metadata"]["ejecucion"] = "expres"
+        peticion.write_text(json.dumps(datos), encoding="utf-8")
+        self._cambiar_contraprueba(hallazgos, "")
+        resultado = self.cerrar(nombre)
+        self.assertNotIn("contraprueba sin pagar", resultado.stdout + resultado.stderr)
+
+    def test_contraprueba_reanuda_con_fusion_acreditada_tras_borrar_rama(self):
+        nombre, _ = self.preparar_unidad_cerrable("rama-retirada")
+        sha = self._git_sha(nombre)
+        subprocess.run(["git", "worktree", "remove", "--force", str(self.ws / "worktrees" / nombre)],
+                       cwd=self.repo, check=True, capture_output=True)
+        subprocess.run(["git", "branch", "-D", nombre], cwd=self.repo,
+                       check=True, capture_output=True)
+        spec = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        spec.write_text(spec.read_text(encoding="utf-8").replace("\n---\n", f"\nfusion: {sha}\n---\n", 1),
+                        encoding="utf-8")
+        resultado = self.cerrar(nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
 
     def test_cerrar_rechaza_una_entrega_cuya_ultima_revision_deja_huecos(self):
         """R3 — el agujero de `P-20260813-f1c820b6`: la puerta aceptaba CUALQUIER texto de

@@ -4072,6 +4072,44 @@ def sha_de(repo, referencia):
     return salida.strip() if codigo == 0 and salida.strip() else None
 
 
+def puerta_contraprueba(repo, rama, texto_hallazgos, sha_fusion=""):
+    """Comprueba las puntas de la contraprueba contra objetos e historia Git reales."""
+    salida = (f"SALIDA: guarda el arreglo en un commit de {rama}, repite la "
+              "contraprueba sobre ese commit y pega los dos SHA de HEAD tras restaurar.")
+    bloque = re.search(r"(?m)^```contraprueba\s*\n(.*?)^```\s*$", texto_hallazgos, re.S | re.M)
+    if not bloque:
+        return [f"contraprueba sin pagar: falta el bloque `contraprueba`. {salida}"]
+    campos = {}
+    for linea in bloque.group(1).splitlines():
+        clave, separador, valor = linea.partition(":")
+        if separador and clave.strip() in {"punta_antes", "punta_despues"}:
+            campos[clave.strip()] = valor.split("#", 1)[0].strip()
+    errores = []
+    for campo in ("punta_antes", "punta_despues"):
+        valor = campos.get(campo, "")
+        if not valor or valor in {"—", "-", "…", "..."}:
+            errores.append(f"contraprueba sin pagar: `{campo}` falta o conserva un marcador. {salida}")
+        elif not re.fullmatch(r"[0-9a-fA-F]{40}", valor):
+            errores.append(f"`{campo}` exige el SHA completo de un commit. {salida}")
+        else:
+            codigo, tipo = git(repo, "cat-file", "-t", valor, silencioso=True)
+            if codigo or tipo.strip() != "commit":
+                errores.append(f"`{campo}` no designa un commit existente. {salida}")
+    if errores:
+        return errores
+    if campos["punta_antes"].lower() != campos["punta_despues"].lower():
+        return [f"`punta_despues` difiere de `punta_antes`: la restauración cambió HEAD. {salida}"]
+    # Una referencia remota suelta no sustituye la rama local retirada. Solo la
+    # fusión que la puerta existente acreditó permite reanudar ese cierre.
+    punta = sha_de(repo, f"refs/heads/{rama}") or sha_fusion
+    if not punta:
+        return [f"`punta_antes` no tiene rama de {rama} ni fusión acreditada. {salida}"]
+    if not es_ancestro(repo, campos["punta_antes"], punta):
+        return [f"`punta_antes` no pertenece a la historia de {rama} "
+                f"(punta acreditada {punta[:8]}). {salida}"]
+    return []
+
+
 def base_principal(repo, principal):
     """La rama contra la que se mide la fusión: la principal local, o la del remoto."""
     if sha_de(repo, f"refs/heads/{principal}"):
@@ -4575,6 +4613,7 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
     # --- Puerta 5: la rama está fusionada en la principal ------------------------------------
     hay_repo = git(repo, "rev-parse", "--is-inside-work-tree", silencioso=True)[0] == 0
     sha_fusion = ""
+    fuerte = False
     if sin_fusion:
         ok(f"ruta {politica.name}: sin rama fusionada que comprobar")
     elif not hay_repo:
@@ -4586,6 +4625,19 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             problemas.append(motivo)
         else:
             (ok if fuerte else warn)(motivo)
+
+    # La contraprueba se exige según el carril y modo efectivos del despacho.
+    fallos_contraprueba = []
+    if (clase == "unidad" and carril_real in {"normal", "completo"}
+            and ruta_cierre == "normal"):
+        if not hay_repo:
+            problemas.append("contraprueba sin pagar: falta el repositorio Git de la unidad")
+        else:
+            fallos_contraprueba = puerta_contraprueba(
+                repo, nombre, texto_hallazgos, sha_fusion if fuerte else "")
+            problemas.extend(fallos_contraprueba)
+            if not fallos_contraprueba:
+                ok("contraprueba: HEAD restaurado en commit alcanzable de la unidad")
 
     # --- Antes de medir: la base de despacho, al día (066/R1) --------------------------------
     # El paso 3 del ritual re-anota la base al rebasar, que es cuando mejor se ve. Pero un
@@ -4604,7 +4656,8 @@ def _cerrar_bajo_lease(args, nombre, autoridad):
             base_registrada = None
         base_al_dia, origen_base = base_de_medida(
             repo, punta_para_base, principal, base_registrada)
-        if base_al_dia and base_registrada and base_al_dia != base_registrada:
+        if (not fallos_contraprueba and base_al_dia and base_registrada
+                and base_al_dia != base_registrada):
             try:
                 for pid in re_registrar_base(
                         referencias_peticion, tipo_proceso, nombre, base_al_dia):

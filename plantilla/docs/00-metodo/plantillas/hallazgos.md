@@ -75,6 +75,9 @@ se referencian por RUTA, nunca pegados. Lo sensible (credenciales, PII) va a `.p
 comportamiento (ADR-030). Aquí se enseña que el test del **criterio portante** declarado en
 §Verificación de la especificación se pone ROJO cuando se rompe a propósito lo que protege.
 UNO solo, el portante: contraprobar todos los criterios sería un segundo desarrollo.
+Antes de romper, guarda el arreglo en un commit de la rama de la unidad y anota
+`git rev-parse HEAD` como `punta_antes`. Restaura después el fichero desde ese commit,
+comprueba que `git diff HEAD` está vacío y anota el mismo SHA como `punta_despues`.
 En carril **directo y exprés no se pide**, y en **bug** no va aquí: lo cubre el par ROJO→VERDE
 del paso 7 de `runbooks/bug.md`. Prohibido `git stash` para deshacer la rotura —la pila es
 única y compartida entre TODOS los worktrees—: se usa `git checkout -- <fichero>` o
@@ -88,8 +91,8 @@ rojo: —                      # el fallo LITERAL, y tiene que nombrar el criter
                              # un import roto o un error de sintaxis no prueba nada
 restauracion: —              # cómo se deshizo (nunca `git stash`)
 diff_tras_restaurar: —       # salida de `git diff HEAD` — vacía, pegada
-punta_antes: —               # `git rev-parse HEAD` antes de romper
-punta_despues: —             # `git rev-parse HEAD` después de restaurar — el mismo sha
+punta_antes: —               # SHA del commit del arreglo, `git rev-parse HEAD` antes de romper
+punta_despues: —             # `git rev-parse HEAD` después de restaurar — el mismo commit
 verde_de_nuevo: —            # el test otra vez en verde tras restaurar
 ```
 

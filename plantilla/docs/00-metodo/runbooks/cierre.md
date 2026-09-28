@@ -109,14 +109,17 @@ casillas — lo marcado no se repite, lo no marcado no se da por hecho— en vez
    §Verificación de la especificación (lo eligió quien redactó el contrato, no quien
    construyó ni quien revisa) y la deja en la sección **Contraprueba del criterio portante**
    de `hallazgos.md`:
-   1. rompe a propósito la implementación de ESE criterio;
+   1. guarda el arreglo en un commit de la rama de la unidad y pega el SHA de
+      `git rev-parse HEAD` en `punta_antes`; solo entonces rompe a propósito la
+      implementación de ESE criterio;
    2. pega el rojo LITERAL, que tiene que fallar **por eso** —un rojo por un import roto o
       un error de sintaxis no prueba nada—;
-   3. restaura: `git checkout -- <fichero>` o `git restore <fichero>`, **nunca `git stash`**
+   3. restaura desde el commit guardado: `git checkout -- <fichero>` o
+      `git restore <fichero>`, **nunca `git stash`**
       (prohibido: la pila es única y compartida entre TODOS los worktrees, y un pop se lleva
       el trabajo de otra rama);
    4. **demuestra** que el árbol quedó igual, no lo afirma: `git diff HEAD` vacío y
-      `git rev-parse HEAD` idéntico al de antes de romper, los dos pegados, y el test otra
+      `git rev-parse HEAD` idéntico al commit guardado antes de romper, los dos pegados, y el test otra
       vez en verde.
    En **directo y exprés no se pide**: el carril entero existe para no pagar ceremonia. En
    **bug** no se repite: ya la exige el par ROJO→VERDE del paso 7 de `runbooks/bug.md`.
