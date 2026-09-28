@@ -24,6 +24,7 @@ import tempfile
 import textwrap
 import time
 import unittest
+from unittest import mock
 from pathlib import Path
 
 CARPETA = Path(__file__).resolve().parent
@@ -98,9 +99,10 @@ class LanzadorTest(unittest.TestCase):
     def _guion(self, rapidas, nightly, args):
         return textwrap.dedent(f"""
             import sys
+            from pathlib import Path
             sys.path.insert(0, {str(CARPETA)!r})
             import correr
-            correr.RAIZ = {str(self.raiz)!r}
+            correr.RAIZ = Path({str(self.raiz)!r})
             correr.RAPIDAS = {tuple(rapidas)!r}
             correr.NIGHTLY = {tuple(nightly)!r}
             sys.argv = ["correr.py"] + {list(args)!r}
@@ -109,7 +111,7 @@ class LanzadorTest(unittest.TestCase):
 
     def lanzar(self, rapidas=(), nightly=(), args=()):
         return subprocess.run(
-            [sys.executable, "-c", self._guion(rapidas, nightly, args)],
+            [sys.executable, "-X", "utf8", "-c", self._guion(rapidas, nightly, args)],
             capture_output=True, text=True, encoding="utf-8", timeout=TOPE)
 
     def veredicto(self, salida):
@@ -146,6 +148,8 @@ class LanzadorTest(unittest.TestCase):
     def test_una_suite_matada_por_una_senal_no_sale_con_240_y_pico(self):
         """`returncode` negativo (-9) por el OR daba un exit de 247, ilegible.
         Ahora es rojo, con el nombre de la señal escrito."""
+        if not hasattr(signal, "SIGKILL"):
+            self.skipTest("plataforma sin SIGKILL")
         self.suite("suite_a", VERDE_LUEGO_MATADO)
         r = self.lanzar(rapidas=["suite_a"])
         self.assertEqual(1, r.returncode)
@@ -253,6 +257,28 @@ class LanzadorTest(unittest.TestCase):
         self.suite("suite_a", cuerpo)
         r = self.lanzar(rapidas=["suite_a"])
         self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+
+    def test_todas_las_rutas_inhiben_navegador_en_hijos_reales(self):
+        cuerpo = modulo('assert os.environ.get("IR_SIN_NAVEGADOR") == "1"')
+        self.suite("sin_navegador", cuerpo)
+        for nombre in (correr.REFORMA, correr.CONTRAPRUEBA):
+            archivo = self.raiz / nombre
+            archivo.parent.mkdir(parents=True, exist_ok=True)
+            archivo.write_text(
+                'import os\nassert os.environ.get("IR_SIN_NAVEGADOR") == "1"\n',
+                encoding="utf-8")
+        for previo in (None, "0", "1"):
+            for args in ((), ("--nightly",), ("--reforma",)):
+                with self.subTest(previo=previo, args=args), mock.patch.dict(os.environ):
+                    if previo is None:
+                        os.environ.pop("IR_SIN_NAVEGADOR", None)
+                    else:
+                        os.environ["IR_SIN_NAVEGADOR"] = previo
+                    guion = self._guion(["sin_navegador"], ["sin_navegador"], args)
+                    r = subprocess.run([sys.executable, "-X", "utf8", "-c", guion], capture_output=True,
+                                       text=True, encoding="utf-8", timeout=TOPE)
+                    self.assertEqual(0, r.returncode, r.stdout + r.stderr)
+                    self.assertEqual(previo, os.environ.get("IR_SIN_NAVEGADOR"))
 
     def test_la_cabecera_por_suite_sigue_saliendo(self):
         self.suite("suite_a", VERDE)

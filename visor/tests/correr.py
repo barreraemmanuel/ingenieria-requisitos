@@ -118,7 +118,8 @@ def main():
     args = p.parse_args()
 
     blindar_senales()
-    entorno = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8")
+    entorno = dict(os.environ, PYTHONUTF8="1", PYTHONIOENCODING="utf-8",
+                   IR_SIN_NAVEGADOR="1")
 
     if args.reforma:
         orden = [sys.executable, "-X", "utf8", str(RAIZ / REFORMA)]
