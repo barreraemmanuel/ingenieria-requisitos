@@ -1,4 +1,5 @@
 import hashlib
+import importlib.util
 import json
 import os
 import re
@@ -1175,6 +1176,29 @@ else:
             capture_output=True, text=True, encoding="utf-8", errors="replace",
         )
         self.assertNotIn("flujos terminal sin recibo aprobado", lint_vigente.stdout)
+        with patch.object(sys, "path", [str(self.script.parent), *sys.path]):
+            spec = importlib.util.spec_from_file_location("peticion_133_actor", self.script)
+            peticion = importlib.util.module_from_spec(spec)
+            spec.loader.exec_module(peticion)
+        with patch.object(peticion, "RAIZ", self.ws):
+            for actor in ("", "   "):
+                with self.subTest(actor=repr(actor)):
+                    recibo_sin_actor = dict(recibo, por=actor)
+                    (planos / "aprobacion.json").write_text(
+                        json.dumps(recibo_sin_actor), encoding="utf-8",
+                    )
+                    with self.assertRaises(peticion.ErrorPeticion):
+                        peticion.validar_proceso_canonico("flujos", ref, True)
+                    lint_sin_actor = subprocess.run(
+                        [sys.executable, str(SCRIPTS / "lint_metodo.py"),
+                         "--raiz", str(self.ws)],
+                        capture_output=True, text=True, encoding="utf-8",
+                        errors="replace",
+                    )
+                    self.assertIn(
+                        "flujos terminal sin recibo aprobado", lint_sin_actor.stdout,
+                    )
+        (planos / "aprobacion.json").write_bytes(original)
         datos = json.loads(actividad.read_text(encoding="utf-8"))
         datos["requisitos"][0]["texto"] = "Lista oculta"
         actividad.write_text(json.dumps(datos), encoding="utf-8")
