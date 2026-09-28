@@ -2284,11 +2284,29 @@ def parser_cli():
 
 def main():
     args = parser_cli().parse_args()
+    # Inventario cerrado del parser: sólo acciones que pueden mutar estado.
+    mutadores = {
+        "capturar", "desbloquear", "aclarar", "reclamar", "evaluar",
+        "enlazar", "desenlazar", "marcar-proceso", "reencuadrar-orden",
+        "reconciliar", "abrir-expres", "abrir-hotfix", "cerrar", "aparcar",
+        "reanudar", "reabrir", "relacionar", "duplicar", "cancelar",
+    }
+    resultado = "error"
     try:
-        return args.func(args)
+        salida = args.func(args)
+        resultado = "ok" if salida == 0 else "error"
+        return salida
     except ErrorPeticion as exc:
         print(f"FAIL {exc}", file=sys.stderr)
         return 1
+    finally:
+        if args.comando in mutadores:
+            try:
+                from telemetria import registrar
+                registrar(RAIZ, args.comando, resultado)
+            except Exception:
+                # El registro nunca altera el resultado de la acción principal.
+                print("AVISO: no se pudo registrar el uso local", file=sys.stderr)
 
 
 if __name__ == "__main__":

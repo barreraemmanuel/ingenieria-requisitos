@@ -99,7 +99,7 @@ SCRIPTS = ("aviso.py", "caja_negra.py", "canario.py", "control_plane.py", "coste
            "herramienta.py", "lint_ci.py", "lint_cierre.py", "lint_deploy.py", "lint_metodo.py",
            "lint_invariantes.py", "veredicto_lint.py",
            "lint_juntas.py", "lint_salidas.py", "lease.py", "subagente.py",
-           "peticion.py", "repo_config.py", "sanidad.py", "unidad.py", "vps.py", "workspace_paths.py")
+           "peticion.py", "repo_config.py", "sanidad.py", "telemetria.py", "unidad.py", "vps.py", "workspace_paths.py")
 DECISIONES = (
     "README.md",
     "001-docs-fuera-del-repo.md",
