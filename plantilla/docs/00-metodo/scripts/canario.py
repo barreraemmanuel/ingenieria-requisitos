@@ -675,19 +675,23 @@ def _pillado(patron, encaje):
     return patron, _sin_ruido(encaje.group(0))[:120]
 
 
-_ARG_RUTA = r'"[^"]*"|\x27[^\x27]*\x27|\$\([^)]*\)|[^\s;&|()]+'
+_FRAGMENTO_RUTA = (r'\$\([^)]*\)|"(?:\\.|[^"\\])*"|\x27[^\x27]*\x27|'
+                   r'\\.|[^\s;&|()"\x27\\]')
+_ARG_RUTA = r'(?:' + _FRAGMENTO_RUTA + r')+'
 _GIT_RESTAURA = re.compile(
     r'\bgit\s+(?:-C\s+(?P<ruta>' + _ARG_RUTA + r')\s+)?'
     r'(?P<accion>reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))', re.I)
+_GIT_RESTAURA_COMPLEJA = re.compile(
+    r'\bgit\s+-C\s+[^\n;&|]*?\s+'
+    r'(?:reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))', re.I)
 _VARIABLE = re.compile(r'\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%')
 _PREVIO_SHELL = re.compile(
-    r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>\$\(mktemp\b[^)]*\)|'
-    r'"[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)'
+    r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>' + _ARG_RUTA + r')'
     r'|\$\([^)]*\)|(?P<abre>\()|(?P<cierra>\))'
     r'|(?P<separador>;|&&|\|\||\n)'
     r'|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
 _ASIGNACION_SHELL = re.compile(
-    r'[A-Za-z_]\w*=(?:\$\(mktemp\b[^)]*\)|"[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)')
+    r'[A-Za-z_]\w*=' + _ARG_RUTA)
 _COMPONENTE_MKTEMP = "__canario_nombre_aleatorio__"
 
 
@@ -706,28 +710,89 @@ def _asignacion_persistente(comando, previo, inicio_orden):
             and _solo_asignaciones(sufijo))
 
 
+def _expandir_palabra(cruda, entorno, cwd):
+    """Un argumento Bash: quita citas y expande una sola vez lo observable."""
+    if cruda is None:
+        return None
+    salida = []
+    estado = "normal"
+    ruta_windows = bool(re.match(r'^[A-Za-z]:\\', cruda))
+    indice = 0
+    while indice < len(cruda):
+        caracter = cruda[indice]
+        if caracter == "'" and estado == "normal":
+            estado = "simple"
+        elif caracter == "'" and estado == "simple":
+            estado = "normal"
+        elif caracter == '"' and estado == "normal":
+            estado = "doble"
+        elif caracter == '"' and estado == "doble":
+            estado = "normal"
+        elif caracter == "\\" and estado != "simple":
+            if indice + 1 >= len(cruda):
+                return None
+            siguiente = cruda[indice + 1]
+            if estado == "normal" and ruta_windows and siguiente.isalnum():
+                salida.append("\\")
+            elif estado == "normal" or siguiente in ('$', '"', '\\', '`', '\n'):
+                if siguiente != '\n':
+                    salida.append(siguiente)
+                indice += 1
+            else:
+                salida.append("\\")
+        elif caracter == "$" and estado != "simple":
+            if cruda.startswith("$(", indice):
+                sustitucion = re.match(r'\$\(mktemp\b[^)]*\)', cruda[indice:])
+                if not sustitucion:
+                    return None
+                valor = _base_mktemp(sustitucion.group(0), entorno, cwd)
+                if valor is None:
+                    return None
+                salida.append(valor)
+                indice += len(sustitucion.group(0)) - 1
+            else:
+                variable = _VARIABLE.match(cruda, indice)
+                if variable:
+                    nombre = next(grupo for grupo in variable.groups() if grupo)
+                    if nombre not in entorno:
+                        return None
+                    valor = str(entorno[nombre])
+                    if estado == "normal" and re.search(r'[\s*?\[]', valor):
+                        return None  # división de palabras o glob sin resultado observable
+                    salida.append(valor)
+                    indice += len(variable.group(0)) - 1
+                elif indice + 1 < len(cruda):
+                    return None  # expansión especial o compleja sin evidencia
+                else:
+                    salida.append("$")
+        elif caracter == "%" and estado != "simple":
+            variable = _VARIABLE.match(cruda, indice)
+            if variable and variable.group(3):
+                nombre = variable.group(3)
+                if nombre not in entorno:
+                    return None
+                salida.append(str(entorno[nombre]))
+                indice += len(variable.group(0)) - 1
+            else:
+                salida.append(caracter)
+        elif estado == "normal" and caracter in ('`', '*', '?', '['):
+            return None  # sustitución antigua o glob sin resultado observable
+        else:
+            salida.append(caracter)
+        indice += 1
+    return "".join(salida) if estado == "normal" else None
+
+
 def _base_mktemp(expresion, entorno, cwd):
     """Ruta creada por mktemp: directorio conocido y un componente aleatorio."""
-    def conocida(valor):
-        valor = valor.strip('"\x27')
-        faltan = False
-
-        def sustituir(encaje):
-            nonlocal faltan
-            nombre = next(grupo for grupo in encaje.groups() if grupo)
-            if nombre not in entorno:
-                faltan = True
-                return ""
-            return str(entorno[nombre])
-
-        valor = _VARIABLE.sub(sustituir, valor)
-        return None if faltan or "$" in valor else _juntar_cwd(cwd, valor)
+    def conocida(valor, *, literal=False):
+        valor = str(valor) if literal else _expandir_palabra(valor, entorno, cwd)
+        return _juntar_cwd(cwd, valor) if valor is not None else None
 
     cuerpo = re.fullmatch(r'\$\(mktemp\b(.*)\)', expresion, re.S)
     if not cuerpo:
         return None
-    palabras = re.findall(r'(?:[^\s"\x27]|"[^"]*"|\x27[^\x27]*\x27)+',
-                          cuerpo.group(1))
+    palabras = re.findall(_ARG_RUTA, cuerpo.group(1))
     plantilla = None
     base_p = None
     base_tmpdir = None
@@ -753,7 +818,9 @@ def _base_mktemp(expresion, entorno, cwd):
         elif palabra.startswith("-") or plantilla is not None:
             return None  # opción o segundo argumento sin semántica acreditada
         else:
-            plantilla = palabra.strip('"\x27')
+            plantilla = _expandir_palabra(palabra, entorno, cwd)
+            if plantilla is None:
+                return None
         indice += 1
 
     if base_p and opcion_tmpdir or opcion_t and opcion_tmpdir:
@@ -764,15 +831,15 @@ def _base_mktemp(expresion, entorno, cwd):
     if plantilla and modulo.isabs(plantilla):
         if base_p or opcion_tmpdir or opcion_t:
             return None
-        directorio = conocida(modulo.dirname(plantilla))
+        directorio = conocida(modulo.dirname(plantilla), literal=True)
     elif opcion_t:
         if plantilla and ("/" in plantilla or "\\" in plantilla):
             return None
-        directorio = conocida(entorno["TMPDIR"]) if "TMPDIR" in entorno else (
+        directorio = conocida(entorno["TMPDIR"], literal=True) if "TMPDIR" in entorno else (
             conocida(base_p) if base_p else None)
     elif opcion_tmpdir:
         base = base_tmpdir if base_tmpdir else entorno.get("TMPDIR")
-        directorio = conocida(base) if base is not None else None
+        directorio = conocida(base, literal=base_tmpdir is None) if base is not None else None
         if plantilla:
             directorio = _juntar_cwd(directorio, modulo.dirname(plantilla)) if directorio else None
     elif base_p:
@@ -780,16 +847,16 @@ def _base_mktemp(expresion, entorno, cwd):
         if plantilla:
             directorio = _juntar_cwd(directorio, modulo.dirname(plantilla)) if directorio else None
     elif plantilla:
-        directorio = conocida(modulo.dirname(plantilla) or ".")
+        directorio = conocida(modulo.dirname(plantilla) or ".", literal=True)
     else:
-        directorio = conocida(entorno["TMPDIR"]) if "TMPDIR" in entorno else None
+        directorio = conocida(entorno["TMPDIR"], literal=True) if "TMPDIR" in entorno else None
     return _juntar_cwd(directorio, _COMPONENTE_MKTEMP) if directorio else None
 
 
 def _juntar_cwd(base, ruta):
     if ruta is None:
         return None
-    ruta = str(ruta).strip('"\x27')
+    ruta = str(ruta)
     if ruta == "-" or ruta.startswith("~"):
         return None
     windows = bool(re.match(r'^[A-Za-z]:[\\/]', ruta)) or bool(
@@ -808,27 +875,7 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
     ambitos = [[cwd, entorno]]
 
     def expandir(ruta_cruda):
-        if ruta_cruda is None:
-            return None
-        ruta_expandida = str(ruta_cruda).strip('"\x27')
-        if "$(mktemp" in ruta_expandida:
-            expresion = re.search(r'\$\(mktemp[^)]*\)', ruta_expandida)
-            base = _base_mktemp(expresion.group(0), ambitos[-1][1], ambitos[-1][0]) if expresion else None
-            if not base:
-                return None
-            ruta_expandida = ruta_expandida.replace(expresion.group(0), str(base))
-        faltan = False
-
-        def variable(encaje_var):
-            nonlocal faltan
-            nombre = next(grupo for grupo in encaje_var.groups() if grupo)
-            if nombre not in ambitos[-1][1]:
-                faltan = True
-                return encaje_var.group(0)
-            return str(ambitos[-1][1][nombre])
-
-        ruta_expandida = _VARIABLE.sub(variable, ruta_expandida)
-        return None if faltan or '$(' in ruta_expandida else ruta_expandida
+        return _expandir_palabra(ruta_cruda, ambitos[-1][1], ambitos[-1][0])
 
     inicio_orden = 0
     for previo in _PREVIO_SHELL.finditer(comando[:encaje.start()]):
@@ -836,10 +883,7 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
             if not _asignacion_persistente(comando, previo, inicio_orden):
                 continue
             valor = previo.group("valor")
-            if valor.startswith("$(mktemp"):
-                valor = _base_mktemp(valor, ambitos[-1][1], ambitos[-1][0])
-            else:
-                valor = expandir(valor)
+            valor = expandir(valor)
             if valor is None:
                 ambitos[-1][1].pop(previo.group("nombre"), None)
             else:
@@ -900,7 +944,8 @@ def incidente_por_comando(herramienta, comando, fichero=None, *, cwd=None, raiz=
     comando = str(comando)
     if es_de_subagente(herramienta, comando):
         return None, None
-    for restauracion in _GIT_RESTAURA.finditer(comando):
+    restauraciones = list(_GIT_RESTAURA.finditer(comando))
+    for restauracion in restauraciones:
         dentro = _restauracion_en_proyecto(comando, restauracion, cwd, raiz, entorno)
         if dentro is False:
             continue
@@ -908,6 +953,10 @@ def incidente_por_comando(herramienta, comando, fichero=None, *, cwd=None, raiz=
             return "git_destructivo", "ubicación incierta: " + _sin_ruido(
                 restauracion.group(0))[:100]
         return _pillado("git_destructivo", restauracion)
+    for compleja in _GIT_RESTAURA_COMPLEJA.finditer(comando):
+        if not any(simple.start() == compleja.start() for simple in restauraciones):
+            return "git_destructivo", "ubicación incierta: " + _sin_ruido(
+                compleja.group(0))[:100]
     for regex, patron in ((GIT_MUTA_EN_MAIN, "escritura_en_main"),
                           (ESCRITURA_EN_MAIN, "escritura_en_main"),
                           (GIT_STASH, "stash")):

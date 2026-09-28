@@ -1158,6 +1158,41 @@ class RestauracionesExternasTest(BaseConducta):
             with self.subTest(comando=comando):
                 self.assertEqual(self.hallazgo(comando, cwd=proyecto)[0], esperado)
 
+    def test_R4_matriz_de_comillas_escapes_y_fragmentos(self):
+        proyecto = "C:/Proyecto"
+        interno = (
+            "git -C '$COPIA' restore -- x",
+            "COPIA='$EXTERNA'; git -C \"$COPIA\" restore -- x",
+            "copia=$(mktemp -d -p '$EXTERNA'); git -C \"$copia\" restore -- x",
+            'git -C "\\$COPIA" restore -- x',
+            'git -C \\$COPIA restore -- x',
+            'git -C "C:/Pro"yecto/.runtime restore -- x',
+            'git -C C:/Pro"yecto/.runtime" restore -- x',
+            'COPIA=C:/Pro"yecto/.runtime"; git -C "$COPIA" restore -- x',
+            'copia=$(mktemp -d -p C:/Pro"yecto/.runtime"); git -C "$copia" restore -- x',
+            'git -C C:/Proyecto/.runtime\\ con\\ espacios restore -- x',
+        )
+        for comando in interno:
+            with self.subTest(comando=comando):
+                patron, _ = self.hallazgo(
+                    comando, cwd=proyecto, entorno={"COPIA": "C:/Temp", "EXTERNA": "C:/Temp"})
+                self.assertEqual(patron, "git_destructivo")
+        externos = (
+            "git -C 'C:/Temp/copia' restore -- x",
+            'git -C "C:/Te"mp/copia restore -- x',
+            'copia=$(mktemp -d -p "C:/Te"mp); git -C "$copia" restore -- x',
+        )
+        for comando in externos:
+            with self.subTest(comando=comando):
+                self.assertIsNone(self.hallazgo(comando, cwd=proyecto)[0])
+
+    def test_R3_argumento_complejo_no_resuelto_avisa_incertidumbre(self):
+        comando = 'git -C `pwd` restore -- x'
+        patron, detalle = canario.incidente_por_comando(
+            "Bash", comando, cwd="C:/Temp", raiz="C:/Proyecto")
+        self.assertEqual(patron, "git_destructivo")
+        self.assertIn("incierta", detalle)
+
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"
         eventos = self.turno_con_herramienta(
