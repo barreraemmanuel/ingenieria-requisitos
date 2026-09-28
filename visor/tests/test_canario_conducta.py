@@ -1021,3 +1021,97 @@ class IncidentesDeLaSesionTest(BaseConducta):
         self.assertEqual(r.returncode, 0)
         self.assertTrue(salida["continue"])
         self.assertIn("stash", salida["systemMessage"])
+
+
+class RestauracionesExternasTest(BaseConducta):
+    """136: la ubicación del repositorio restaurado decide el incidente."""
+
+    def hallazgo(self, comando, *, cwd=None, entorno=None):
+        raiz = cwd if isinstance(cwd, str) and cwd.startswith("C:\\") else self.cwd
+        return canario.incidente_por_comando(
+            "Bash", comando, cwd=cwd or self.cwd, raiz=raiz,
+            entorno=entorno or {})
+
+    def test_R1_restauracion_de_copia_externa_no_es_incidente(self):
+        externa = self.base / "copia"
+        comando = f'git -C {externa} restore -- src/app.py'
+        self.assertEqual(self.hallazgo(comando), (None, None))
+
+    def test_R2_worktree_main_y_runtime_son_incidentes(self):
+        for relativo in ("worktrees/136-x", "main", ".runtime/copia"):
+            with self.subTest(relativo=relativo):
+                ruta = self.cwd / relativo
+                patron, _ = self.hallazgo(f'git -C "{ruta}" restore -- src/app.py')
+                self.assertEqual(patron, "git_destructivo")
+        worktree = self.cwd / "worktrees" / "136-x"
+        patron, _ = canario.incidente_por_comando(
+            "Bash", f'git -C "{self.cwd / "main"}" restore -- src/app.py',
+            cwd=worktree, raiz=worktree)
+        self.assertEqual(patron, "git_destructivo")
+
+    def test_R3_tmpdir_observable_distingue_dentro_y_fuera(self):
+        comando = 'git -C "$TMPDIR/copia" reset --hard'
+        self.assertEqual(self.hallazgo(comando, entorno={"TMPDIR": str(self.base)})[0],
+                         None)
+        self.assertEqual(self.hallazgo(comando, entorno={"TMPDIR": str(self.cwd / ".runtime")})[0],
+                         "git_destructivo")
+
+    def test_R3_variable_sin_evidencia_avisa_incertidumbre(self):
+        patron, detalle = self.hallazgo('git -C "$COPIA" restore -- src/app.py')
+        self.assertEqual(patron, "git_destructivo")
+        self.assertIn("incierta", detalle)
+        eventos = self.turno_con_herramienta(
+            "incierto", "Bash", {"command": 'git -C "$COPIA" restore -- src/app.py'},
+            "Updated 1 path")
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+        self.assertIn("ubicación incierta", canario.texto_veredicto(self.diagnostico()))
+
+    def test_R3_mktemp_sin_entorno_es_incierto(self):
+        comando = 'copia=$(mktemp -d); git -C "$copia" restore -- archivo.txt'
+        self.assertIn("incierta", self.hallazgo(comando)[1])
+        self.assertEqual(self.hallazgo(
+            comando, entorno={"TMPDIR": str(self.base)})[0], None)
+        self.assertEqual(self.hallazgo(
+            comando, entorno={"TMPDIR": str(self.cwd / ".runtime")})[0],
+            "git_destructivo")
+        explicito = f'copia=$(mktemp -d -p "{self.base}"); git -C "$copia" restore -- x'
+        self.assertEqual(self.hallazgo(explicito)[0], None)
+
+    def test_R1_transcript_claude_con_cwd_observable(self):
+        externa = self.base / "copia externa"
+        eventos = self.turno_con_herramienta(
+            "r1", "Bash", {"command": 'git restore -- archivo.txt',
+                           "cwd": str(externa)}, "Updated 1 path")
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+        self.assertIsNone(self.diagnostico()["sintoma"])
+
+    def test_R2_transcript_codex_con_workdir_en_proyecto(self):
+        carpeta = str(self.cwd / ".runtime" / "copia")
+        eventos = [
+            json.dumps({"type": "response_item", "payload": {
+                "type": "function_call", "call_id": "r2", "name": "shell",
+                "arguments": json.dumps({"cmd": "git restore -- archivo.txt",
+                                         "workdir": carpeta})}}),
+        ]
+        self.sesion_codex(tokens=50_000, eventos=eventos)
+        informe = self.diagnostico()
+        self.assertEqual(informe["sintoma"]["patron"], "git_destructivo")
+        self.assertIn("revisión fresca", canario.texto_veredicto(informe))
+
+    def test_R4_windows_espacios_y_subshell(self):
+        proyecto = r"C:\Users\Ana\Mi Proyecto"
+        fuera = r"C:\Temp\copia externa"
+        self.assertEqual(self.hallazgo(
+            f'git -C "{fuera}" restore -- archivo.txt', cwd=proyecto)[0], None)
+        self.assertEqual(self.hallazgo(
+            f'(cd "{fuera}"; git restore -- archivo.txt); cd "{proyecto}"',
+            cwd=proyecto)[0], None)
+        self.assertEqual(self.hallazgo(
+            f'(cd "{proyecto}\\.runtime"; git restore -- archivo.txt); cd "{fuera}"',
+            cwd=proyecto)[0], "git_destructivo")
+        self.assertEqual(self.hallazgo(
+            f'(cd "{fuera}"; git restore -- a); git restore -- b',
+            cwd=proyecto)[0], "git_destructivo")
+        self.assertEqual(self.hallazgo(
+            f'cd "{fuera}"; (cd sub; git -C copia restore -- a); cd "{proyecto}"',
+            cwd=proyecto)[0], None)

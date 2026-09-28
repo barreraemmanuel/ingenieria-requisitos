@@ -133,6 +133,22 @@ class BaseCanario(unittest.TestCase):
                                     codex_sessions=self.codex)
 
 
+class RestauracionExternaEnSesionTest(BaseCanario):
+    """136 · R1: el registro completo conserva la ruta efectiva de la copia."""
+
+    def test_R1_copia_externa_no_dispara_perdida_del_proyecto(self):
+        externa = self.base / "copia"
+        comando = f"git -C {externa} restore -- archivo.txt"
+        eventos = [json.dumps({"type": "assistant", "cwd": str(self.cwd),
+                               "message": {"role": "assistant", "content": [
+                                   {"type": "tool_use", "id": "r1", "name": "Bash",
+                                    "input": {"command": comando}}]}})]
+        self.sesion_claude(tokens=100_000, eventos=eventos)
+        informe = self.diagnostico()
+        self.assertEqual(informe["veredicto"], "sano")
+        self.assertEqual(informe["incidentes"], [])
+
+
 class OrtografiaDeRutaTest(BaseCanario):
     """Bug 024: el harness guarda la sesión con el cwd TAL CUAL lo vio; el canario debe
     encontrarla aunque la ruta lleve un symlink por medio (/var → /private/var en macOS)

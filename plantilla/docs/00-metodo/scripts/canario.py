@@ -29,6 +29,7 @@ Solo stdlib.
 """
 import argparse
 import json
+import ntpath
 import math
 import os
 import re
@@ -674,7 +675,124 @@ def _pillado(patron, encaje):
     return patron, _sin_ruido(encaje.group(0))[:120]
 
 
-def incidente_por_comando(herramienta, comando, fichero=None):
+_ARG_RUTA = r'"[^"]*"|\x27[^\x27]*\x27|\$\([^)]*\)|[^\s;&|()]+'
+_GIT_RESTAURA = re.compile(
+    r'\bgit\s+(?:-C\s+(?P<ruta>' + _ARG_RUTA + r')\s+)?'
+    r'(?P<accion>reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))', re.I)
+_AMBITO_SHELL = re.compile(r'\(|\)|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
+_VARIABLE = re.compile(r'\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%')
+
+
+def _base_mktemp(expresion, entorno):
+    """Directorio acreditado para un mktemp, sin inventar su nombre aleatorio."""
+    opcion = re.search(r'(?:-p\s+|--tmpdir(?:=|\s+))(' + _ARG_RUTA + r')', expresion)
+    if opcion:
+        return opcion.group(1).strip('"\x27')
+    plantilla = re.search(r'((?:[A-Za-z]:[\\/]|/)[^\s"\x27)]*X{3,})', expresion)
+    if plantilla:
+        ruta = plantilla.group(1)
+        modulo = ntpath if re.match(r'^[A-Za-z]:', ruta) else os.path
+        return modulo.dirname(ruta)
+    return entorno.get("TMPDIR")
+
+
+def _juntar_cwd(base, ruta):
+    if ruta is None:
+        return None
+    ruta = str(ruta).strip('"\x27')
+    if ruta == "-" or ruta.startswith("~"):
+        return None
+    windows = bool(re.match(r'^[A-Za-z]:[\\/]', ruta)) or bool(
+        base and re.match(r'^[A-Za-z]:[\\/]', str(base)))
+    modulo = ntpath if windows else os.path
+    if modulo.isabs(ruta):
+        return modulo.normpath(ruta)
+    return modulo.normpath(modulo.join(str(base), ruta)) if base else None
+
+
+def _ruta_restaurada(comando, encaje, cwd, entorno):
+    """Ruta efectiva en el momento del git; None si faltan datos del transcript."""
+    entorno = dict(entorno) if isinstance(entorno, dict) else {}
+    # Solo se usan asignaciones visibles antes de la operación, nunca el entorno actual
+    # de quien inspecciona una sesión que pudo ocurrir horas antes.
+    for nombre, valor in re.findall(r'\b([A-Za-z_]\w*)=("[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)',
+                                    comando[:encaje.start()]):
+        entorno[nombre] = valor.strip('"\x27')
+    for asignacion in re.finditer(r'\b([A-Za-z_]\w*)=(\$\(mktemp\b[^)]*\))',
+                                  comando[:encaje.start()]):
+        nombre = asignacion.group(1)
+        base = _base_mktemp(asignacion.group(2), entorno)
+        if base:
+            entorno[nombre] = base
+        else:
+            entorno.pop(nombre, None)
+    def expandir(ruta_cruda):
+        if ruta_cruda is None:
+            return None
+        ruta_expandida = str(ruta_cruda).strip('"\x27')
+        if "$(mktemp" in ruta_expandida:
+            expresion = re.search(r'\$\(mktemp[^)]*\)', ruta_expandida)
+            base = _base_mktemp(expresion.group(0), entorno) if expresion else None
+            if not base:
+                return None
+            ruta_expandida = ruta_expandida.replace(expresion.group(0), str(base))
+        faltan = False
+
+        def variable(encaje_var):
+            nonlocal faltan
+            nombre = next(grupo for grupo in encaje_var.groups() if grupo)
+            if nombre not in entorno:
+                faltan = True
+                return encaje_var.group(0)
+            return str(entorno[nombre])
+
+        ruta_expandida = _VARIABLE.sub(variable, ruta_expandida)
+        return None if faltan or '$(' in ruta_expandida else ruta_expandida
+
+    ambitos = [cwd]
+    for previo in _AMBITO_SHELL.finditer(comando[:encaje.start()]):
+        if previo.group(0) == "(":
+            ambitos.append(ambitos[-1])
+        elif previo.group(0) == ")" and len(ambitos) > 1:
+            ambitos.pop()
+        elif previo.group("ruta"):
+            ambitos[-1] = _juntar_cwd(ambitos[-1], expandir(previo.group("ruta")))
+    cwd_orden = ambitos[-1]
+    ruta = (_juntar_cwd(cwd_orden, expandir(encaje.group("ruta")))
+            if encaje.group("ruta") else cwd_orden)
+    if ruta is None:
+        return None
+    windows = bool(re.match(r'^[A-Za-z]:[\\/]', ruta)) or bool(
+        cwd and re.match(r'^[A-Za-z]:[\\/]', str(cwd)))
+    modulo = ntpath if windows else os.path
+    if not modulo.isabs(ruta):
+        if not cwd:
+            return None
+        ruta = modulo.join(str(cwd), ruta)
+    return modulo.normpath(ruta)
+
+
+def _restauracion_en_proyecto(comando, encaje, cwd, raiz, entorno):
+    ruta = _ruta_restaurada(comando, encaje, cwd, entorno)
+    if ruta is None or raiz is None:
+        return None
+    windows = bool(re.match(r'^[A-Za-z]:[\\/]', ruta))
+    modulo = ntpath if windows else os.path
+    raiz = str(raiz)
+    if modulo.basename(modulo.dirname(raiz)) == "worktrees":
+        raiz = modulo.dirname(modulo.dirname(raiz))
+    if windows != bool(re.match(r'^[A-Za-z]:[\\/]', raiz)):
+        return None
+    try:
+        real = modulo.normcase(modulo.realpath(ruta))
+        raiz_real = modulo.normcase(modulo.realpath(raiz))
+        return modulo.commonpath([real, raiz_real]) == raiz_real
+    except ValueError:
+        return False
+
+
+def incidente_por_comando(herramienta, comando, fichero=None, *, cwd=None, raiz=None,
+                          entorno=None):
     """El patrón que se ve con solo mirar lo que se ordenó (sin esperar a la salida)."""
     herramienta = (herramienta or "").lower()
     if fichero and herramienta in HERRAMIENTAS_DE_FICHERO and FICHERO_EN_MAIN.search(
@@ -685,9 +803,16 @@ def incidente_por_comando(herramienta, comando, fichero=None):
     comando = str(comando)
     if es_de_subagente(herramienta, comando):
         return None, None
+    for restauracion in _GIT_RESTAURA.finditer(comando):
+        dentro = _restauracion_en_proyecto(comando, restauracion, cwd, raiz, entorno)
+        if dentro is False:
+            continue
+        if dentro is None:
+            return "git_destructivo", "ubicación incierta: " + _sin_ruido(
+                restauracion.group(0))[:100]
+        return _pillado("git_destructivo", restauracion)
     for regex, patron in ((GIT_MUTA_EN_MAIN, "escritura_en_main"),
                           (ESCRITURA_EN_MAIN, "escritura_en_main"),
-                          (GIT_DESTRUCTIVO, "git_destructivo"),
                           (GIT_STASH, "stash")):
         encaje = regex.search(comando)
         if encaje:
@@ -764,7 +889,7 @@ def _texto_de(contenido):
     return str(contenido)
 
 
-def leer_claude(fichero):
+def leer_claude(fichero, *, raiz=None, cwd=None):
     """Uso de contexto, pares comando/fallo y señales de atasco de una sesión de Claude Code.
 
     El contexto de la petición es lo que el modelo vuelve a leer entero en cada turno:
@@ -784,7 +909,9 @@ def leer_claude(fichero):
     # Turno en el que se ordenó cada cosa: el parte de retomada tiene que poder decir
     # DÓNDE pasó el accidente, y `turnos` solo cuenta los mensajes que traen `usage`.
     turno = 0
+    cwd_sesion = cwd
     for dato in _lineas(fichero):
+        cwd_sesion = dato.get("cwd") or cwd_sesion
         mensaje = dato.get("message")
         if not isinstance(mensaje, dict):
             continue
@@ -834,7 +961,10 @@ def leer_claude(fichero):
                     entrada.get("command"), turno)
                 apuntar_incidente(
                     incidentes,
-                    incidente_por_comando(nombre, entrada.get("command"), fichero_tocado),
+                    incidente_por_comando(
+                        nombre, entrada.get("command"), fichero_tocado,
+                        cwd=entrada.get("cwd") or cwd_sesion, raiz=raiz,
+                        entorno=entrada.get("env")),
                     turno)
             elif bloque.get("type") == "tool_result":
                 par = comandos.get(bloque.get("tool_use_id"))
@@ -866,7 +996,7 @@ def leer_claude(fichero):
             "turnos_secos": turnos_secos, "incidentes": incidentes}
 
 
-def leer_codex(fichero):
+def leer_codex(fichero, *, raiz=None, cwd=None):
     """Uso de contexto y pares comando/fallo de un rollout de Codex CLI.
 
     `last_token_usage.total_tokens` es lo que ocupa la ÚLTIMA petición, o sea el contexto
@@ -876,11 +1006,14 @@ def leer_codex(fichero):
     tokens, ventana, modelo, turnos = None, None, None, 0
     comandos, fallos, incidentes = {}, [], []
     turno = 0
+    cwd_sesion = cwd
     for dato in _lineas(fichero):
         payload = dato.get("payload")
         if not isinstance(payload, dict):
             continue
         tipo = payload.get("type")
+        if dato.get("type") == "session_meta":
+            cwd_sesion = payload.get("cwd") or cwd_sesion
         if tipo == "token_count":
             info = payload.get("info")
             if isinstance(info, dict):
@@ -894,12 +1027,20 @@ def leer_codex(fichero):
             crudo = payload.get("arguments") or payload.get("input") or ""
             turno += 1
             orden_cruda = _orden(crudo)
+            try:
+                argumentos = json.loads(crudo) if isinstance(crudo, str) else crudo
+            except (ValueError, TypeError):
+                argumentos = {}
+            argumentos = argumentos if isinstance(argumentos, dict) else {}
             comandos[payload.get("call_id")] = (
                 f"{payload.get('name')}: {normalizar_comando(orden_cruda)}"[:200],
                 orden_cruda, turno)
             # Codex ejecuta siempre por shell: aquí la herramienta se da por ejecutora.
             apuntar_incidente(incidentes,
-                              incidente_por_comando("shell", orden_cruda), turno)
+                              incidente_por_comando(
+                                  "shell", orden_cruda,
+                                  cwd=argumentos.get("workdir") or cwd_sesion,
+                                  raiz=raiz, entorno=argumentos.get("env")), turno)
         elif tipo in ("function_call_output", "custom_tool_call_output"):
             texto = _texto_de(payload.get("output"))
             par = comandos.get(payload.get("call_id"))
@@ -1023,8 +1164,11 @@ def detectar_incidentes(incidentes, config):
         if len(casos) < int(config.get(patron, DEFECTOS.get(patron, 1))):
             continue
         ultimo = casos[-1]
-        detalle = DETALLES_INCIDENTE[patron].format(veces=len(casos),
-                                                    comando=ultimo["comando"] or "—")
+        if patron == "git_destructivo" and ultimo["comando"].startswith("ubicación incierta"):
+            detalle = "restauración con ubicación incierta: " + ultimo["comando"]
+        else:
+            detalle = DETALLES_INCIDENTE[patron].format(veces=len(casos),
+                                                        comando=ultimo["comando"] or "—")
         return {"tipo": "incidente", "patron": patron, "veces": len(casos),
                 "turno": ultimo["turno"], "sujeto": ultimo["comando"],
                 "detalle": detalle, "accion": ACCIONES_INCIDENTE[patron]}
@@ -1067,7 +1211,7 @@ def diagnosticar(*, raiz=None, cwd=None, claude_projects=None, codex_sessions=No
     informe["fichero"] = str(sesion["fichero"])
     informe["candidatos"] = sesion["candidatos"]
 
-    señal = LECTORES[sesion["harness"]](sesion["fichero"])
+    señal = LECTORES[sesion["harness"]](sesion["fichero"], raiz=raiz, cwd=cwd)
     if not señal:
         informe["harness"], informe["fichero"] = None, None
         return informe
