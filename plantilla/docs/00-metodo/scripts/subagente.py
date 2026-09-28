@@ -526,6 +526,54 @@ def cmd_estado(args):
     return 0
 
 
+def cmd_acreditar_git(args):
+    """Anota trabajo previo desde Git sin inventar una tarea nativa pasada."""
+    if not ejecucion.RE_NOMBRE.fullmatch(args.unidad):
+        error("unidad inválida")
+    ejecucion.RAIZ = RAIZ
+    ficha, fm = ejecucion.ficha_unidad(args.unidad, rol="constructor")
+    worktree = RAIZ / "worktrees" / args.unidad
+    if not worktree.is_dir() or worktree.is_symlink():
+        error("falta el worktree de la unidad")
+    if entrega._git(worktree, "branch", "--show-current") != args.unidad:
+        error("la rama del worktree no coincide con la unidad")
+    registrada = fm.get("base_sha") or fm.get("base") or ejecucion.base_registrada_de_la_unidad(fm, args.unidad, ficha)
+    if registrada and args.base != registrada:
+        error("la base indicada difiere de la base registrada en el contrato o despacho")
+    hechos = entrega.hechos_recuperacion(worktree, args.base, args.commit)
+    actual = entrega.hechos_git(worktree)
+    if actual["head"] != args.commit or actual["tree"] != hechos["tree"]:
+        error("el commit recuperado debe ser la punta y el árbol vigentes")
+    informe = ficha if ficha.parent.name == "bugs" else ficha.with_name("hallazgos.md")
+    if informe.is_symlink():
+        error("informe enlazado fuera de su frontera")
+    _, plan = entrega.ficha_y_plan(RAIZ, args.unidad)
+    if plan["marcadas"] == 0:
+        error("el plan no acredita ningún paso realizado")
+    previos = [r for r in entrega.recibos_de(args.unidad, EJECUCIONES)
+               if r.get("schema") == "entrega-git/v1"]
+    if previos and previos[-1].get("recuperacion") == hechos:
+        print(f"acreditación Git ya registrada: {previos[-1]['id']}")
+        return 0
+    previa, ronda = ejecucion.rondas_del_constructor(informe, args.unidad)
+    if ronda is None:
+        ronda = 1
+    rid = uuid.uuid4().hex
+    datos = {"schema": "entrega-git/v1", "protocolo": "git-recuperacion/v1",
+             "id": rid, "unidad": args.unidad, "rol": "constructor",
+             "origen": "hechos-git; autoría Git no identifica a un agente histórico",
+             "resultado": "ok", "exit_code": 0, "cuando": ahora(),
+             "ronda": ronda, "recuperacion": hechos,
+             "git": {"inicial": {"head": args.base, "tree": entrega._git(worktree, "rev-parse", f"{args.base}^{{tree}}")},
+                     "final": {"head": args.commit, "tree": hechos["tree"]}},
+             "trabajo": {"plan": plan, "acreditado": True}}
+    EJECUCIONES.mkdir(parents=True, exist_ok=True)
+    guardar_recibo(EJECUCIONES / f"{args.unidad}-{rid}.json", datos)
+    ejecucion.sellar_clave(informe, "ronda", str(ronda))
+    print(f"acreditado {args.unidad}: {args.base[:12]}..{args.commit[:12]}, árbol {hechos['tree'][:12]}; recibo {rid}; revisión fresca requerida")
+    return 0
+
+
 def migracion(args):
     print(f"Comando retirado. SALIDA: python3 docs/00-metodo/scripts/subagente.py preparar {args.unidad} "
           "--rol constructor --plataforma codex (o claude, la plataforma de ESTA sesión); "
@@ -578,6 +626,11 @@ def main(argv=None):
     a = sub.add_parser("estado", help="consulta recibos nativos e históricos")
     a.add_argument("unidad")
     a.set_defaults(fn=cmd_estado)
+    a = sub.add_parser("acreditar-git", help="recupera trabajo previo mediante commits Git verificables")
+    a.add_argument("unidad")
+    a.add_argument("--base", required=True, help="SHA completo de la base registrada")
+    a.add_argument("--commit", required=True, help="SHA completo de la punta entregada")
+    a.set_defaults(fn=cmd_acreditar_git)
     for nombre in ("abrir", "cerrar"):
         a = sub.add_parser(nombre, help="retirado: muestra migración, nunca ejecuta IA")
         a.add_argument("unidad")

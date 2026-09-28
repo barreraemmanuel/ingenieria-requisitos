@@ -177,6 +177,65 @@ def _problema(texto, comando="git status --porcelain"):
     return f"{texto}. {SALIDA} {comando}"
 
 
+def _commit_exacto(repo, valor):
+    """Resuelve únicamente un SHA completo que designa un objeto commit existente."""
+    if not re.fullmatch(r"[0-9a-f]{40}", str(valor or "")):
+        raise ErrorEntrega("base y commit requieren SHA completo de 40 caracteres")
+    if _git(repo, "cat-file", "-t", valor) != "commit":
+        raise ErrorEntrega(f"{valor} no designa un commit")
+    return valor
+
+
+def _ancestro(repo, base, punta):
+    proceso = subprocess.run(["git", "merge-base", "--is-ancestor", base, punta],
+                             cwd=str(repo), capture_output=True, check=False)
+    return proceso.returncode == 0
+
+
+def hechos_recuperacion(worktree, base, commit):
+    """Reconstruye la evidencia desde Git; jamás confía en campos del recibo."""
+    worktree = Path(worktree)
+    if Path(_git(worktree, "rev-parse", "--show-toplevel")).resolve() != worktree.resolve():
+        raise ErrorEntrega("la ruta no es la raíz del repositorio de código esperado")
+    base = _commit_exacto(worktree, base)
+    commit = _commit_exacto(worktree, commit)
+    actual = hechos_git(worktree)
+    if actual["status_porcelain"]:
+        raise ErrorEntrega("worktree sucio después del anclaje")
+    if not _ancestro(worktree, base, commit) or base == commit:
+        raise ErrorEntrega("commit fuera de base o sin cambios")
+    if not _ancestro(worktree, commit, actual["head"]):
+        raise ErrorEntrega("commit fuera de la rama vigente")
+    tree = _git(worktree, "rev-parse", f"{commit}^{{tree}}")
+    if tree == _git(worktree, "rev-parse", f"{base}^{{tree}}"):
+        raise ErrorEntrega("base y commit tienen el mismo árbol")
+    diff = subprocess.run(["git", "diff", "--binary", "--full-index", base, commit],
+                          cwd=str(worktree), capture_output=True, check=False)
+    if diff.returncode or not diff.stdout:
+        raise ErrorEntrega("diff de recuperación vacío o ilegible")
+    autor = _git(worktree, "show", "-s", "--format=%an%x00%ae%x00%aI", commit).split("\x00")
+    return {"base": base, "commit": commit, "tree": tree,
+            "diff_sha256": hashlib.sha256(diff.stdout).hexdigest(),
+            "autor_git": {"nombre": autor[0], "email": autor[1], "fecha": autor[2]}}
+
+
+def validar_recuperacion(worktree, unidad, recibo):
+    datos = recibo.get("recuperacion") or {}
+    worktree = Path(worktree)
+    existe_worktree = worktree.is_dir()
+    repo = worktree if existe_worktree else worktree.parent.parent / "main"
+    try:
+        hechos = hechos_recuperacion(repo, datos.get("base"), datos.get("commit"))
+    except (ErrorEntrega, OSError) as exc:
+        return [_problema(f"recuperación Git de {unidad} inválida: {exc}")], []
+    if recibo.get("unidad") != unidad or any(datos.get(k) != v for k, v in hechos.items()):
+        return [_problema(f"recuperación Git de {unidad} no coincide con los hechos actuales")], []
+    actual = hechos_git(repo)
+    if existe_worktree and (actual["head"] != datos["commit"] or actual["tree"] != datos["tree"]):
+        return [_problema(f"recuperación Git de {unidad} obsoleta: cambió el contenido")], []
+    return [], []
+
+
 def validar_vinculo_nativo(recibo, exigir_terminado=True):
     """Integridad estructural de evidencia nativa; históricos conservan su lector."""
     task = recibo.get("native_task_id")
@@ -221,6 +280,10 @@ def validar_entrega(worktree, unidad, recibos, base):
         and r.get("unidad") == unidad and r.get("rol") == "constructor"
         and r.get("estado_nativo") != "preparado" and not r.get("sin_ejecucion")
     ]
+    recuperados = [r for r in recibos if isinstance(r, dict)
+                   and r.get("schema") == "entrega-git/v1" and r.get("unidad") == unidad
+                   and r.get("rol") == "constructor"]
+    candidatos += recuperados
     if not candidatos:
         if not recibos:
             return [_problema(
@@ -230,7 +293,12 @@ def validar_entrega(worktree, unidad, recibos, base):
         return [_problema(f"ningún recibo legible acredita al constructor de {unidad}")], []
 
     propios = [r for r in candidatos if r.get("harness") == "subagente-del-padre"]
-    recibo = (propios or candidatos)[-1]
+    preferidos = propios + recuperados
+    recibo = next((r for r in reversed(recibos) if r in (preferidos or candidatos)), candidatos[-1])
+    if recibo.get("schema") == "entrega-git/v1":
+        if recibo.get("resultado") != "ok":
+            return [_problema(f"recuperación Git de {unidad} no terminada")], []
+        return validar_recuperacion(worktree, unidad, recibo)
     if recibo.get("protocolo") == "nativo/v1":
         problema = validar_vinculo_nativo(recibo)
         if problema:

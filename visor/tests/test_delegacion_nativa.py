@@ -45,8 +45,11 @@ class NativoTest(unittest.TestCase):
                     self.addCleanup(p.stop)
 
     def call(self, *args):
-        with redirect_stdout(io.StringIO()):
-            return subagente.main(list(args))
+        salida = io.StringIO()
+        with redirect_stdout(salida):
+            resultado = subagente.main(list(args))
+        self.last_output = salida.getvalue()
+        return resultado
 
     def prepare(self, role="constructor", platform="codex"):
         # Los revisores sin constructor previo representan el carril directo: el padre
@@ -86,12 +89,12 @@ class NativoTest(unittest.TestCase):
 
     def write_review(self, task="child-1", detail="Revisión nueva", path=None):
         path = path or self.h
-        text = path.read_text()
+        text = path.read_text(encoding="utf-8")
         for key, value in (("revisor", task + " · modelo"), ("revisado", subagente.ahora()[:10])):
             text = re.sub(r"(?m)^" + key + r":.*\n", "", text)
             text = text.replace("---\n", "---\n" + key + ": " + value + "\n", 1)
         text = re.sub(r"(?ms)^## Revisión[^\n]*\n.*?(?=^## |\Z)", "", text)
-        path.write_text(text + "\n## Revisión\n- **Veredicto:** LIMPIO\n- " + detail + "\n")
+        path.write_text(text + "\n## Revisión\n- **Veredicto:** LIMPIO\n- " + detail + "\n", encoding="utf-8")
 
     def test_R5_cancelado_sin_hijo_no_invalida_revision_valida(self):
         r = self.prepare()
@@ -363,6 +366,136 @@ class NativoTest(unittest.TestCase):
         self.wt.commitear()
         self.assertNotEqual(self.call("preparar", self.name, "--rol", "revisor", "--plataforma", "codex", "--modelo", "m"), 0)
         self.assertEqual(entrega.recibos_de(self.name, self.receipts), [])
+
+    def test_R1_trabajo_anterior_se_acredita_con_git_y_llega_al_revisor(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        recibos = entrega.recibos_de(self.name, self.receipts)
+        self.assertEqual(entrega.validar_entrega(self.wt.ruta, self.name, recibos, self.wt.base())[0], [])
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "r"), 0)
+
+    def test_R2_recuperacion_y_revision_fresca_llegan_a_consumidores_de_cierre(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        self.assertTrue(unidad.puerta_recibo_revisor(self.name)[0])
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "r"), 0)
+        review = entrega.recibos_de(self.name, self.receipts)[-1]
+        self.assertEqual(self.bind(review, "review-git", "revisor"), 0)
+        self.write_review("review-git")
+        self.assertEqual(self.finish(review, "review-git"), 0, self.last_output)
+        self.assertEqual(unidad.puerta_recibo_revisor(self.name)[0], [])
+        ruta_review = Path(review["_ruta"])
+        bytes_review = ruta_review.read_bytes()
+        ajeno = json.loads(bytes_review)
+        ajeno["unidad"] = "999-otra"
+        ruta_review.write_text(json.dumps(ajeno), encoding="utf-8")
+        self.assertTrue(unidad.puerta_recibo_revisor(self.name)[0])
+        ruta_review.write_bytes(bytes_review)
+        signed = unidad.frontmatter(self.h)["revisado_patch_id"]
+        self.assertIsNone(unidad.puerta_ancla_de_revision(self.wt.ruta, self.name,
+                                                           signed, self.wt.base_head, head)[0])
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        git(self.wt.ruta, "checkout", self.name)
+        self.assertTrue(unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)[0])
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", "esto-no-es-un-sha")[0])
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", self.wt.base_head)[0])
+
+    def test_R4_recuperacion_rechaza_base_ajena_arbol_ajeno_y_mutacion_posterior(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        git(self.wt.ruta, "checkout", "main")
+        (self.wt.ruta / "ajeno.txt").write_text("ajeno")
+        git(self.wt.ruta, "add", "ajeno.txt")
+        git(self.wt.ruta, "commit", "-m", "ajeno")
+        ajeno = git(self.wt.ruta, "rev-parse", "HEAD").strip()
+        git(self.wt.ruta, "checkout", self.name)
+        blob = git(self.wt.ruta, "hash-object", "modulo.py").strip()
+        for invalido in ("0" * 40, blob):
+            with self.subTest(commit=invalido):
+                self.assertNotEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                               "--commit", invalido), 0)
+        self.assertNotEqual(self.call("acreditar-git", self.name, "--base", ajeno,
+                                       "--commit", head), 0)
+        self.assertNotEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                       "--commit", ajeno), 0)
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        recibo = entrega.recibos_de(self.name, self.receipts)[-1]
+        datos = json.loads(Path(recibo["_ruta"]).read_text())
+        datos["recuperacion"]["tree"] = "0" * 40
+        self.assertTrue(entrega.validar_entrega(self.wt.ruta, self.name, [datos], self.wt.base())[0])
+        (self.wt.ruta / "cambio.txt").write_text("solo espacios  \n")
+        git(self.wt.ruta, "add", "cambio.txt")
+        git(self.wt.ruta, "commit", "-m", "cambio posterior")
+        self.assertTrue(entrega.validar_entrega(self.wt.ruta, self.name,
+                                                 entrega.recibos_de(self.name, self.receipts),
+                                                 self.wt.base())[0])
+
+    def test_R2_correccion_conserva_recibo_y_exige_revision_nueva(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        primero = next(r for r in entrega.recibos_de(self.name, self.receipts)
+                       if r.get("schema") == "entrega-git/v1")
+        bytes_primero = Path(primero["_ruta"]).read_bytes()
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "r"), 0)
+        review = entrega.recibos_de(self.name, self.receipts)[-1]
+        self.bind(review, "review-1", "revisor")
+        self.write_review("review-1")
+        self.assertEqual(self.finish(review, "review-1"), 0, self.last_output)
+        nuevo = self.wt.commitear("corrección nueva")
+        self.assertTrue(entrega.validar_entrega(self.wt.ruta, self.name,
+                                                 entrega.recibos_de(self.name, self.receipts),
+                                                 self.wt.base())[0])
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", nuevo), 0, self.last_output)
+        self.assertEqual(Path(primero["_ruta"]).read_bytes(), bytes_primero)
+        self.assertTrue(unidad.puerta_recibo_revisor(self.name)[0])
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "r"), 0)
+        review2 = entrega.recibos_de(self.name, self.receipts)[-1]
+        self.bind(review2, "review-2", "revisor")
+        self.write_review("review-2", "Corrección revisada sobre el árbol nuevo")
+        self.assertEqual(self.finish(review2, "review-2"), 0, self.last_output)
+        self.assertEqual(unidad.puerta_recibo_revisor(self.name)[0], [])
+
+    def test_R4_espacios_cambian_arbol_aunque_patch_id_persista(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        patch_antes = ejecucion.patch_id_de_la_rama(self.wt.ruta, self.wt.base_head)
+        modulo = self.wt.ruta / "modulo.py"
+        modulo.write_text(modulo.read_text(encoding="utf-8").replace("print(", "print(  "), encoding="utf-8")
+        git(self.wt.ruta, "add", "modulo.py")
+        git(self.wt.ruta, "commit", "-m", "solo espacios")
+        self.assertEqual(ejecucion.patch_id_de_la_rama(self.wt.ruta, self.wt.base_head), patch_antes)
+        self.assertTrue(entrega.validar_entrega(self.wt.ruta, self.name,
+                                                 entrega.recibos_de(self.name, self.receipts),
+                                                 self.wt.base())[0])
+        self.assertIsNotNone(unidad.puerta_ancla_de_revision(
+            self.wt.ruta, self.name, patch_antes, self.wt.base_head, self.wt.head())[0])
+
+    def test_R5_recuperacion_persiste_tras_retirar_worktree_fusionado(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        self.wt.ruta.rename(self.root / "main")
+        self.assertEqual(entrega.exigir_entrega_constructor(self.name)[0], [])
+        self.assertFalse(unidad.rama_mergeada(self.root / "main", self.name,
+                                               "main", "esto-no-es-un-sha")[0])
 
     def test_R5_recuperacion_no_roba_cerrojo_ajeno(self):
         r = self.prepare()

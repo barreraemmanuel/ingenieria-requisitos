@@ -2867,6 +2867,7 @@ def recibos_ejecucion(nombre):
         except (OSError, json.JSONDecodeError):
             continue                      # un recibo ilegible no acredita nada; se ignora
         if isinstance(datos, dict) and datos.get("unidad") == nombre:
+            datos["_ruta"] = str(ruta)
             recibos.append(datos)
     return recibos
 
@@ -3008,6 +3009,8 @@ def puerta_recibo_revisor(nombre):
         return [mensaje_recibo_no_acredita(
             nombre, [motivo for _, motivo in motivos if motivo])], []
     nativos = [r for r in validos if r.get("protocolo") == "nativo/v1"]
+    recuperaciones = [r for r in entrega.recibos_de(nombre) if r.get("schema") == "entrega-git/v1"]
+    recuperacion = recuperaciones[-1] if recuperaciones else None
     if nativos:
         informe = RAIZ / "docs/05-trabajo" / nombre / "hallazgos.md"
         if not informe.is_file():
@@ -3018,6 +3021,19 @@ def puerta_recibo_revisor(nombre):
         if not coherentes:
             return ["firma, contenido o ronda no corresponden al recibo nativo. SALIDA: " + comando_revision(nombre)], []
         validos = coherentes
+    if recuperacion:
+        problema, _ = entrega.validar_recuperacion(WORKTREES / nombre, nombre, recuperacion)
+        if problema:
+            return problema, []
+        arbol = recuperacion["recuperacion"]["tree"]
+        momento = Path(recuperacion["_ruta"]).stat().st_mtime_ns
+        validos = [r for r in validos
+                   if r.get("protocolo") == "nativo/v1"
+                   and (r.get("git") or {}).get("inicial", {}).get("tree") == arbol
+                   and Path(r["_ruta"]).stat().st_mtime_ns > momento]
+        if not validos:
+            return ["la recuperación Git exige revisión fresca del árbol exacto vigente. SALIDA: "
+                    + comando_revision(nombre)], []
     constructores = [r for r in recibos if str(r.get("rol") or "").strip() == "constructor"
                     and r.get("estado_nativo") != "preparado" and not r.get("sin_ejecucion")]
     sesiones_constructor = {sesion_de(r) for r in constructores} - {""}
@@ -3155,6 +3171,14 @@ def puerta_ancla_de_revision(repo, nombre, firmado, base, punta):
     antes de que el launcher lo sellara y reabrirla sería castigar a la historia (R5).
     """
     firmado = (firmado or "").strip().lower()
+    recuperaciones = [r for r in entrega.recibos_de(nombre) if r.get("schema") == "entrega-git/v1"]
+    if recuperaciones:
+        arbol = (recuperaciones[-1].get("recuperacion") or {}).get("tree")
+        codigo, actual_arbol = git(repo, "rev-parse", f"{punta}^{{tree}}", silencioso=True)
+        if codigo or not arbol or actual_arbol.strip() != arbol:
+            return (f"el árbol de {nombre} cambió desde la recuperación y la revisión; "
+                    f"{SALIDA} ejecuta subagente.py acreditar-git con la punta actual y "
+                    "consigue una revisión fresca"), "", ""
     if not firmado or firmado == "no":
         return None, "", ""
     actual = patch_id_del_diff(repo, base, punta)
@@ -4069,6 +4093,31 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
     if base is None:
         return False, f"no encuentro la rama principal '{principal}' en el repo de código", \
             False, ""
+
+    if fusion_declarada:
+        if not re.fullmatch(r"[0-9a-f]{40}", fusion_declarada):
+            return False, "fusion: exige SHA completo de un commit existente", False, ""
+        declarado = sha_de(repo, fusion_declarada)
+        if declarado != fusion_declarada:
+            return False, "fusion: el SHA no designa un commit existente", False, ""
+        if not es_ancestro(repo, declarado, base):
+            return False, "fusion: el commit no está en la rama principal", False, ""
+        rama_declarada = sha_de(repo, f"refs/heads/{rama}") or sha_de(repo, f"refs/remotes/origin/{rama}")
+        if rama_declarada:
+            codigo, arbol_rama = git(repo, "rev-parse", f"{rama_declarada}^{{tree}}", silencioso=True)
+            codigo_fusion, arbol_fusion = git(repo, "rev-parse", f"{declarado}^{{tree}}", silencioso=True)
+            if not (es_ancestro(repo, rama_declarada, declarado)
+                    or (codigo == codigo_fusion == 0 and arbol_rama.strip() == arbol_fusion.strip())):
+                return False, "fusion: el commit no corresponde a la rama de la unidad", False, ""
+        recuperaciones = [r for r in entrega.recibos_de(rama) if r.get("schema") == "entrega-git/v1"]
+        if recuperaciones:
+            datos = recuperaciones[-1].get("recuperacion") or {}
+            base_unidad, punta_unidad = datos.get("base"), datos.get("commit")
+            codigo, arbol_fusion = git(repo, "rev-parse", f"{declarado}^{{tree}}", silencioso=True)
+            if not (base_unidad and punta_unidad and es_ancestro(repo, base_unidad, declarado)
+                    and (es_ancestro(repo, punta_unidad, declarado)
+                         or (codigo == 0 and arbol_fusion.strip() == datos.get("tree")))):
+                return False, "fusion: commit sin relación verificable con base y rama", False, ""
 
     # Si la rama LOCAL existe, manda ella y nadie más: es la que tiene el trabajo más nuevo.
     # Mirar además `origin/<rama>` aquí bendeciría un cierre con la foto vieja del remoto
