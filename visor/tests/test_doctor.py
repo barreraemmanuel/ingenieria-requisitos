@@ -66,12 +66,11 @@ class RevisarPlataformaTest(unittest.TestCase):
         """Lo que seguía siendo real (bash/python3 vienen de Git for Windows, no del
         sandbox) no se pierde al quitar la promesa falsa de WSL2."""
         sys.platform = "win32"
-        # Ni en el PATH ni junto a git: aquí bash de verdad no está.
-        doctor.shutil.which = lambda nombre, path=None: (
-            None if nombre in ("bash", "git") else "/usr/bin/" + nombre
-        )
-
-        estado, detalle, consecuencia = doctor.revisar_plataforma()
+        # El selector se prueba con PATH real en test_buscar_bash; aquí se aísla
+        # el aviso que debe dar el doctor cuando el selector no encuentra nada.
+        doctor.shutil.which = lambda nombre, path=None: "/usr/bin/" + nombre
+        with mock.patch.object(doctor, "buscar_bash", return_value=None):
+            estado, detalle, consecuencia = doctor.revisar_plataforma()
 
         self.assertEqual(estado, "WARN")
         self.assertIn("bash", consecuencia)
@@ -100,12 +99,12 @@ class RevisarPlataformaTest(unittest.TestCase):
         (raiz / "cmd" / "git.exe").write_text("", encoding="utf-8")
         (raiz / "bin" / "bash.exe").write_text("", encoding="utf-8")
         doctor.shutil.which = lambda nombre, path=None: (
-            str(raiz / "cmd" / "git.exe") if nombre == "git"
-            else None if nombre == "bash"
-            else "/usr/bin/" + nombre
+            "/usr/bin/python3" if nombre == "python3"
+            else self._which_original(nombre, path=path)
         )
 
-        with mock.patch.object(doctor, "os", ayuda_windows.OsDeWindows()):
+        with mock.patch.dict(doctor.os.environ, {"PATH": str(raiz / "cmd")}), \
+             mock.patch.object(doctor, "os", ayuda_windows.OsDeWindows()):
             self.assertEqual(doctor.buscar_bash(), str(raiz / "bin" / "bash.exe"))
             estado, _detalle, consecuencia = doctor.revisar_plataforma()
         self.assertEqual(estado, "OK")

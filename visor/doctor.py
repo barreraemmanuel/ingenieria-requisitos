@@ -29,15 +29,23 @@ BASE = Path(__file__).resolve().parent      # visor/
 RAIZ = BASE.parent                          # el clone
 
 
-def which_sin_cwd(programa):
+def which_sin_cwd(programa, *, excluir_carpetas=()):
     """`shutil.which` pero SIN el directorio actual, que en Windows se antepone al PATH.
 
     Gemelo de workspace_paths.which_sin_cwd() por la misma razón que buscar_bash().
     """
     rutas = os.environ.get("PATH", os.defpath).split(os.pathsep)
-    cwd = os.path.abspath(os.getcwd())
-    limpias = [r for r in rutas if r and os.path.abspath(r) != cwd]
-    return shutil.which(programa, path=os.pathsep.join(limpias))
+    cwd = Path.cwd().resolve()
+    for ruta in rutas:
+        if not ruta or Path(ruta).resolve() == cwd:
+            continue
+        # Un nombre con directorio impide que which anteponga cwd en Windows.
+        base = str(Path(ruta).resolve() / programa)
+        for nombre in ((base + ".exe", base) if os.name == "nt" else (base,)):
+            encontrado = shutil.which(nombre)
+            if encontrado and Path(encontrado).parent.name.lower() not in excluir_carpetas:
+                return encontrado
+    return None
 
 
 def buscar_bash():
@@ -53,11 +61,11 @@ def buscar_bash():
     mentiría justo sobre lo que existe para diagnosticar.
     `visor/tests/test_buscar_bash.py::LosDosGemelosDecidenIgualTest` ata las dos copias.
 
-    En Windows el PATH lleva `Git\\cmd` (que solo tiene git.exe), no `Git\\bin`, así que
-    `which("bash")` da None aunque Git for Windows SIEMPRE traiga bash. Si no está en el
-    PATH se busca junto al git que sí se encontró: misma instalación, misma confianza.
+    En Windows, System32/bash.exe y el alias de WindowsApps lanzan WSL y no
+    entienden las rutas del host. Se busca Git Bash en PATH o junto a Git/cmd/git.exe.
     """
-    encontrado = which_sin_cwd("bash")
+    excluidas = {"system32", "sysnative", "syswow64", "windowsapps"} if os.name == "nt" else ()
+    encontrado = which_sin_cwd("bash", excluir_carpetas=excluidas)
     if encontrado:
         return encontrado
     git = which_sin_cwd("git")

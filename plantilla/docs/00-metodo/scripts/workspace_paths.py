@@ -35,26 +35,32 @@ def es_enlace(path):
     return getattr(estado, "st_reparse_tag", 0) == TAG_JUNCTION
 
 
-def which_sin_cwd(programa):
+def which_sin_cwd(programa, *, excluir_carpetas=()):
     """`shutil.which` pero SIN el directorio actual, que en Windows se antepone al
     PATH: si no, un `bash.exe` versionado en el repo de código (que suele ser el cwd)
     ganaría al de Git for Windows y se ejecutaría fuera de todo control."""
     rutas = os.environ.get("PATH", os.defpath).split(os.pathsep)
-    cwd = os.path.abspath(os.getcwd())
-    limpias = [r for r in rutas if r and os.path.abspath(r) != cwd]
-    return shutil.which(programa, path=os.pathsep.join(limpias))
+    cwd = Path.cwd().resolve()
+    for ruta in rutas:
+        if not ruta or Path(ruta).resolve() == cwd:
+            continue
+        # Un nombre con directorio impide que which anteponga cwd en Windows.
+        base = str(Path(ruta).resolve() / programa)
+        for nombre in ((base + ".exe", base) if os.name == "nt" else (base,)):
+            encontrado = shutil.which(nombre)
+            if encontrado and Path(encontrado).parent.name.lower() not in excluir_carpetas:
+                return encontrado
+    return None
 
 
 def buscar_bash():
     """Ruta a un `bash` utilizable, o None.
 
-    En Windows el PATH lleva `Git\\cmd` (que solo tiene git.exe), no `Git\\bin`, así que
-    `which("bash")` da None aunque Git for Windows SIEMPRE traiga bash. Con eso, el hook
-    de preparación del worktree no corría nunca y el doctor avisaba de una falta que no
-    existía. Se busca primero en el PATH y, si no está, junto al git que sí se encontró
-    — misma instalación, misma confianza; no se inventa ninguna ruta absoluta.
+    En Windows, System32/bash.exe y el alias de WindowsApps lanzan WSL y no
+    entienden las rutas del host. Se busca Git Bash en PATH o junto a Git/cmd/git.exe.
     """
-    encontrado = which_sin_cwd("bash")
+    excluidas = {"system32", "sysnative", "syswow64", "windowsapps"} if os.name == "nt" else ()
+    encontrado = which_sin_cwd("bash", excluir_carpetas=excluidas)
     if encontrado:
         return encontrado
     git = which_sin_cwd("git")

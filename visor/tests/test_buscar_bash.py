@@ -8,7 +8,7 @@ preparación del worktree, que en Windows no corría NUNCA) y `lint_deploy.ejecu
 
 Windows se **simula**: `os.name` a "nt" en el módulo bajo prueba (ver
 `ayuda_windows.OsDeWindows`, que explica por qué no se parchea el global) y un
-`Git for Windows` de mentira montado en un temporal — `<raiz>/cmd/git` en el PATH,
+`Git for Windows` de mentira montado en un temporal — `<raiz>/cmd/git.exe` en el PATH,
 `<raiz>/bin/bash.exe` fuera de él, que es exactamente la disposición real.
 """
 import contextlib
@@ -67,12 +67,33 @@ class BuscarBashTest(unittest.TestCase):
                     mock.patch.object(modulo, "os", ayuda_windows.OsDeWindows()))
             yield
 
+    @contextlib.contextmanager
+    def como_posix(self):
+        class OsDePosix:
+            name = "posix"
+
+            def __getattr__(self, atributo):
+                return getattr(os, atributo)
+
+        with contextlib.ExitStack() as pila:
+            for modulo in self.MODULOS:
+                pila.enter_context(mock.patch.object(modulo, "os", OsDePosix()))
+            if os.name == "nt":
+                # shutil.which conserva la semántica del host: Windows rechaza
+                # un script POSIX sin extensión aunque el os simulado sea posix.
+                def which_posix(nombre):
+                    ruta = Path(nombre)
+                    return str(ruta) if ruta.is_file() else None
+
+                pila.enter_context(mock.patch.object(shutil, "which", which_posix))
+            yield
+
     # El hallazgo del bug ---------------------------------------------------
 
     def test_windows_encuentra_el_bash_junto_al_git_aunque_no_este_en_el_PATH(self):
         """El PATH de Windows lleva `Git\\cmd`, que solo tiene git.exe. `which("bash")`
         da None y bash está ahí al lado, en `Git\\bin`."""
-        ejecutable(self.raiz / "cmd" / "git")
+        ejecutable(self.raiz / "cmd" / "git.exe")
         ejecutable(self.raiz / "bin" / "bash.exe")
 
         with self.con_path(self.raiz / "cmd"), self.como_windows():
@@ -82,7 +103,7 @@ class BuscarBashTest(unittest.TestCase):
     def test_windows_tambien_mira_el_bash_de_usr_bin(self):
         """Git for Windows trae dos: `Git\\bin\\bash.exe` y `Git\\usr\\bin\\bash.exe`.
         Si el primero no está, el segundo sirve igual."""
-        ejecutable(self.raiz / "cmd" / "git")
+        ejecutable(self.raiz / "cmd" / "git.exe")
         ejecutable(self.raiz / "usr" / "bin" / "bash.exe")
 
         with self.con_path(self.raiz / "cmd"), self.como_windows():
@@ -100,14 +121,14 @@ class BuscarBashTest(unittest.TestCase):
             self.assertIsNone(workspace_paths.buscar_bash())
 
     def test_con_git_pero_sin_bash_al_lado_devuelve_None(self):
-        ejecutable(self.raiz / "cmd" / "git")
+        ejecutable(self.raiz / "cmd" / "git.exe")
 
         with self.con_path(self.raiz / "cmd"), self.como_windows():
             self.assertIsNone(workspace_paths.buscar_bash())
 
     def test_el_bash_del_PATH_gana_y_no_se_toca_git(self):
-        del_path = ejecutable(self.raiz / "cmd" / "bash")
-        ejecutable(self.raiz / "cmd" / "git")
+        del_path = ejecutable(self.raiz / "cmd" / "bash.exe")
+        ejecutable(self.raiz / "cmd" / "git.exe")
         ejecutable(self.raiz / "bin" / "bash.exe")
 
         with self.con_path(self.raiz / "cmd"), self.como_windows():
@@ -119,20 +140,58 @@ class BuscarBashTest(unittest.TestCase):
         ejecutable(self.raiz / "cmd" / "git")
         ejecutable(self.raiz / "bin" / "bash.exe")
 
-        with self.con_path(self.raiz / "cmd"):         # os.name real, POSIX aquí
+        with self.con_path(self.raiz / "cmd"), self.como_posix():
             self.assertIsNone(workspace_paths.buscar_bash())
+
+    def test_posix_encuentra_bash_en_path(self):
+        bash = ejecutable(self.raiz / "bin" / "bash")
+        with self.con_path(self.raiz / "bin"), self.como_posix():
+            self.assertEqual(workspace_paths.buscar_bash(), str(bash))
+
+    def test_windows_salta_wsl_y_encuentra_git_bash(self):
+        ejecutable(self.raiz / "Windows" / "System32" / "bash.exe")
+        ejecutable(self.raiz / "Git" / "cmd" / "git.exe")
+        bash = ejecutable(self.raiz / "Git" / "bin" / "bash.exe")
+
+        with self.con_path(self.raiz / "Windows" / "System32", self.raiz / "Git" / "cmd"), self.como_windows():
+            self.assertEqual(workspace_paths.buscar_bash(), str(bash))
+
+    def test_windows_salta_wsl_y_usa_bash_del_path(self):
+        ejecutable(self.raiz / "Windows" / "System32" / "bash.exe")
+        bash = ejecutable(self.raiz / "Git" / "bin" / "bash.exe")
+        with self.con_path(self.raiz / "Windows" / "System32", self.raiz / "Git" / "bin"), self.como_windows():
+            self.assertEqual(workspace_paths.buscar_bash(), str(bash))
+
+    def test_windows_solo_wsl_no_es_bash_compatible(self):
+        ejecutable(self.raiz / "Windows" / "System32" / "bash.exe")
+        with self.con_path(self.raiz / "Windows" / "System32"), self.como_windows():
+            self.assertIsNone(workspace_paths.buscar_bash())
+
+    def test_windows_salta_alias_de_windowsapps(self):
+        ejecutable(self.raiz / "WindowsApps" / "bash.exe")
+        ejecutable(self.raiz / "Git" / "cmd" / "git.exe")
+        bash = ejecutable(self.raiz / "Git" / "bin" / "bash.exe")
+        with self.con_path(self.raiz / "WindowsApps", self.raiz / "Git" / "cmd"), self.como_windows():
+            self.assertEqual(workspace_paths.buscar_bash(), str(bash))
 
     def test_un_bash_versionado_en_el_cwd_no_gana(self):
         """En Windows el directorio actual se antepone al PATH. El cwd de un agente es
         el repo de código: un `bash` versionado ahí se ejecutaría fuera de todo control.
         Por eso `which_sin_cwd` y no `shutil.which` a secas."""
-        ejecutable(self.raiz / "bash")
+        ejecutable(self.raiz / "bash.exe")
+        ejecutable(self.raiz / "git.exe")
         cwd_previo = os.getcwd()
         os.chdir(self.raiz)
         self.addCleanup(os.chdir, cwd_previo)
 
         with self.con_path(self.raiz), self.como_windows():
             self.assertIsNone(workspace_paths.which_sin_cwd("bash"))
+            self.assertIsNone(workspace_paths.which_sin_cwd("git"))
+            self.assertIsNone(workspace_paths.buscar_bash())
+
+        with self.con_path(""), self.como_windows():
+            self.assertIsNone(workspace_paths.which_sin_cwd("bash"))
+            self.assertIsNone(workspace_paths.which_sin_cwd("git"))
             self.assertIsNone(workspace_paths.buscar_bash())
 
 
@@ -162,8 +221,9 @@ class LosDosGemelosDecidenIgualTest(BuscarBashTest):
             self.assertEqual(del_doctor, mio, "los dos gemelos deben decidir igual")
             return mio
 
-        def ambas_which(programa):
-            mio, del_doctor = original_which(programa), doctor.which_sin_cwd(programa)
+        def ambas_which(programa, **kwargs):
+            mio = original_which(programa, **kwargs)
+            del_doctor = doctor.which_sin_cwd(programa, **kwargs)
             self.assertEqual(del_doctor, mio, "los dos gemelos deben decidir igual")
             return mio
 
