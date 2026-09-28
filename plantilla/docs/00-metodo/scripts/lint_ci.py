@@ -306,120 +306,26 @@ def _caso_python_existe(repo, nombre):
 
 
 def _runner_manifest_valido(tree):
-    # Forma acotada: el programa principal carga argv[2], itera cases/tests y
-    # ejecuta la suite. Las funciones no llamadas y los try/except quedan fuera.
-    if any(isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Try,
-                          ast.While, ast.If, ast.Continue, ast.Break, ast.Return))
-           for n in ast.walk(tree)):
-        return False
-    calls = [n for n in ast.walk(tree) if isinstance(n, ast.Call)]
-    attrs = {c.func.attr for c in calls if isinstance(c.func, ast.Attribute)}
-    if not {"loads", "read_text", "loadTestsFromName", "addTests", "run",
-            "wasSuccessful", "countTestCases"} <= attrs:
-        return False
-    if not any(
-        isinstance(n, ast.Subscript) and isinstance(n.value, ast.Attribute)
-        and isinstance(n.value.value, ast.Name) and n.value.value.id == "sys"
-        and n.value.attr == "argv" and isinstance(n.slice, ast.Constant)
-        and n.slice.value == 2 for n in ast.walk(tree)
-    ):
-        return False
-    loops = [n for n in ast.walk(tree) if isinstance(n, ast.For)]
-    if len(loops) != 2 or not isinstance(loops[0].target, ast.Name):
-        return False
-    outer, inner = loops
-    if (inner not in outer.body or not isinstance(inner.target, ast.Name) or
-            not isinstance(outer.iter, ast.Subscript) or
-            not isinstance(outer.iter.value, ast.Name) or
-            outer.iter.value.id != "data" or
-            not isinstance(outer.iter.slice, ast.Constant) or
-            outer.iter.slice.value != "cases" or
-            not isinstance(inner.iter, ast.Subscript) or
-            not isinstance(inner.iter.value, ast.Name) or
-            inner.iter.value.id != outer.target.id or
-            not isinstance(inner.iter.slice, ast.Constant) or
-            inner.iter.slice.value != "tests"):
-        return False
-    def call_attr(node, attr):
-        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == attr)
-    def name(node, expected):
-        return isinstance(node, ast.Name) and node.id == expected
-    if (len(outer.body) != 1 or len(inner.body) != 1 or
-            not isinstance(inner.body[0], ast.Expr) or
-            not call_attr(inner.body[0].value, "addTests") or
-            not name(inner.body[0].value.func.value, "suite") or
-            len(inner.body[0].value.args) != 1):
-        return False
-    load = inner.body[0].value.args[0]
-    if (not call_attr(load, "loadTestsFromName") or len(load.args) != 1 or
-            not name(load.args[0], inner.target.id) or
-            not call_attr(load.func.value, "TestLoader") or
-            not name(load.func.value.func.value, "unittest")):
-        return False
-    top_names = [n.targets[0].id for n in tree.body
-                 if isinstance(n, ast.Assign) and len(n.targets) == 1
-                 and isinstance(n.targets[0], ast.Name)]
-    if not {"data", "suite", "count", "result"} <= set(top_names):
-        return False
-    positions = {name: next(i for i, stmt in enumerate(tree.body)
-                            if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1
-                            and isinstance(stmt.targets[0], ast.Name)
-                            and stmt.targets[0].id == name)
-                 for name in ("data", "suite", "count", "result")}
-    assignments = {name: tree.body[index].value for name, index in positions.items()}
-    loaded = assignments["data"]
-    if not call_attr(loaded, "loads") or len(loaded.args) != 1:
-        return False
-    read = loaded.args[0]
-    if not call_attr(read, "read_text") or not isinstance(read.func.value, ast.Call):
-        return False
-    path = read.func.value
-    arg = path.args[0] if len(path.args) == 1 else None
-    if (not name(loaded.func.value, "json") or
-            not isinstance(path.func, ast.Name) or path.func.id != "Path" or
-            not isinstance(arg, ast.Subscript) or
-            not isinstance(arg.value, ast.Attribute) or
-            not name(arg.value.value, "sys") or arg.value.attr != "argv" or
-            not isinstance(arg.slice, ast.Constant) or arg.slice.value != 2 or
-            not call_attr(assignments["suite"], "TestSuite") or
-            not name(assignments["suite"].func.value, "unittest") or
-            not call_attr(assignments["count"], "countTestCases") or
-            not name(assignments["count"].func.value, "suite") or
-            not call_attr(assignments["result"], "run") or
-            not call_attr(assignments["result"].func.value, "TextTestRunner") or
-            not name(assignments["result"].func.value.func.value, "unittest") or
-            len(assignments["result"].args) != 1 or
-            not name(assignments["result"].args[0], "suite")):
-        return False
-    outer_index = tree.body.index(outer)
-    if not (positions["data"] < outer_index and positions["suite"] < outer_index
-            < positions["count"] < positions["result"]):
-        return False
-    # La última sentencia debe cerrar con estado no cero ante fallo o suite vacía.
-    ultimo = tree.body[-1] if tree.body else None
-    if (not isinstance(ultimo, ast.Raise) or
-            not isinstance(ultimo.exc, ast.Call) or
-            not name(ultimo.exc.func, "SystemExit") or len(ultimo.exc.args) != 1):
-        return False
-    salida = ultimo.exc.args[0]
-    if (not isinstance(salida, ast.IfExp) or
-            not isinstance(salida.body, ast.Constant) or salida.body.value != 0 or
-            not isinstance(salida.orelse, ast.Constant) or salida.orelse.value != 1 or
-            not isinstance(salida.test, ast.BoolOp) or
-            not isinstance(salida.test.op, ast.And) or len(salida.test.values) != 2):
-        return False
-    def exito(node):
-        return (call_attr(node, "wasSuccessful") and
-                name(node.func.value, "result") and not node.args and not node.keywords)
-    def hay_casos(node):
-        return (isinstance(node, ast.Compare) and name(node.left, "count") and
-                len(node.ops) == 1 and isinstance(node.ops[0], ast.Gt) and
-                len(node.comparators) == 1 and
-                isinstance(node.comparators[0], ast.Constant) and
-                node.comparators[0].value == 0)
-    a, b = salida.test.values
-    return (exito(a) and hay_casos(b)) or (hay_casos(a) and exito(b))
+    # Gramática cerrada del runner de manifiesto soportado. Comparar el árbol
+    # completo impide reasignar, sombrear o mutar el resultado entre run y exit.
+    # Las comillas, espacios y comentarios no afectan al árbol ejecutable.
+    forma = ast.parse("""\
+import json
+import sys
+import unittest
+from pathlib import Path
+data = json.loads(Path(sys.argv[2]).read_text(encoding='utf-8'))
+suite = unittest.TestSuite()
+for case in data['cases']:
+    for name in case['tests']:
+        suite.addTests(unittest.TestLoader().loadTestsFromName(name))
+count = suite.countTestCases()
+result = unittest.TextTestRunner().run(suite)
+raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)
+""")
+    return ast.dump(tree, include_attributes=False) == ast.dump(
+        forma, include_attributes=False
+    )
 
 
 def _seleccion_manifest_resuelta(repo, tokens):
@@ -858,7 +764,10 @@ def revisar_e2e(repo):
             else e2e_provisiona_antes_de_pruebas(e2e_texto, repo)):
         fallos.append(
             "scripts/ci/e2e: exige `scripts/ci/provision-e2e` como primera orden con fail-fast y "
-            "un runner que seleccione archivos E2E existentes (p. ej. `pytest tests/e2e`)"
+            "un runner que seleccione archivos E2E existentes (p. ej. `pytest tests/e2e`); "
+            "para manifiesto Python, `visor/tests/e2e/correr.py` debe usar la forma cerrada "
+            "imports json/sys/unittest/Path, data/suite, bucles cases/tests con addTests, "
+            "count antes de run y SystemExit segun result.wasSuccessful() y count > 0"
         )
     fallos += exigir_fragmentos(
         leer(repo, "AGENTS.md"),

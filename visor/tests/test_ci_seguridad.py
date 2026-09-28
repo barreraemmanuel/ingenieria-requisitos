@@ -396,6 +396,29 @@ class ContratoCITest(unittest.TestCase):
         runner_valido = runner.read_text(encoding="utf-8")
         valido = self.ejecutar_lint_ci(repo, "--require-e2e")
         self.assertEqual(valido.returncode, 0, valido.stdout)
+        for nombre, mutacion in (
+            ("resultado sustituido", "result = unittest.TestResult()\n"),
+            ("suite sustituida", "suite = unittest.TestSuite()\n"),
+            ("conteo sustituido", "count = 1\n"),
+            ("manifiesto sustituido", "data = {'cases': []}\n"),
+            ("unittest sustituido", "unittest = object()\n"),
+            ("json sustituido", "json = object()\n"),
+            ("sys sustituido", "sys = object()\n"),
+            ("Path sustituido", "Path = object()\n"),
+            ("metodo de exito sustituido", "result.wasSuccessful = lambda: True\n"),
+            ("metodo de suite sustituido", "suite.addTests = lambda tests: None\n"),
+            ("fallos borrados", "result.failures.clear()\n"),
+            ("errores borrados", "result.errors.clear()\n"),
+            ("sentencia extra", "print('ignorado')\n"),
+        ):
+            runner.write_text(runner_valido.replace(
+                "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)",
+                mutacion + "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)",
+            ), encoding="utf-8")
+            with self.subTest(nombre=nombre):
+                rechazado = self.ejecutar_lint_ci(repo, "--require-e2e")
+                self.assertEqual(rechazado.returncode, 1, rechazado.stdout)
+                self.assertIn("scripts/ci/e2e", rechazado.stdout)
         runner.write_text(runner_valido.replace(
             "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)",
             "result.wasSuccessful()\n"
