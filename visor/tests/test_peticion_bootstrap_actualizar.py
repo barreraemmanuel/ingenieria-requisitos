@@ -13,6 +13,7 @@ import time
 import unittest
 import uuid
 from pathlib import Path
+from unittest.mock import patch
 
 import ayuda_windows  # noqa: E402 - módulo hermano de la suite
 
@@ -75,7 +76,13 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             stderr=subprocess.PIPE,
             env=env,
         )
-        self.addCleanup(lambda: proceso.poll() is None and proceso.kill())
+        def terminar_hijo():
+            if proceso.poll() is None:
+                proceso.kill()
+            # Esperar y cerrar las pipes antes de retirar sus temporales.
+            proceso.communicate(timeout=5)
+
+        self.addCleanup(terminar_hijo)
         self._proceso = proceso
         return proceso, ready, gate
 
@@ -93,7 +100,16 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             if proceso is not None and proceso.poll() is not None:
                 salida, err = proceso.communicate()
                 self.fail(f"Modo D murió antes del failpoint: {salida}{err}")
-            time.sleep(0.01)
+            if proceso is None:
+                time.sleep(0.01)
+            else:
+                # El hijo puede llenar stdout o stderr antes de tocar ready.
+                # communicate drena ambas; reintentarlo tras TimeoutExpired
+                # conserva lo leído para el communicate final del escenario.
+                try:
+                    proceso.communicate(timeout=min(.05, max(.001, limite - time.monotonic())))
+                except subprocess.TimeoutExpired:
+                    pass
         self.fail("Modo D no alcanzó el failpoint")
 
     def abrir_barrera(self, gate):
@@ -1383,6 +1399,64 @@ class PeticionBootstrapActualizarTest(unittest.TestCase):
             encoding="utf-8", errors="replace",
             capture_output=True, check=True).stdout, "")
 
+
+
+class SalidaMientrasEsperaBarreraTest(unittest.TestCase):
+    def setUp(self):
+        self.fx = PeticionBootstrapActualizarTest()
+        self.fx.setUp()
+        self.addCleanup(self.fx.doCleanups)
+
+    def hijo(self, codigo):
+        script = self.fx.base / "hijo.py"
+        script.write_text(
+            "import os, sys, time\nfrom pathlib import Path\n"
+            "ready = Path(os.environ['IR_FAILPOINT_PRUEBA_READY_FILE'])\n"
+            "gate = Path(os.environ['IR_FAILPOINT_PRUEBA_WAIT_FILE'])\n" + codigo,
+            encoding="utf-8",
+        )
+        with patch(__name__ + ".ACTUALIZAR", script):
+            return self.fx.proceso_actualizar_con_failpoint("prueba", self.fx.base)
+
+    def test_salida_abundante_en_ambas_pipes_no_bloquea_y_se_conserva(self):
+        proceso, ready, gate = self.hijo(
+            "sys.stdout.write('O' * 262144); sys.stdout.flush()\n"
+            "sys.stderr.write('E' * 262144); sys.stderr.flush()\n"
+            "ready.touch()\n"
+            "while not gate.exists(): time.sleep(.01)\n"
+            "sys.stdout.write('FIN'); sys.stderr.write('ERR')\n"
+        )
+        self.fx.esperar_barrera(ready, timeout=3)
+        self.assertIsNone(proceso.poll(), "el hijo debe seguir esperando su barrera")
+        self.fx.abrir_barrera(gate)
+        salida, error = proceso.communicate(timeout=5)
+        self.assertEqual(proceso.returncode, 0)
+        self.assertEqual(salida, "O" * 262144 + "FIN")
+        self.assertEqual(error, "E" * 262144 + "ERR")
+
+    def test_error_antes_de_ready_conserva_diagnostico_y_codigo(self):
+        proceso, ready, _ = self.hijo(
+            "print('salida del hijo'); print('causa concreta', file=sys.stderr)\n"
+            "sys.exit(7)\n"
+        )
+        with self.assertRaisesRegex(AssertionError, "Modo D murió antes del failpoint") as error:
+            self.fx.esperar_barrera(ready, timeout=3)
+        self.assertIn("salida del hijo", str(error.exception))
+        self.assertIn("causa concreta", str(error.exception))
+        self.assertEqual(proceso.returncode, 7)
+
+    def test_timeout_limpia_y_espera_al_hijo_propio(self):
+        proceso, ready, _ = self.hijo("time.sleep(60)\n")
+        inicio = time.monotonic()
+        with self.assertRaisesRegex(AssertionError, "Modo D no alcanzó el failpoint"):
+            self.fx.esperar_barrera(ready, timeout=.15)
+        self.assertLess(time.monotonic() - inicio, 3)
+        self.assertIsNone(proceso.poll())
+        self.fx.doCleanups()
+        self.assertIsNotNone(proceso.poll())
+        self.assertTrue(proceso.stdout.closed)
+        self.assertTrue(proceso.stderr.closed)
+        self.assertFalse(self.fx.base.exists())
 
 
 if __name__ == "__main__":
