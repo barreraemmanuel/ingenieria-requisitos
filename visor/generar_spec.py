@@ -410,7 +410,7 @@ def main():
         p("- (Ninguna por ahora.)")
     p()
 
-    with open(salida, "w", encoding="utf-8") as f:
+    with open(salida, "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(L) + "\n")
     print("Spec generado: %s (%d líneas)" % (salida, len(L)))
 

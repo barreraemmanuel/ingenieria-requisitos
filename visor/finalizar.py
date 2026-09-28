@@ -145,7 +145,8 @@ def copiar_documentacion(workspace, salida, mapa):
         shutil.copyfile(constitucion, workspace / "docs" / "01-constitucion" / "manifiesto.md")
         for anterior in destino_flows.glob("*.md"):
             anterior.unlink()
-        (destino_flows / "INDICE.md").write_text(texto_indice, encoding="utf-8")
+        with (destino_flows / "INDICE.md").open("w", encoding="utf-8", newline="\n") as f:
+            f.write(texto_indice)
         for documento in documentos:
             shutil.copyfile(documento, destino_flows / documento.name)
 

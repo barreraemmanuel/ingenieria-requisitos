@@ -301,7 +301,7 @@ def main():
     os.makedirs(c1, exist_ok=True)
     os.makedirs(c2, exist_ok=True)
 
-    with open(os.path.join(c1, "constitution.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(c1, "constitution.md"), "w", encoding="utf-8", newline="\n") as f:
         f.write(md_constitution(d))
 
     idx = []
@@ -352,7 +352,7 @@ def main():
     idx.append("---")
     idx.append("")
     idx.append(resumen)
-    with open(os.path.join(out, "README.md"), "w", encoding="utf-8") as f:
+    with open(os.path.join(out, "README.md"), "w", encoding="utf-8", newline="\n") as f:
         f.write("\n".join(idx) + "\n")
     print("Especificaciones compiladas en %s (%s)" % (out, resumen))
 

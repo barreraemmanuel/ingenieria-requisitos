@@ -171,6 +171,29 @@ class EnlacesIndiceFinalizarTest(unittest.TestCase):
         self.finalizar.copiar_documentacion(self.workspace, self.compilar(mapa), mapa)
         self.assertEqual(self.huellas(), REFERENCIA_MONO_ACTIVIDAD)
 
+    def test_referencia_binaria_detecta_un_cambio_de_contenido(self):
+        mapa = self.planos_una_actividad()
+        self.finalizar.copiar_documentacion(self.workspace, self.compilar(mapa), mapa)
+        self.assertEqual(self.huellas(), REFERENCIA_MONO_ACTIVIDAD)
+
+        documento = self.workspace / "docs/02-flujos/demo-mono-actividad.md"
+        original = documento.read_bytes()
+        self.assertIn(b"Demo mono-actividad", original)
+        documento.write_bytes(original.replace(b"Demo mono-actividad", b"Demo editada", 1))
+        self.assertNotEqual(self.huellas(), REFERENCIA_MONO_ACTIVIDAD)
+
+    def test_compilacion_jerarquica_es_utf8_sin_bom_y_lf(self):
+        salida = self.compilar(self.planos_dos_actividades())
+        documentos = sorted(salida.rglob("*.md"))
+        self.assertEqual(len(documentos), 4)
+        for documento in documentos:
+            with self.subTest(documento=documento.relative_to(salida)):
+                contenido = documento.read_bytes()
+                self.assertFalse(contenido.startswith(b"\xef\xbb\xbf"))
+                self.assertNotIn(b"\r", contenido)
+                self.assertIn(b"\n", contenido)
+                contenido.decode("utf-8")
+
     def test_los_documentos_los_escribe_compilar_con_formato_plano(self):
         """R1: el aplanado ya no lo hace finalizar.py con código propio."""
         mapa = self.planos_dos_actividades()
