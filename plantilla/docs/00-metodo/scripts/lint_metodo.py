@@ -998,7 +998,7 @@ else:
 trabajo = RAIZ / "docs/05-trabajo"
 unidades, numeros = {}, {}
 for carpeta in sorted(trabajo.iterdir()):
-    if not carpeta.is_dir() or carpeta.name in {"archivo", "peticiones"}:
+    if not carpeta.is_dir() or carpeta.name in {"archivo", "peticiones", "despliegues"}:
         continue
     if not re.match(r"^\d{3}-[a-z0-9-]+$", carpeta.name):
         fail(f"unidad con nombre fuera de convención NNN-slug: {carpeta.name}", id_='unidad-nombre-fuera-convencion-nnn-slug')

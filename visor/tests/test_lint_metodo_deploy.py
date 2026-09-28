@@ -30,12 +30,12 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         ruta.parent.mkdir(parents=True, exist_ok=True)
         ruta.write_text("---\nproceso: deploy\nestado: pendiente\n---\n\n# despliegue\n", encoding="utf-8")
 
-    def peticion_con_deploy(self, ref):
+    def peticion_con_deploy(self, ref, estado="pendiente"):
         datos = {"formato": 1, "id": "P-20260101-abcd1234", "estado": "encaminada",
                  "creada": "2026-01-01T00:00:00+00:00", "actualizada": "2026-01-01T00:00:00+00:00",
                  "original": {"autor": "test", "resumen": "desplegar", "texto": "desplegar la 013"},
                  "aclaraciones": [], "evaluaciones": [], "cierres": [],
-                 "procesos": [{"tipo": "deploy", "ref": ref, "estado": "pendiente",
+                 "procesos": [{"tipo": "deploy", "ref": ref, "estado": estado,
                                "revision": 1, "relacion": "satisface", "fecha": "2026-01-01T00:00:00+00:00",
                                "contrato_terminal": "despliegue-verificado-v1", "metadata": {}}]}
         (self.raiz / "docs/05-trabajo/peticiones/P-20260101-abcd1234/peticion.json").write_text(
@@ -59,6 +59,28 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         self.peticion_con_deploy(ref)
         salida = self.lint()
         self.assertNotIn(DENUNCIA, salida.stdout + salida.stderr)
+        self.assertNotIn("unidad con nombre fuera de convención NNN-slug: despliegues",
+                         salida.stdout + salida.stderr)
+
+    def test_ficha_invalida_no_acredita_despliegue_terminal(self):
+        ref = "docs/05-trabajo/despliegues/ola-agosto.md"
+        self.ficha_despliegue(ref)
+        self.peticion_con_deploy(ref, estado="terminal")
+        salida = self.lint()
+        self.assertIn("terminal sin ficha desplegada y completa", salida.stdout)
+        self.assertNotEqual(salida.returncode, 0)
+
+    def test_carpeta_ajena_sigue_denunciada(self):
+        (self.raiz / "docs/05-trabajo/no-es-unidad").mkdir()
+        salida = self.lint()
+        self.assertIn("unidad con nombre fuera de convención NNN-slug: no-es-unidad",
+                      salida.stdout)
+
+    def test_ficha_de_lote_ausente_sigue_denunciada(self):
+        ref = "docs/05-trabajo/despliegues/ausente.md"
+        self.peticion_con_deploy(ref)
+        salida = self.lint()
+        self.assertIn(DENUNCIA, salida.stdout)
 
     def test_peticion_py_acepta_la_misma_ruta_de_archivo_que_el_linter(self):
         # Las dos mordazas: sin esto, la ruta que el linter acepta es la que peticion.py rechaza.
@@ -73,7 +95,7 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         ref = "docs/05-trabajo/archivo/013-flask-a-django/despliegue.md"
         self.ficha_despliegue(ref)
         resuelta = peticion.ruta_proceso_canonico("deploy", ref)
-        self.assertTrue(str(resuelta).endswith("archivo/013-flask-a-django/despliegue.md"))
+        self.assertEqual(resuelta, (self.raiz / ref).resolve())
 
     def test_una_ruta_fuera_de_las_tres_carpetas_sigue_siendo_inexistente(self):
         ref = "docs/conocimiento/despliegue.md"
