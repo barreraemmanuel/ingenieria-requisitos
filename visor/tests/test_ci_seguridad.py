@@ -285,6 +285,48 @@ class ContratoCITest(unittest.TestCase):
         self.assertEqual(resultado.returncode, 1, resultado.stdout)
         self.assertIn("scripts/ci/e2e", resultado.stdout)
 
+    def test_e2e_local_ejecuta_y_propaga_error_en_selectores_intermedios(self):
+        repo = self.crear_repo(True)
+        self.crear_contrato_local_e2e(repo)
+        e2e = repo / "scripts/ci/e2e"
+        original = e2e.read_text(encoding="utf-8")
+        (repo / "package.json").write_text(json.dumps({"scripts": {
+            "e2e": "pytest tests/e2e || true"
+        }}), encoding="utf-8")
+        (repo / "Makefile").write_text(
+            "e2e:\n\tpytest tests/e2e\n\ttrue\n", encoding="utf-8")
+        for comando in ("pytest tests/e2e --collect-only", "pytest tests/e2e::ausente",
+                        "npm run e2e", "make e2e"):
+            e2e.write_text(original.replace("pytest tests/e2e", comando), encoding="utf-8")
+            with self.subTest(comando=comando):
+                rechazado = self.ejecutar_lint_ci(repo, "--require-e2e")
+                self.assertEqual(rechazado.returncode, 1, rechazado.stdout)
+                self.assertIn("scripts/ci/e2e", rechazado.stdout)
+        e2e.write_text(original, encoding="utf-8")
+        self.assertEqual(self.ejecutar_lint_ci(repo, "--require-e2e").returncode, 0)
+        (repo / "package.json").write_text(json.dumps({"scripts": {
+            "e2e": "pytest tests/e2e"
+        }}), encoding="utf-8")
+        (repo / "Makefile").write_text("e2e:\n\tpytest tests/e2e\n", encoding="utf-8")
+        for comando in ("npm run e2e", "make e2e"):
+            e2e.write_text(original.replace("pytest tests/e2e", comando), encoding="utf-8")
+            with self.subTest(comando=comando):
+                valido = self.ejecutar_lint_ci(repo, "--require-e2e")
+                self.assertEqual(valido.returncode, 0, valido.stdout)
+        e2e.write_text(original, encoding="utf-8")
+        test_file = repo / "tests/e2e/test_viaje.py"
+        externo = repo.parent / "test_e2e_externo.py"
+        externo.write_bytes(test_file.read_bytes())
+        enlace_test = repo / "tests/e2e/test_externo.py"
+        try:
+            enlace_test.symlink_to(externo)
+        except OSError:
+            pass  # Windows puede denegar symlinks sin privilegio.
+        else:
+            fuera = self.ejecutar_lint_ci(repo, "--require-e2e")
+            self.assertEqual(fuera.returncode, 1, fuera.stdout)
+            self.assertIn("scripts/ci/e2e", fuera.stdout)
+
     def test_e2e_local_rechaza_etiqueta_sola_y_codigo_inalcanzable(self):
         repo = self.crear_repo(True)
         self.crear_contrato_local_e2e(repo)
@@ -396,6 +438,32 @@ class ContratoCITest(unittest.TestCase):
         runner_valido = runner.read_text(encoding="utf-8")
         valido = self.ejecutar_lint_ci(repo, "--require-e2e")
         self.assertEqual(valido.returncode, 0, valido.stdout)
+        manifest = e2e_tests / "seleccion.json"
+        externo = repo.parent / "manifiesto-externo.json"
+        externo.write_bytes(manifest.read_bytes())
+        e2e_script = ci / "e2e"
+        e2e_valido = e2e_script.read_text(encoding="utf-8")
+        e2e_script.write_text(e2e_valido.replace(
+            "visor/tests/e2e/seleccion.json",
+            "visor/tests/e2e/../../../../manifiesto-externo.json",
+        ), encoding="utf-8")
+        fuera = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(fuera.returncode, 1, fuera.stdout)
+        self.assertIn("scripts/ci/e2e", fuera.stdout)
+        e2e_script.write_text(e2e_valido, encoding="utf-8")
+        enlace = e2e_tests / "enlace.json"
+        try:
+            enlace.symlink_to(externo)
+        except OSError:
+            pass  # Windows puede denegar symlinks sin privilegio.
+        else:
+            e2e_script.write_text(e2e_valido.replace(
+                "visor/tests/e2e/seleccion.json", "visor/tests/e2e/enlace.json",
+            ), encoding="utf-8")
+            enlazado = self.ejecutar_lint_ci(repo, "--require-e2e")
+            self.assertEqual(enlazado.returncode, 1, enlazado.stdout)
+            self.assertIn("scripts/ci/e2e", enlazado.stdout)
+            e2e_script.write_text(e2e_valido, encoding="utf-8")
         for nombre, mutacion in (
             ("resultado sustituido", "result = unittest.TestResult()\n"),
             ("suite sustituida", "suite = unittest.TestSuite()\n"),

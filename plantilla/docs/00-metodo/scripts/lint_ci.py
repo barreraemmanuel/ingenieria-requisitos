@@ -105,6 +105,19 @@ def leer(repo, relativa):
         return ""
 
 
+def _ruta_dentro(repo, relativa, carpeta=None):
+    """Resuelve también enlaces y junctions antes de leer un archivo E2E."""
+    try:
+        raiz = repo.resolve()
+        limite = (repo / carpeta).resolve() if carpeta else raiz
+        limite.relative_to(raiz)
+        ruta = (repo / relativa).resolve()
+        ruta.relative_to(limite)
+        return ruta
+    except (OSError, ValueError, RuntimeError):
+        return None
+
+
 def sin_comentarios_de_linea(texto):
     """Quita comentarios de línea completos sin asumir el lenguaje del script."""
     return "\n".join(
@@ -235,22 +248,34 @@ def linea_ejecuta_pruebas(linea):
 
 
 def _seleccion_e2e_resuelta(repo, tokens, nivel=0):
-    """Sigue rutas o targets locales hasta archivos de pruebas existentes."""
+    """Sigue solo una cadena de órdenes cuya salida conserva el fallo del test."""
     if nivel > 2 or not tokens:
         return False
-    comando = Path(tokens[0]).stem.lower()
+    comando = tokens[0]
     args = tokens[1:]
-    if comando in {"python", "python3", "py"} and args[:2] == ["-m", "pytest"]:
+    if (comando in {sys.executable, "python", "python3", "py"}
+            and args[:2] == ["-m", "pytest"]):
         comando, args = "pytest", args[2:]
-    if comando in {"npm", "pnpm", "yarn"} and len(args) >= 2 and args[0] == "run":
+    if comando in {"npm", "pnpm", "yarn"} and len(args) == 2 and args[0] == "run":
         try:
-            scripts = json.loads(leer(repo, "package.json"))["scripts"]
+            package = _ruta_dentro(repo, "package.json")
+            if package is None or not package.is_file():
+                return False
+            scripts = json.loads(package.read_text(encoding="utf-8"))["scripts"]
             target = scripts[args[1]]
+            if not isinstance(target, str):
+                return False
             return _seleccion_e2e_resuelta(repo, shlex.split(target), nivel + 1)
-        except (ValueError, KeyError, TypeError):
+        except (OSError, ValueError, KeyError, TypeError):
             return False
     if comando == "make" and len(args) == 1:
-        lines = leer(repo, "Makefile").splitlines()
+        makefile = _ruta_dentro(repo, "Makefile")
+        if makefile is None or not makefile.is_file():
+            return False
+        try:
+            lines = makefile.read_text(encoding="utf-8").splitlines()
+        except (OSError, UnicodeError):
+            return False
         header = f"{args[0]}:"
         for i, line in enumerate(lines):
             if line.startswith(header):
@@ -259,31 +284,29 @@ def _seleccion_e2e_resuelta(repo, tokens, nivel=0):
                     if not recipe.startswith("\t"):
                         break
                     commands.append(recipe.strip())
-                return any(_seleccion_e2e_resuelta(repo, tokens_shell(c) or [], nivel + 1)
-                           for c in commands)
+                return len(commands) == 1 and _seleccion_e2e_resuelta(
+                    repo, tokens_shell(commands[0]) or [], nivel + 1
+                )
         return False
-    if comando not in RUNNERS_DE_TEST:
+    if comando not in RUNNERS_DE_TEST or len(args) != 1:
         return False
-    if comando == "pytest" and any(x in args for x in ("-m", "-k")):
-        # Una etiqueta sola no demuestra dónde están los tests E2E.
+    arg = args[0]
+    if (not isinstance(arg, str) or arg.startswith("-") or "::" in arg or
+            not re.search(r"(^|[/_.-])e2e([/_.-]|$)", arg, re.I)):
         return False
-    for arg in args:
-        if (not isinstance(arg, str) or arg.startswith("-") or
-                not re.search(r"(^|[/_.-])e2e([/_.-]|$)", arg, re.I)):
-            continue
-        selected = arg.split("::", 1)[0]
-        path = (repo / selected).resolve()
-        try:
-            path.relative_to(repo.resolve())
-        except ValueError:
-            continue
-        if path.is_file() and re.search(r"(^test_|_test\.|\.spec\.|\.test\.)", path.name):
-            return True
-        if path.is_dir() and any(
+    path = _ruta_dentro(repo, arg)
+    if path is None:
+        return False
+    if path.is_file() and re.search(r"(^test_|_test\.|\.spec\.|\.test\.)", path.name):
+        return True
+    if path.is_dir():
+        entradas = list(path.rglob("*"))
+        if any(_ruta_dentro(repo, p) is None for p in entradas):
+            return False
+        return any(
             p.is_file() and re.search(r"(^test_|_test\.|\.spec\.|\.test\.)", p.name)
-            for p in path.rglob("*")
-        ):
-            return True
+            for p in entradas
+        )
     return False
 
 
@@ -291,9 +314,11 @@ def _caso_python_existe(repo, nombre):
     partes = nombre.split(".")
     if len(partes) < 3 or any(not p.isidentifier() for p in partes):
         return False
-    modulo = repo.joinpath(*partes[:-2]).with_suffix(".py")
+    relativa = Path(*partes[:-2]).with_suffix(".py")
+    modulo = _ruta_dentro(repo, relativa, "visor/tests/e2e")
+    if modulo is None:
+        return False
     try:
-        modulo.resolve().relative_to(repo.resolve())
         tree = ast.parse(modulo.read_text(encoding="utf-8"))
     except (OSError, ValueError, SyntaxError):
         return False
@@ -337,8 +362,12 @@ def _seleccion_manifest_resuelta(repo, tokens):
     manifest = tokens[3]
     if not isinstance(manifest, str) or not manifest.startswith("visor/tests/e2e/"):
         return False
+    manifest_path = _ruta_dentro(repo, manifest, "visor/tests/e2e")
+    runner_path = _ruta_dentro(repo, "visor/tests/e2e/correr.py", "visor/tests/e2e")
+    if manifest_path is None or runner_path is None:
+        return False
     try:
-        data = json.loads((repo / manifest).read_text(encoding="utf-8"))
+        data = json.loads(manifest_path.read_text(encoding="utf-8"))
         cases = data["cases"]
         if not isinstance(cases, list) or not cases:
             return False
@@ -351,7 +380,7 @@ def _seleccion_manifest_resuelta(repo, tokens):
                 isinstance(n, str) and _caso_python_existe(repo, n) for n in names
             ):
                 return False
-        runner = (repo / "visor/tests/e2e/correr.py").read_text(encoding="utf-8")
+        runner = runner_path.read_text(encoding="utf-8")
         tree = ast.parse(runner)
     except (OSError, KeyError, TypeError, ValueError, SyntaxError):
         return False
@@ -750,6 +779,12 @@ def revisar_agents(repo):
 def revisar_e2e(repo):
     fallos = []
     rutas = ("scripts/ci/e2e", "scripts/ci/provision-e2e")
+    for relativa in ("scripts/ci/full-suite", *rutas):
+        ruta = _ruta_dentro(repo, relativa)
+        if ruta is None or not ruta.is_file():
+            fallos.append(f"{relativa}: debe ser un archivo dentro del repo; repara la ruta o el enlace")
+    if fallos:
+        return fallos
     fallos += revisar_scripts(repo, rutas)
     full_texto = leer(repo, "scripts/ci/full-suite")
     e2e_texto = leer(repo, "scripts/ci/e2e")
@@ -765,6 +800,8 @@ def revisar_e2e(repo):
         fallos.append(
             "scripts/ci/e2e: exige `scripts/ci/provision-e2e` como primera orden con fail-fast y "
             "un runner que seleccione archivos E2E existentes (p. ej. `pytest tests/e2e`); "
+            "usa una ruta de tests sin opciones de solo recopilación y, para npm/make, "
+            "un único comando cuyo error se propague; "
             "para manifiesto Python, `visor/tests/e2e/correr.py` debe usar la forma cerrada "
             "imports json/sys/unittest/Path, data/suite, bucles cases/tests con addTests, "
             "count antes de run y SystemExit segun result.wasSuccessful() y count > 0"
