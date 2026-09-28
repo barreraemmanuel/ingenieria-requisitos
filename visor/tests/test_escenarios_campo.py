@@ -585,35 +585,54 @@ class EscenariosProcesosAjenos(Escenario):
         self.addCleanup(shutil.rmtree, base, True)
         repo = base / "repo"
         repo.mkdir()
-        subprocess.run(["git", "init", "-b", "main"], cwd=repo, check=True,
-                       capture_output=True)
-        subprocess.run(["git", "config", "user.name", "Test"], cwd=repo, check=True)
-        subprocess.run(["git", "config", "user.email", "t@e.com"], cwd=repo, check=True)
+
+        def git(*args):
+            return subprocess.run(
+                ["git", *args], cwd=repo, check=True, capture_output=True,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+
+        git("init", "-b", "main")
+        git("config", "user.name", "Test")
+        git("config", "user.email", "t@e.com")
         (repo / "x.txt").write_text("x\n", encoding="utf-8")
-        subprocess.run(["git", "add", "-A"], cwd=repo, check=True)
-        subprocess.run(["git", "commit", "-m", "base"], cwd=repo, check=True,
-                       capture_output=True)
+        git("add", "x.txt")
+        git("commit", "-m", "base")
         destino = base / "worktree-unidad"
-        subprocess.run(["git", "worktree", "add", str(destino), "-b", "unidad-lsof"],
-                       cwd=repo, check=True, capture_output=True)
+        git("worktree", "add", str(destino), "-b", "unidad-lsof")
         return repo, destino
 
     def _lsof_dormilon(self, segundos=5):
-        """Pone en el PATH un `lsof` falso que tarda más que el tope del guard."""
-        carpeta = Path(tempfile.mkdtemp(prefix="lsof-lento-"))
-        self.addCleanup(shutil.rmtree, carpeta, True)
-        falso = carpeta / "lsof"
-        falso.write_text(f"#!/bin/sh\nsleep {segundos}\n", encoding="utf-8")
-        falso.chmod(0o755)
-        parche = mock.patch.dict(
-            os.environ, {"PATH": f"{carpeta}{os.pathsep}{os.environ.get('PATH', '')}"})
-        parche.start()
-        self.addCleanup(parche.stop)
-        return falso
+        """Sustituye el ejecutable lsof; run y su timeout siguen siendo reales."""
+        which_real = shutil.which
+        run_real = subprocess.run
+        popen_real = subprocess.Popen
+        hijos = []
+
+        def crear_hijo(*args, **kwargs):
+            kwargs["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            hijo = popen_real(*args, **kwargs)
+            hijos.append(hijo)
+            return hijo
+
+        def ejecutar(comando, *args, **kwargs):
+            if comando[0] != "lsof":
+                return run_real(comando, *args, **kwargs)
+            dormilon = [sys.executable, "-c", f"import time; time.sleep({segundos!r})"]
+            with mock.patch.object(subprocess, "Popen", side_effect=crear_hijo):
+                return run_real([*dormilon, *comando[1:]], *args, **kwargs)
+
+        for parche in (
+            mock.patch.object(shutil, "which", side_effect=lambda nombre, *a, **kw:
+                              sys.executable if nombre == "lsof" else which_real(nombre, *a, **kw)),
+            mock.patch.object(subprocess, "run", side_effect=ejecutar),
+        ):
+            parche.start()
+            self.addCleanup(parche.stop)
+        return hijos
 
     def test_escenario_26_un_lsof_que_se_agota_no_borra_el_worktree(self):
         unidad = cargar_modulo("unidad_lsof_lento", SCRIPTS / "unidad.py")
-        self._lsof_dormilon()
+        hijos = self._lsof_dormilon()
         repo, destino = self._worktree_de_juguete()
 
         with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
@@ -623,18 +642,22 @@ class EscenariosProcesosAjenos(Escenario):
         self.assertTrue(destino.exists(), "el worktree sigue ahí: no se sabe si hay vida")
         self.assertIn("SALIDA:", motivo)
         self.assertIn("--sin-guardian", motivo)
+        self.assertEqual(len(hijos), 1)
+        self.assertIsNotNone(hijos[0].poll(), "run debe terminar y recoger el hijo agotado")
 
     def test_escenario_27_lsof_agotado_es_no_se_no_una_lista_vacia(self):
         unidad = cargar_modulo("unidad_lsof_lento27", SCRIPTS / "unidad.py")
-        self._lsof_dormilon()
+        hijos = self._lsof_dormilon()
         _, destino = self._worktree_de_juguete()
 
         with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
             self.assertIsNone(unidad.procesos_dentro(destino))
+        self.assertEqual(len(hijos), 1)
+        self.assertIsNotNone(hijos[0].poll(), "no debe sobrevivir el proceso del timeout")
 
     def test_escenario_28_sin_guardian_es_la_salida_y_borra_de_verdad(self):
         unidad = cargar_modulo("unidad_lsof_lento28", SCRIPTS / "unidad.py")
-        self._lsof_dormilon()
+        hijos = self._lsof_dormilon()
         repo, destino = self._worktree_de_juguete()
 
         with mock.patch.object(unidad, "TIMEOUT_LSOF", 1):
@@ -642,6 +665,7 @@ class EscenariosProcesosAjenos(Escenario):
 
         self.assertTrue(borrado, motivo)
         self.assertFalse(destino.exists(), "con la salida asumida, el borrado ocurre")
+        self.assertEqual(hijos, [], "el bypass explícito no ejecuta lsof")
 
     def test_escenario_29_sin_lsof_el_borrado_sigue_como_siempre(self):
         """El guard es de máximo esfuerzo: sin `lsof` no se convierte en un bloqueo."""

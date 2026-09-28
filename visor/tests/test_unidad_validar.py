@@ -181,7 +181,8 @@ class WorkspaceBase(unittest.TestCase):
         return subprocess.run(
             [sys.executable, str(script), *args],
             cwd=self.ws, text=True, encoding="utf-8", errors="replace",
-            capture_output=True, env=self.entorno(con_pantalla, puerto))
+            capture_output=True, input="", env=self.entorno(con_pantalla, puerto),
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
 
     def urls_abiertas(self):
         if not self.aperturas.exists():

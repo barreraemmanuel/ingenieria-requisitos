@@ -62,7 +62,7 @@ class DespachoEntregaSubagenteDelPadre(unittest.TestCase):
         salida = self.despachar_normal()
         plan = repo_config.plan_de_modelo("normal", "constructor", harness=repo_config.plataforma_sesion())
         self.assertIn("subagente del padre", salida.lower())
-        self.assertIn("worktrees/001-lanzamiento", salida)
+        self.assertIn(str(Path("worktrees") / "001-lanzamiento"), salida)
         self.assertIn(f"modelo {plan.modelo}", salida)
         self.assertIn(f"esfuerzo {plan.esfuerzo}", salida)
         # el revisor NO cambia: sigue siendo fresco y por el lanzador, para que deje recibo
