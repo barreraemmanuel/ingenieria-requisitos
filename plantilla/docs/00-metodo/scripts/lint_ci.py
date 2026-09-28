@@ -340,12 +340,22 @@ def _runner_manifest_valido(tree):
             not isinstance(inner.iter.slice, ast.Constant) or
             inner.iter.slice.value != "tests"):
         return False
-    if not any(
-        isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
-        and n.func.attr == "loadTestsFromName" and len(n.args) == 1
-        and isinstance(n.args[0], ast.Name) and n.args[0].id == inner.target.id
-        for n in ast.walk(inner)
-    ):
+    def call_attr(node, attr):
+        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+                and node.func.attr == attr)
+    def name(node, expected):
+        return isinstance(node, ast.Name) and node.id == expected
+    if (len(outer.body) != 1 or len(inner.body) != 1 or
+            not isinstance(inner.body[0], ast.Expr) or
+            not call_attr(inner.body[0].value, "addTests") or
+            not name(inner.body[0].value.func.value, "suite") or
+            len(inner.body[0].value.args) != 1):
+        return False
+    load = inner.body[0].value.args[0]
+    if (not call_attr(load, "loadTestsFromName") or len(load.args) != 1 or
+            not name(load.args[0], inner.target.id) or
+            not call_attr(load.func.value, "TestLoader") or
+            not name(load.func.value.func.value, "unittest")):
         return False
     top_names = [n.targets[0].id for n in tree.body
                  if isinstance(n, ast.Assign) and len(n.targets) == 1
@@ -358,18 +368,29 @@ def _runner_manifest_valido(tree):
                             and stmt.targets[0].id == name)
                  for name in ("data", "suite", "count", "result")}
     assignments = {name: tree.body[index].value for name, index in positions.items()}
-    def call_attr(node, attr):
-        return (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
-                and node.func.attr == attr)
-    if (not call_attr(assignments["data"], "loads") or
-            not any(call_attr(n, "read_text") for n in ast.walk(assignments["data"])) or
+    loaded = assignments["data"]
+    if not call_attr(loaded, "loads") or len(loaded.args) != 1:
+        return False
+    read = loaded.args[0]
+    if not call_attr(read, "read_text") or not isinstance(read.func.value, ast.Call):
+        return False
+    path = read.func.value
+    arg = path.args[0] if len(path.args) == 1 else None
+    if (not name(loaded.func.value, "json") or
+            not isinstance(path.func, ast.Name) or path.func.id != "Path" or
+            not isinstance(arg, ast.Subscript) or
+            not isinstance(arg.value, ast.Attribute) or
+            not name(arg.value.value, "sys") or arg.value.attr != "argv" or
+            not isinstance(arg.slice, ast.Constant) or arg.slice.value != 2 or
+            not call_attr(assignments["suite"], "TestSuite") or
+            not name(assignments["suite"].func.value, "unittest") or
             not call_attr(assignments["count"], "countTestCases") or
-            not isinstance(assignments["count"].func.value, ast.Name) or
-            assignments["count"].func.value.id != "suite" or
+            not name(assignments["count"].func.value, "suite") or
             not call_attr(assignments["result"], "run") or
+            not call_attr(assignments["result"].func.value, "TextTestRunner") or
+            not name(assignments["result"].func.value.func.value, "unittest") or
             len(assignments["result"].args) != 1 or
-            not isinstance(assignments["result"].args[0], ast.Name) or
-            assignments["result"].args[0].id != "suite"):
+            not name(assignments["result"].args[0], "suite")):
         return False
     outer_index = tree.body.index(outer)
     if not (positions["data"] < outer_index and positions["suite"] < outer_index
@@ -377,14 +398,28 @@ def _runner_manifest_valido(tree):
         return False
     # La última sentencia debe cerrar con estado no cero ante fallo o suite vacía.
     ultimo = tree.body[-1] if tree.body else None
-    return (isinstance(ultimo, ast.Raise) and isinstance(ultimo.exc, ast.Call)
-            and isinstance(ultimo.exc.func, ast.Name)
-            and ultimo.exc.func.id == "SystemExit" and len(ultimo.exc.args) == 1
-            and isinstance(ultimo.exc.args[0], ast.IfExp)
-            and isinstance(ultimo.exc.args[0].orelse, ast.Constant)
-            and ultimo.exc.args[0].orelse.value == 1
-            and {"count", "result"} <= {n.id for n in ast.walk(ultimo.exc.args[0].test)
-                                           if isinstance(n, ast.Name)})
+    if (not isinstance(ultimo, ast.Raise) or
+            not isinstance(ultimo.exc, ast.Call) or
+            not name(ultimo.exc.func, "SystemExit") or len(ultimo.exc.args) != 1):
+        return False
+    salida = ultimo.exc.args[0]
+    if (not isinstance(salida, ast.IfExp) or
+            not isinstance(salida.body, ast.Constant) or salida.body.value != 0 or
+            not isinstance(salida.orelse, ast.Constant) or salida.orelse.value != 1 or
+            not isinstance(salida.test, ast.BoolOp) or
+            not isinstance(salida.test.op, ast.And) or len(salida.test.values) != 2):
+        return False
+    def exito(node):
+        return (call_attr(node, "wasSuccessful") and
+                name(node.func.value, "result") and not node.args and not node.keywords)
+    def hay_casos(node):
+        return (isinstance(node, ast.Compare) and name(node.left, "count") and
+                len(node.ops) == 1 and isinstance(node.ops[0], ast.Gt) and
+                len(node.comparators) == 1 and
+                isinstance(node.comparators[0], ast.Constant) and
+                node.comparators[0].value == 0)
+    a, b = salida.test.values
+    return (exito(a) and hay_casos(b)) or (hay_casos(a) and exito(b))
 
 
 def _seleccion_manifest_resuelta(repo, tokens):

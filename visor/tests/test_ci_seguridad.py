@@ -393,8 +393,32 @@ class ContratoCITest(unittest.TestCase):
             "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)\n",
             encoding="utf-8",
         )
+        runner_valido = runner.read_text(encoding="utf-8")
         valido = self.ejecutar_lint_ci(repo, "--require-e2e")
         self.assertEqual(valido.returncode, 0, valido.stdout)
+        runner.write_text(runner_valido.replace(
+            "raise SystemExit(0 if result.wasSuccessful() and count > 0 else 1)",
+            "result.wasSuccessful()\n"
+            "raise SystemExit(0 if count > 0 and result is not None else 1)",
+        ), encoding="utf-8")
+        error_tragado = self.ejecutar_lint_ci(repo, "--require-e2e")
+        self.assertEqual(error_tragado.returncode, 1, error_tragado.stdout)
+        self.assertIn("scripts/ci/e2e", error_tragado.stdout)
+        for mutacion in (
+            runner_valido.replace(
+                "suite.addTests(unittest.TestLoader().loadTestsFromName(name))",
+                "unittest.TestLoader().loadTestsFromName(name)",
+            ),
+            runner_valido.replace(
+                "count = suite.countTestCases()\nresult = unittest.TextTestRunner().run(suite)",
+                "result = unittest.TextTestRunner().run(suite)\ncount = suite.countTestCases()",
+            ),
+        ):
+            runner.write_text(mutacion, encoding="utf-8")
+            with self.subTest(mutacion=mutacion):
+                rechazado = self.ejecutar_lint_ci(repo, "--require-e2e")
+                self.assertEqual(rechazado.returncode, 1, rechazado.stdout)
+                self.assertIn("scripts/ci/e2e", rechazado.stdout)
         runner.write_text("print('OK')\n", encoding="utf-8")
         noop = self.ejecutar_lint_ci(repo, "--require-e2e")
         self.assertEqual(noop.returncode, 1, noop.stdout)
