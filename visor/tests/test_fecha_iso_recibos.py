@@ -47,7 +47,7 @@ class FechaReciboTest(unittest.TestCase):
             "original": {"autor": "test", "resumen": "Aprobar planos", "texto": "Aprobar planos"},
             "procesos": [{"tipo": "flujos", "ref": REF, "estado": "terminal",
                           "revision": 1, "relacion": "satisface",
-                          "contrato_terminal": "flujos-aprobados-v1"}],
+                          "contrato_terminal": "planos-aprobados-v1"}],
         }
         (carpeta / "peticion.json").write_text(json.dumps(datos), encoding="utf-8")
 
@@ -68,6 +68,8 @@ class FechaReciboTest(unittest.TestCase):
             )
             self.assertNotIn("Traceback", resultado.stderr)
             self.assertIn("FAIL", resultado.stdout)  # workspace mínimo, ajeno al recibo
+            self.assertNotIn("proceso flujos inexistente", resultado.stdout)
+            self.assertNotIn("sin contrato terminal canónico", resultado.stdout)
             rechazado = "flujos terminal sin recibo aprobado" in resultado.stdout
             self.assertEqual(rechazado, not valida, resultado.stdout)
 
