@@ -494,8 +494,56 @@ class NativoTest(unittest.TestCase):
         git(self.wt.ruta, "merge", "--ff-only", self.name)
         self.wt.ruta.rename(self.root / "main")
         self.assertEqual(entrega.exigir_entrega_constructor(self.name)[0], [])
+        git(self.root / "main", "branch", "-d", self.name)
+        self.assertTrue(unidad.rama_mergeada(self.root / "main", self.name, "main")[0])
         self.assertFalse(unidad.rama_mergeada(self.root / "main", self.name,
                                                "main", "esto-no-es-un-sha")[0])
+
+    def test_R3_recuperacion_no_acepta_commit_vacio_con_nombre_de_unidad(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "commit", "--allow-empty", "-m", "Preparar " + self.name)
+        git(self.wt.ruta, "checkout", self.name)
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main")[0])
+
+    def test_R3_base_de_rama_borrada_no_es_fusion_de_trabajo(self):
+        self.wt.commitear("trabajo perdido")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "branch", "-D", self.name)
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name,
+                                               "main", self.wt.base_head)[0])
+
+    def test_R2_nativo_posterior_sustituye_recuperacion_antigua_en_cierre(self):
+        head = self.wt.commitear()
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.call("acreditar-git", self.name, "--base", self.wt.base_head,
+                                   "--commit", head), 0)
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "review"), 0)
+        review = entrega.recibos_de(self.name, self.receipts)[-1]
+        self.bind(review, "review-A", "review")
+        self.write_review("review-A")
+        self.assertEqual(self.finish(review, "review-A"), 0, self.last_output)
+        self.h.write_text(self.h.read_text() + "\n## Otra tarea\n- [ ] corrección\n")
+        builder = self.prepare()
+        self.bind(builder, "builder-B", "builder")
+        self.wt.commitear("corrección nativa B")
+        self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
+        self.assertEqual(self.finish(builder, "builder-B"), 0, self.last_output)
+        self.assertEqual(entrega.exigir_entrega_constructor(self.name)[0], [])
+        self.assertEqual(self.call("preparar", self.name, "--rol", "revisor",
+                                   "--plataforma", "codex", "--modelo", "review"), 0)
+        review_b = entrega.recibos_de(self.name, self.receipts)[-1]
+        self.bind(review_b, "review-B", "review")
+        self.write_review("review-B", "Corrección B revisada")
+        self.assertEqual(self.finish(review_b, "review-B"), 0, self.last_output)
+        self.assertEqual(unidad.puerta_recibo_revisor(self.name)[0], [])
+        signed = unidad.frontmatter(self.h)["revisado_patch_id"]
+        self.assertIsNone(unidad.puerta_ancla_de_revision(
+            self.wt.ruta, self.name, signed, self.wt.base_head, self.wt.head())[0])
 
     def test_R5_recuperacion_no_roba_cerrojo_ajeno(self):
         r = self.prepare()

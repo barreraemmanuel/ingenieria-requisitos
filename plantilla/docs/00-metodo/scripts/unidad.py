@@ -3009,8 +3009,8 @@ def puerta_recibo_revisor(nombre):
         return [mensaje_recibo_no_acredita(
             nombre, [motivo for _, motivo in motivos if motivo])], []
     nativos = [r for r in validos if r.get("protocolo") == "nativo/v1"]
-    recuperaciones = [r for r in entrega.recibos_de(nombre) if r.get("schema") == "entrega-git/v1"]
-    recuperacion = recuperaciones[-1] if recuperaciones else None
+    vigente = entrega.recibo_vigente_constructor(nombre, entrega.recibos_de(nombre))
+    recuperacion = vigente if vigente and vigente.get("schema") == "entrega-git/v1" else None
     if nativos:
         informe = RAIZ / "docs/05-trabajo" / nombre / "hallazgos.md"
         if not informe.is_file():
@@ -3171,9 +3171,9 @@ def puerta_ancla_de_revision(repo, nombre, firmado, base, punta):
     antes de que el launcher lo sellara y reabrirla sería castigar a la historia (R5).
     """
     firmado = (firmado or "").strip().lower()
-    recuperaciones = [r for r in entrega.recibos_de(nombre) if r.get("schema") == "entrega-git/v1"]
-    if recuperaciones:
-        arbol = (recuperaciones[-1].get("recuperacion") or {}).get("tree")
+    vigente = entrega.recibo_vigente_constructor(nombre, entrega.recibos_de(nombre))
+    if vigente and vigente.get("schema") == "entrega-git/v1":
+        arbol = (vigente.get("recuperacion") or {}).get("tree")
         codigo, actual_arbol = git(repo, "rev-parse", f"{punta}^{{tree}}", silencioso=True)
         if codigo or not arbol or actual_arbol.strip() != arbol:
             return (f"el árbol de {nombre} cambió desde la recuperación y la revisión; "
@@ -4094,6 +4094,13 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
         return False, f"no encuentro la rama principal '{principal}' en el repo de código", \
             False, ""
 
+    vigente = entrega.recibo_vigente_constructor(rama, entrega.recibos_de(rama))
+    recuperacion = vigente if vigente and vigente.get("schema") == "entrega-git/v1" else None
+    if recuperacion:
+        problemas, _ = entrega.validar_recuperacion(WORKTREES / rama, rama, recuperacion)
+        if problemas:
+            return False, problemas[0], False, ""
+
     if fusion_declarada:
         if not re.fullmatch(r"[0-9a-f]{40}", fusion_declarada):
             return False, "fusion: exige SHA completo de un commit existente", False, ""
@@ -4109,15 +4116,21 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
             if not (es_ancestro(repo, rama_declarada, declarado)
                     or (codigo == codigo_fusion == 0 and arbol_rama.strip() == arbol_fusion.strip())):
                 return False, "fusion: el commit no corresponde a la rama de la unidad", False, ""
-        recuperaciones = [r for r in entrega.recibos_de(rama) if r.get("schema") == "entrega-git/v1"]
-        if recuperaciones:
-            datos = recuperaciones[-1].get("recuperacion") or {}
+        if recuperacion:
+            datos = recuperacion.get("recuperacion") or {}
             base_unidad, punta_unidad = datos.get("base"), datos.get("commit")
             codigo, arbol_fusion = git(repo, "rev-parse", f"{declarado}^{{tree}}", silencioso=True)
             if not (base_unidad and punta_unidad and es_ancestro(repo, base_unidad, declarado)
                     and (es_ancestro(repo, punta_unidad, declarado)
                          or (codigo == 0 and arbol_fusion.strip() == datos.get("tree")))):
                 return False, "fusion: commit sin relación verificable con base y rama", False, ""
+        if not rama_declarada and not recuperacion:
+            # Históricos sin rama conservan la ruta manual solo si el SHA introduce
+            # contenido. La base sola y los commits vacíos jamás son una entrega.
+            codigo, padre = git(repo, "rev-parse", f"{declarado}^", silencioso=True)
+            if codigo or git(repo, "diff", "--quiet", padre.strip(), declarado,
+                            silencioso=True)[0] != 1:
+                return False, "fusion: el commit no acredita cambios de la unidad", False, ""
 
     # Si la rama LOCAL existe, manda ella y nadie más: es la que tiene el trabajo más nuevo.
     # Mirar además `origin/<rama>` aquí bendeciría un cierre con la foto vieja del remoto
@@ -4129,6 +4142,9 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
         candidatos = [(f"refs/remotes/origin/{rama}", f"origin/{rama}")]
         if fusion_declarada:
             candidatos.append((fusion_declarada, f"el commit anotado {fusion_declarada[:8]}"))
+        elif recuperacion:
+            commit = recuperacion["recuperacion"]["commit"]
+            candidatos.append((commit, f"el commit recuperado {commit[:8]}"))
 
     vivos = [(sha, etiqueta) for sha, etiqueta in
              ((sha_de(repo, ref), etiqueta) for ref, etiqueta in candidatos) if sha]
@@ -4164,7 +4180,7 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
     # título del PR, y el squash lo hereda como asunto.
     codigo, salida = git(repo, "log", base, f"--grep={rama}", "--format=%H %s", "-1",
                          silencioso=True)
-    if codigo == 0 and salida.strip():
+    if codigo == 0 and salida.strip() and not recuperacion and not sha_de(repo, f"refs/heads/{rama}"):
         sha, _, asunto = salida.strip().partition(" ")
         return True, (f"prueba INDIRECTA: {base} tiene «{sha[:8]} {asunto}», que nombra a "
                       f"{rama} (huella típica de un squash merge). Ninguna referencia de la "

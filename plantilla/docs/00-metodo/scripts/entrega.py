@@ -236,6 +236,20 @@ def validar_recuperacion(worktree, unidad, recibo):
     return [], []
 
 
+def recibo_vigente_constructor(unidad, recibos):
+    """Selecciona la última entrega real, nativa o recuperada, conservando el historial."""
+    nativos = [r for r in recibos if isinstance(r, dict)
+               and r.get("schema") == "ejecucion/v1" and r.get("unidad") == unidad
+               and r.get("rol") == "constructor" and r.get("estado_nativo") != "preparado"
+               and not r.get("sin_ejecucion")]
+    recuperados = [r for r in recibos if isinstance(r, dict)
+                   and r.get("schema") == "entrega-git/v1" and r.get("unidad") == unidad
+                   and r.get("rol") == "constructor"]
+    propios = [r for r in nativos if r.get("harness") == "subagente-del-padre"]
+    preferidos = propios + recuperados
+    return next((r for r in reversed(recibos) if r in (preferidos or nativos)), None)
+
+
 def validar_vinculo_nativo(recibo, exigir_terminado=True):
     """Integridad estructural de evidencia nativa; históricos conservan su lector."""
     task = recibo.get("native_task_id")
@@ -274,17 +288,8 @@ def validar_entrega(worktree, unidad, recibos, base):
     if carril in EXENTOS or not espera_cambios:
         return [], []
 
-    candidatos = [
-        r for r in recibos
-        if isinstance(r, dict) and r.get("schema") == "ejecucion/v1"
-        and r.get("unidad") == unidad and r.get("rol") == "constructor"
-        and r.get("estado_nativo") != "preparado" and not r.get("sin_ejecucion")
-    ]
-    recuperados = [r for r in recibos if isinstance(r, dict)
-                   and r.get("schema") == "entrega-git/v1" and r.get("unidad") == unidad
-                   and r.get("rol") == "constructor"]
-    candidatos += recuperados
-    if not candidatos:
+    recibo = recibo_vigente_constructor(unidad, recibos)
+    if not recibo:
         if not recibos:
             return [_problema(
                 f"la entrega del ayudante de {unidad} está ausente",
@@ -292,9 +297,6 @@ def validar_entrega(worktree, unidad, recibos, base):
             )], []
         return [_problema(f"ningún recibo legible acredita al constructor de {unidad}")], []
 
-    propios = [r for r in candidatos if r.get("harness") == "subagente-del-padre"]
-    preferidos = propios + recuperados
-    recibo = next((r for r in reversed(recibos) if r in (preferidos or candidatos)), candidatos[-1])
     if recibo.get("schema") == "entrega-git/v1":
         if recibo.get("resultado") != "ok":
             return [_problema(f"recuperación Git de {unidad} no terminada")], []
