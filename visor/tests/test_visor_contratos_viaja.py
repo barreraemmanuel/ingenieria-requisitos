@@ -19,6 +19,7 @@ import sys
 import tempfile
 import time
 import unittest
+from unittest import mock
 import urllib.request
 from pathlib import Path
 
@@ -70,10 +71,47 @@ class WebViajaTest(unittest.TestCase):
         for nombre in bootstrap.ARCHIVOS_WEB:
             repartido = ws / CARPETA / nombre
             self.assertTrue(repartido.is_file(), f"falta {CARPETA}/{nombre}")
-            self.assertEqual(repartido.read_bytes(),
-                             bootstrap.origen_web(nombre).read_bytes(), nombre)
+            actual = repartido.read_bytes()
+            esperado = bootstrap.origen_web(nombre).read_bytes()
+            if repartido.suffix in {".py", ".html", ".css", ".js", ".json", ".md", ".txt", ".svg"}:
+                actual = actual.replace(b"\r\n", b"\n")
+                esperado = esperado.replace(b"\r\n", b"\n")
+            self.assertEqual(actual, esperado, nombre)
 
     # ------------------------------------------------------------------ R5
+
+    def test_comparacion_acepta_solo_saltos_de_linea_en_texto(self):
+        ws = self.base / "comparacion"
+        destino = ws / CARPETA / "servir.py"
+        destino.parent.mkdir(parents=True)
+        origen = self.base / "origen.py"
+        origen.write_bytes(b"linea uno\r\nlinea dos\r\n")
+        with mock.patch.object(bootstrap, "ARCHIVOS_WEB", ["servir.py"]), \
+                mock.patch.object(bootstrap, "origen_web", return_value=origen):
+            destino.write_bytes(b"linea uno\nlinea dos\n")
+            self.assert_web_repartida(ws)
+            for contenido in (b"linea distinta\nlinea dos\n", b"linea uno \nlinea dos\n",
+                              b"linea uno\nlinea dos", b"linea uno\rlinea dos\r"):
+                destino.write_bytes(contenido)
+                with self.assertRaises(AssertionError):
+                    self.assert_web_repartida(ws)
+            destino.unlink()
+            with self.assertRaises(AssertionError):
+                self.assert_web_repartida(ws)
+
+    def test_comparacion_binaria_conserva_todos_los_bytes(self):
+        ws = self.base / "binarios"
+        destino = ws / CARPETA / "imagen.png"
+        destino.parent.mkdir(parents=True)
+        origen = self.base / "origen.png"
+        origen.write_bytes(b"\x89PNG\r\n\x00")
+        with mock.patch.object(bootstrap, "ARCHIVOS_WEB", ["imagen.png"]), \
+                mock.patch.object(bootstrap, "origen_web", return_value=origen):
+            destino.write_bytes(origen.read_bytes())
+            self.assert_web_repartida(ws)
+            destino.write_bytes(b"\x89PNG\n\x00")
+            with self.assertRaises(AssertionError):
+                self.assert_web_repartida(ws)
 
     def test_la_lista_es_una_sola_y_lleva_todo_lo_que_la_web_necesita(self):
         """Sin cualquiera de estas piezas la web del workspace no funciona."""
