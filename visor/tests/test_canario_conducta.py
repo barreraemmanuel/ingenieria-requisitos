@@ -1104,6 +1104,54 @@ class RestauracionesExternasTest(BaseConducta):
         self.assertIsNone(self.hallazgo(
             externo, cwd=proyecto, entorno={"TMPDIR": "C:/Proyecto/.runtime"})[0])
 
+    def test_R3_matriz_de_opciones_mktemp(self):
+        proyecto = "C:/Proyecto"
+        casos = (
+            ("--tmpdir copia.XXXXXX", "C:/Temp", "C:/Proyecto/.runtime", "git_destructivo"),
+            ("--tmpdir copia.XXXXXX", proyecto, "C:/Temp", None),
+            ("--tmpdir=C:/Proyecto/.runtime copia.XXXXXX", "C:/Temp", "C:/Temp", "git_destructivo"),
+            ("--tmpdir=C:/Temp copia.XXXXXX", proyecto, "C:/Proyecto/.runtime", None),
+            ("-p C:/Proyecto/.runtime copia.XXXXXX", "C:/Temp", "C:/Temp", "git_destructivo"),
+            ("-p C:/Temp copia.XXXXXX", proyecto, "C:/Proyecto/.runtime", None),
+            ("-p C:/Proyecto/.runtime", "C:/Temp", "C:/Temp", "git_destructivo"),
+            ("--tmpdir", "C:/Temp", "C:/Proyecto/.runtime", "git_destructivo"),
+            ("-t copia.XXXXXX", "C:/Temp", "C:/Proyecto/.runtime", "git_destructivo"),
+            ("-t copia.XXXXXX", proyecto, "C:/Temp", None),
+            ("-p C:/Temp -t copia.XXXXXX", "C:/Temp", "C:/Proyecto/.runtime", "git_destructivo"),
+        )
+        for opciones, cwd, temporal, esperado in casos:
+            with self.subTest(opciones=opciones, cwd=cwd, temporal=temporal):
+                comando = f'copia=$(mktemp -d {opciones}); git -C "$copia" restore -- x'
+                patron, _ = canario.incidente_por_comando(
+                    "Bash", comando, cwd=cwd, raiz=proyecto,
+                    entorno={"TMPDIR": temporal})
+                self.assertEqual(patron, esperado)
+
+    def test_R3_mktemp_sin_base_acreditada_es_incierto(self):
+        comando = 'copia=$(mktemp -d --tmpdir copia.XXXXXX); git -C "$copia" restore -- x'
+        patron, detalle = self.hallazgo(comando, cwd="C:/Proyecto")
+        self.assertEqual(patron, "git_destructivo")
+        self.assertIn("incierta", detalle)
+        no_interpretado = 'copia=$(mktemp -d --opcion-ajena copia.XXXXXX); git -C "$copia" restore -- x'
+        self.assertIn("incierta", self.hallazgo(
+            no_interpretado, cwd="C:/Proyecto", entorno={"TMPDIR": "C:/Temp"})[1])
+
+    def test_R2_asignacion_temporal_no_cambia_el_shell(self):
+        proyecto = "C:/Proyecto"
+        casos = (
+            ('COPIA="C:/Proyecto/.runtime"; COPIA="C:/Temp" echo inocuo; '
+             'git -C "$COPIA" restore -- x', "git_destructivo"),
+            ('COPIA="C:/Temp"; COPIA="C:/Proyecto/.runtime" echo inocuo; '
+             'git -C "$COPIA" restore -- x', None),
+            ('COPIA="C:/Proyecto/.runtime"; COPIA="C:/Temp" git -C "$COPIA" restore -- x',
+             "git_destructivo"),
+            ('COPIA="C:/Proyecto/.runtime"; OTRO="C:/Temp"; '
+             'git -C "$COPIA" restore -- x', "git_destructivo"),
+        )
+        for comando, esperado in casos:
+            with self.subTest(comando=comando):
+                self.assertEqual(self.hallazgo(comando, cwd=proyecto)[0], esperado)
+
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"
         eventos = self.turno_con_herramienta(

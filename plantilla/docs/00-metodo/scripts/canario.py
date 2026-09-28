@@ -684,8 +684,26 @@ _PREVIO_SHELL = re.compile(
     r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>\$\(mktemp\b[^)]*\)|'
     r'"[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)'
     r'|\$\([^)]*\)|(?P<abre>\()|(?P<cierra>\))'
+    r'|(?P<separador>;|&&|\|\||\n)'
     r'|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
+_ASIGNACION_SHELL = re.compile(
+    r'[A-Za-z_]\w*=(?:\$\(mktemp\b[^)]*\)|"[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)')
 _COMPONENTE_MKTEMP = "__canario_nombre_aleatorio__"
+
+
+def _solo_asignaciones(texto):
+    """Un tramo de shell sin nombre de comando (solo asignaciones y espacios)."""
+    return not _ASIGNACION_SHELL.sub("", texto).strip()
+
+
+def _asignacion_persistente(comando, previo, inicio_orden):
+    """Las asignaciones delante de un comando duran solo durante ese comando."""
+    prefijo = comando[inicio_orden:previo.start()].strip()
+    resto = comando[previo.end():]
+    limite = re.search(r';|&&|\|\||\n|[()]', resto)
+    sufijo = resto[:limite.start()] if limite else resto
+    return ((_solo_asignaciones(prefijo) or prefijo == "export")
+            and _solo_asignaciones(sufijo))
 
 
 def _base_mktemp(expresion, entorno, cwd):
@@ -703,23 +721,67 @@ def _base_mktemp(expresion, entorno, cwd):
             return str(entorno[nombre])
 
         valor = _VARIABLE.sub(sustituir, valor)
-        return None if faltan else _juntar_cwd(cwd, valor)
+        return None if faltan or "$" in valor else _juntar_cwd(cwd, valor)
 
-    opcion = re.search(r'(?:-p\s+|--tmpdir(?:=|\s+))(' + _ARG_RUTA + r')', expresion)
-    plantillas = re.findall(r'"([^"]*X{3,})"|\x27([^\x27]*X{3,})\x27|'
-                            r'([^\s()"\x27]*X{3,})', expresion)
-    if plantillas:
-        ruta = next(grupo for grupo in plantillas[-1] if grupo)
-        modulo = ntpath if re.match(r'^[A-Za-z]:', ruta) else os.path
-        directorio = modulo.dirname(ruta)
-        if opcion and not modulo.isabs(ruta):
-            base = conocida(opcion.group(1))
-            directorio = _juntar_cwd(base, directorio) if base else None
+    cuerpo = re.fullmatch(r'\$\(mktemp\b(.*)\)', expresion, re.S)
+    if not cuerpo:
+        return None
+    palabras = re.findall(r'"[^"]*"|\x27[^\x27]*\x27|\S+', cuerpo.group(1))
+    plantilla = None
+    base_p = None
+    base_tmpdir = None
+    opcion_tmpdir = False
+    opcion_t = False
+    indice = 0
+    while indice < len(palabras):
+        palabra = palabras[indice]
+        if palabra in ("-d", "--directory", "-q", "--quiet", "-u", "--dry-run"):
+            pass
+        elif palabra == "-p":
+            indice += 1
+            if indice == len(palabras):
+                return None
+            base_p = palabras[indice]
+        elif palabra == "--tmpdir":
+            opcion_tmpdir = True  # su argumento opcional solo vale con '='
+        elif palabra.startswith("--tmpdir="):
+            opcion_tmpdir = True
+            base_tmpdir = palabra.partition("=")[2]
+        elif palabra == "-t":
+            opcion_t = True
+        elif palabra.startswith("-") or plantilla is not None:
+            return None  # opción o segundo argumento sin semántica acreditada
         else:
-            directorio = conocida(directorio or ".")
+            plantilla = palabra.strip('"\x27')
+        indice += 1
+
+    if base_p and opcion_tmpdir or opcion_t and opcion_tmpdir:
+        return None  # combinaciones sin prioridad acreditada
+    if plantilla and not re.search(r'X{3,}', plantilla):
+        return None
+    modulo = ntpath if plantilla and re.match(r'^[A-Za-z]:', plantilla) else os.path
+    if plantilla and modulo.isabs(plantilla):
+        if base_p or opcion_tmpdir or opcion_t:
+            return None
+        directorio = conocida(modulo.dirname(plantilla))
+    elif opcion_t:
+        if plantilla and ("/" in plantilla or "\\" in plantilla):
+            return None
+        directorio = conocida(entorno["TMPDIR"]) if "TMPDIR" in entorno else (
+            conocida(base_p) if base_p else None)
+    elif opcion_tmpdir:
+        base = base_tmpdir if base_tmpdir else entorno.get("TMPDIR")
+        directorio = conocida(base) if base is not None else None
+        if plantilla:
+            directorio = _juntar_cwd(directorio, modulo.dirname(plantilla)) if directorio else None
+    elif base_p:
+        directorio = conocida(base_p)
+        if plantilla:
+            directorio = _juntar_cwd(directorio, modulo.dirname(plantilla)) if directorio else None
+    elif plantilla:
+        directorio = conocida(modulo.dirname(plantilla) or ".")
     else:
-        directorio = conocida(opcion.group(1)) if opcion else conocida(
-            entorno["TMPDIR"]) if "TMPDIR" in entorno else None
+        directorio = conocida(entorno["TMPDIR"]) if "TMPDIR" in entorno else None
     return _juntar_cwd(directorio, _COMPONENTE_MKTEMP) if directorio else None
 
 
@@ -767,8 +829,11 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
         ruta_expandida = _VARIABLE.sub(variable, ruta_expandida)
         return None if faltan or '$(' in ruta_expandida else ruta_expandida
 
+    inicio_orden = 0
     for previo in _PREVIO_SHELL.finditer(comando[:encaje.start()]):
         if previo.group("nombre"):
+            if not _asignacion_persistente(comando, previo, inicio_orden):
+                continue
             valor = previo.group("valor")
             if valor.startswith("$(mktemp"):
                 valor = _base_mktemp(valor, ambitos[-1][1], ambitos[-1][0])
@@ -780,8 +845,12 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
                 ambitos[-1][1][previo.group("nombre")] = valor
         elif previo.group("abre"):
             ambitos.append([ambitos[-1][0], dict(ambitos[-1][1])])
+            inicio_orden = previo.end()
         elif previo.group("cierra") and len(ambitos) > 1:
             ambitos.pop()
+            inicio_orden = previo.end()
+        elif previo.group("separador"):
+            inicio_orden = previo.end()
         elif previo.group("ruta"):
             ambitos[-1][0] = _juntar_cwd(ambitos[-1][0], expandir(previo.group("ruta")))
     cwd_orden = ambitos[-1][0]
