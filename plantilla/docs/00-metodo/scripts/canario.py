@@ -686,12 +686,12 @@ _GIT_RESTAURA_COMPLEJA = re.compile(
     r'(?:reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))', re.I)
 _VARIABLE = re.compile(r'\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%')
 _PREVIO_SHELL = re.compile(
-    r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>' + _ARG_RUTA + r')'
+    r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>' + _ARG_RUTA + r')?'
     r'|\$\([^)]*\)|(?P<abre>\()|(?P<cierra>\))'
     r'|(?P<separador>;|&&|\|\||\n)'
     r'|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
 _ASIGNACION_SHELL = re.compile(
-    r'[A-Za-z_]\w*=' + _ARG_RUTA)
+    r'[A-Za-z_]\w*=(?:' + _ARG_RUTA + r')?')
 _COMPONENTE_MKTEMP = "__canario_nombre_aleatorio__"
 
 
@@ -775,8 +775,10 @@ def _expandir_palabra(cruda, entorno, cwd):
                 indice += len(variable.group(0)) - 1
             else:
                 salida.append(caracter)
-        elif estado == "normal" and caracter in ('`', '*', '?', '['):
-            return None  # sustitución antigua o glob sin resultado observable
+        elif caracter == '`' and estado != "simple":
+            return None  # sustitución de comando sin resultado observable
+        elif estado == "normal" and caracter in ('*', '?', '['):
+            return None  # glob sin resultado observable
         else:
             salida.append(caracter)
         indice += 1
@@ -882,7 +884,7 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
         if previo.group("nombre"):
             if not _asignacion_persistente(comando, previo, inicio_orden):
                 continue
-            valor = previo.group("valor")
+            valor = previo.group("valor") or ""
             valor = expandir(valor)
             if valor is None:
                 ambitos[-1][1].pop(previo.group("nombre"), None)

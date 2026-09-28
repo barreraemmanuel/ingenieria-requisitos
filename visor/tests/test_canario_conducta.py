@@ -1193,6 +1193,44 @@ class RestauracionesExternasTest(BaseConducta):
         self.assertEqual(patron, "git_destructivo")
         self.assertIn("incierta", detalle)
 
+    def test_R4_backticks_activos_y_literales(self):
+        proyecto = "C:/Proyecto"
+        activos = (
+            'git -C "C:/Temp/`printf ../Proyecto`" restore -- x',
+            'COPIA="C:/Temp/`printf ../Proyecto`"; git -C "$COPIA" restore -- x',
+            'cd "C:/Temp/`printf ../Proyecto`"; git restore -- x',
+            'COPIA=$(mktemp -d -p "C:/Temp/`printf ../Proyecto`"); '
+            'git -C "$COPIA" restore -- x',
+        )
+        for comando in activos:
+            with self.subTest(comando=comando):
+                patron, detalle = self.hallazgo(comando, cwd=proyecto)
+                self.assertEqual(patron, "git_destructivo")
+                self.assertIn("incierta", detalle)
+        literales = (
+            "git -C 'C:/Temp/`pwd`' restore -- x",
+            r'git -C "C:/Temp/\`pwd\`" restore -- x',
+        )
+        for comando in literales:
+            with self.subTest(comando=comando):
+                self.assertIsNone(self.hallazgo(comando, cwd=proyecto)[0])
+
+    def test_R2_asignacion_vacia_sustituye_valor_previo(self):
+        proyecto = "C:/Proyecto"
+        entorno = {"COPIA": "C:/Temp"}
+        casos = (
+            ('COPIA=; git -C "$COPIA" restore -- x', "git_destructivo"),
+            ('export COPIA=; git -C "$COPIA" restore -- x', "git_destructivo"),
+            ('COPIA=""; git -C "$COPIA" restore -- x', "git_destructivo"),
+            ("COPIA=''; git -C \"$COPIA\" restore -- x", "git_destructivo"),
+            ('COPIA= echo inocuo; git -C "$COPIA" restore -- x', None),
+            ('COPIA=; cd C:/Temp; git -C "$COPIA" restore -- x', None),
+        )
+        for comando, esperado in casos:
+            with self.subTest(comando=comando):
+                self.assertEqual(self.hallazgo(
+                    comando, cwd=proyecto, entorno=entorno)[0], esperado)
+
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"
         eventos = self.turno_con_herramienta(
