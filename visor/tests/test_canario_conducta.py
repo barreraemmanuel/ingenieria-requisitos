@@ -1237,6 +1237,8 @@ class RestauracionesExternasTest(BaseConducta):
         internos = (
             'export OTRO=x COPIA=; git -C "$COPIA" restore -- x',
             'export OTRO=x COPIA=""; git -C "$COPIA" restore -- x',
+            'export -- COPIA=; git -C "$COPIA" restore -- x',
+            'export -- OTRO=x COPIA=; git -C "$COPIA" restore -- x',
             'export\tOTRO=x COPIA=; git -C "$COPIA" restore -- x',
             '(export OTRO=x COPIA=; git -C "$COPIA" restore -- x)',
             'COPIA= OTRO="x;y"; git -C "$COPIA" restore -- x',
@@ -1251,6 +1253,8 @@ class RestauracionesExternasTest(BaseConducta):
         externos = (
             ('export OTRO=x COPIA=C:/Temp; git -C "$COPIA" restore -- x',
              {"COPIA": "C:/Proyecto"}),
+            ('export -- COPIA=C:/Temp; git -C "$COPIA" restore -- x',
+             {"COPIA": "C:/Proyecto"}),
             ('COPIA= OTRO="x;y" echo inocuo; git -C "$COPIA" restore -- x',
              {"COPIA": "C:/Temp"}),
         )
@@ -1258,6 +1262,10 @@ class RestauracionesExternasTest(BaseConducta):
             with self.subTest(comando=comando):
                 self.assertIsNone(self.hallazgo(
                     comando, cwd=proyecto, entorno=entorno_externo)[0])
+        incierto = 'export -- COPIA=$(printf C:/Temp); git -C "$COPIA" restore -- x'
+        patron, detalle = self.hallazgo(incierto, cwd=proyecto, entorno=entorno)
+        self.assertEqual(patron, "git_destructivo")
+        self.assertIn("incierta", detalle)
 
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"

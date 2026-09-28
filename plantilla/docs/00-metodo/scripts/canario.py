@@ -739,7 +739,7 @@ def _asignacion_persistente(comando, previo, inicio_orden):
     if limite is None:
         return None
     sufijo = comando[previo.end():limite]
-    prefijo_export = re.fullmatch(r'export(?:[ \t]+(.*))?', prefijo, re.S)
+    prefijo_export = re.fullmatch(r'export(?:[ \t]+--)?(?:[ \t]+(.*))?', prefijo, re.S)
     exportado = bool(prefijo_export and _solo_asignaciones(prefijo_export.group(1) or ""))
     return ((_solo_asignaciones(prefijo) or exportado)
             and _solo_asignaciones(sufijo))
