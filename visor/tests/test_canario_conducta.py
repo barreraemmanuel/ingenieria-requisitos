@@ -1027,7 +1027,7 @@ class RestauracionesExternasTest(BaseConducta):
     """136: la ubicación del repositorio restaurado decide el incidente."""
 
     def hallazgo(self, comando, *, cwd=None, entorno=None):
-        raiz = cwd if isinstance(cwd, str) and cwd.startswith("C:\\") else self.cwd
+        raiz = cwd if isinstance(cwd, str) and cwd.startswith(("C:\\", "C:/")) else self.cwd
         return canario.incidente_por_comando(
             "Bash", comando, cwd=cwd or self.cwd, raiz=raiz,
             entorno=entorno or {})
@@ -1076,6 +1076,33 @@ class RestauracionesExternasTest(BaseConducta):
             "git_destructivo")
         explicito = f'copia=$(mktemp -d -p "{self.base}"); git -C "$copia" restore -- x'
         self.assertEqual(self.hallazgo(explicito)[0], None)
+
+    def test_R2_asignacion_de_subshell_no_cambia_variable_del_padre(self):
+        proyecto = "C:/Proyecto"
+        comando = ('COPIA="C:/Proyecto/.runtime"; (COPIA="C:/Temp"); '
+                   'git -C "$COPIA" restore -- archivo.txt')
+        self.assertEqual(self.hallazgo(comando, cwd=proyecto)[0], "git_destructivo")
+        dentro = ('COPIA="C:/Proyecto/.runtime"; '
+                  '(COPIA="C:/Temp"; git -C "$COPIA" restore -- archivo.txt)')
+        self.assertIsNone(self.hallazgo(dentro, cwd=proyecto)[0])
+
+    def test_R2_mktemp_con_padre_conserva_el_directorio_creado(self):
+        proyecto = "C:/Proyecto"
+        comando = ('copia=$(mktemp -d -p "C:/Proyecto"); '
+                   'git -C "$copia/.." restore -- archivo.txt')
+        self.assertEqual(self.hallazgo(comando, cwd=proyecto)[0], "git_destructivo")
+
+    def test_R3_plantilla_relativa_de_mktemp_usa_cwd(self):
+        proyecto = "C:/Proyecto"
+        comando = ('copia=$(mktemp -d .runtime/copia.XXXXXX); '
+                   'git -C "$copia" restore -- archivo.txt')
+        self.assertEqual(self.hallazgo(
+            comando, cwd=proyecto, entorno={"TMPDIR": "C:/Temp"})[0],
+            "git_destructivo")
+        externo = ('cd "C:/Temp"; copia=$(mktemp -d "copia con espacios.XXXXXX"); '
+                   'git -C "$copia" restore -- archivo.txt')
+        self.assertIsNone(self.hallazgo(
+            externo, cwd=proyecto, entorno={"TMPDIR": "C:/Proyecto/.runtime"})[0])
 
     def test_R1_transcript_claude_con_cwd_observable(self):
         externa = self.base / "copia externa"

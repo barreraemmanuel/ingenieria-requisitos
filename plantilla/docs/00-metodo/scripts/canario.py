@@ -679,21 +679,48 @@ _ARG_RUTA = r'"[^"]*"|\x27[^\x27]*\x27|\$\([^)]*\)|[^\s;&|()]+'
 _GIT_RESTAURA = re.compile(
     r'\bgit\s+(?:-C\s+(?P<ruta>' + _ARG_RUTA + r')\s+)?'
     r'(?P<accion>reset\s+--hard|checkout\s+--\s|restore\s+(?!--staged\b))', re.I)
-_AMBITO_SHELL = re.compile(r'\(|\)|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
 _VARIABLE = re.compile(r'\$\{([A-Za-z_]\w*)\}|\$([A-Za-z_]\w*)|%([A-Za-z_]\w*)%')
+_PREVIO_SHELL = re.compile(
+    r'(?<![\w$])(?P<nombre>[A-Za-z_]\w*)=(?P<valor>\$\(mktemp\b[^)]*\)|'
+    r'"[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)'
+    r'|\$\([^)]*\)|(?P<abre>\()|(?P<cierra>\))'
+    r'|\bcd\s+(?P<ruta>' + _ARG_RUTA + r')', re.I)
+_COMPONENTE_MKTEMP = "__canario_nombre_aleatorio__"
 
 
-def _base_mktemp(expresion, entorno):
-    """Directorio acreditado para un mktemp, sin inventar su nombre aleatorio."""
+def _base_mktemp(expresion, entorno, cwd):
+    """Ruta creada por mktemp: directorio conocido y un componente aleatorio."""
+    def conocida(valor):
+        valor = valor.strip('"\x27')
+        faltan = False
+
+        def sustituir(encaje):
+            nonlocal faltan
+            nombre = next(grupo for grupo in encaje.groups() if grupo)
+            if nombre not in entorno:
+                faltan = True
+                return ""
+            return str(entorno[nombre])
+
+        valor = _VARIABLE.sub(sustituir, valor)
+        return None if faltan else _juntar_cwd(cwd, valor)
+
     opcion = re.search(r'(?:-p\s+|--tmpdir(?:=|\s+))(' + _ARG_RUTA + r')', expresion)
-    if opcion:
-        return opcion.group(1).strip('"\x27')
-    plantilla = re.search(r'((?:[A-Za-z]:[\\/]|/)[^\s"\x27)]*X{3,})', expresion)
-    if plantilla:
-        ruta = plantilla.group(1)
+    plantillas = re.findall(r'"([^"]*X{3,})"|\x27([^\x27]*X{3,})\x27|'
+                            r'([^\s()"\x27]*X{3,})', expresion)
+    if plantillas:
+        ruta = next(grupo for grupo in plantillas[-1] if grupo)
         modulo = ntpath if re.match(r'^[A-Za-z]:', ruta) else os.path
-        return modulo.dirname(ruta)
-    return entorno.get("TMPDIR")
+        directorio = modulo.dirname(ruta)
+        if opcion and not modulo.isabs(ruta):
+            base = conocida(opcion.group(1))
+            directorio = _juntar_cwd(base, directorio) if base else None
+        else:
+            directorio = conocida(directorio or ".")
+    else:
+        directorio = conocida(opcion.group(1)) if opcion else conocida(
+            entorno["TMPDIR"]) if "TMPDIR" in entorno else None
+    return _juntar_cwd(directorio, _COMPONENTE_MKTEMP) if directorio else None
 
 
 def _juntar_cwd(base, ruta):
@@ -715,24 +742,15 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
     entorno = dict(entorno) if isinstance(entorno, dict) else {}
     # Solo se usan asignaciones visibles antes de la operación, nunca el entorno actual
     # de quien inspecciona una sesión que pudo ocurrir horas antes.
-    for nombre, valor in re.findall(r'\b([A-Za-z_]\w*)=("[^"]*"|\x27[^\x27]*\x27|[^\s;&|()]+)',
-                                    comando[:encaje.start()]):
-        entorno[nombre] = valor.strip('"\x27')
-    for asignacion in re.finditer(r'\b([A-Za-z_]\w*)=(\$\(mktemp\b[^)]*\))',
-                                  comando[:encaje.start()]):
-        nombre = asignacion.group(1)
-        base = _base_mktemp(asignacion.group(2), entorno)
-        if base:
-            entorno[nombre] = base
-        else:
-            entorno.pop(nombre, None)
+    ambitos = [[cwd, entorno]]
+
     def expandir(ruta_cruda):
         if ruta_cruda is None:
             return None
         ruta_expandida = str(ruta_cruda).strip('"\x27')
         if "$(mktemp" in ruta_expandida:
             expresion = re.search(r'\$\(mktemp[^)]*\)', ruta_expandida)
-            base = _base_mktemp(expresion.group(0), entorno) if expresion else None
+            base = _base_mktemp(expresion.group(0), ambitos[-1][1], ambitos[-1][0]) if expresion else None
             if not base:
                 return None
             ruta_expandida = ruta_expandida.replace(expresion.group(0), str(base))
@@ -741,23 +759,32 @@ def _ruta_restaurada(comando, encaje, cwd, entorno):
         def variable(encaje_var):
             nonlocal faltan
             nombre = next(grupo for grupo in encaje_var.groups() if grupo)
-            if nombre not in entorno:
+            if nombre not in ambitos[-1][1]:
                 faltan = True
                 return encaje_var.group(0)
-            return str(entorno[nombre])
+            return str(ambitos[-1][1][nombre])
 
         ruta_expandida = _VARIABLE.sub(variable, ruta_expandida)
         return None if faltan or '$(' in ruta_expandida else ruta_expandida
 
-    ambitos = [cwd]
-    for previo in _AMBITO_SHELL.finditer(comando[:encaje.start()]):
-        if previo.group(0) == "(":
-            ambitos.append(ambitos[-1])
-        elif previo.group(0) == ")" and len(ambitos) > 1:
+    for previo in _PREVIO_SHELL.finditer(comando[:encaje.start()]):
+        if previo.group("nombre"):
+            valor = previo.group("valor")
+            if valor.startswith("$(mktemp"):
+                valor = _base_mktemp(valor, ambitos[-1][1], ambitos[-1][0])
+            else:
+                valor = expandir(valor)
+            if valor is None:
+                ambitos[-1][1].pop(previo.group("nombre"), None)
+            else:
+                ambitos[-1][1][previo.group("nombre")] = valor
+        elif previo.group("abre"):
+            ambitos.append([ambitos[-1][0], dict(ambitos[-1][1])])
+        elif previo.group("cierra") and len(ambitos) > 1:
             ambitos.pop()
         elif previo.group("ruta"):
-            ambitos[-1] = _juntar_cwd(ambitos[-1], expandir(previo.group("ruta")))
-    cwd_orden = ambitos[-1]
+            ambitos[-1][0] = _juntar_cwd(ambitos[-1][0], expandir(previo.group("ruta")))
+    cwd_orden = ambitos[-1][0]
     ruta = (_juntar_cwd(cwd_orden, expandir(encaje.group("ruta")))
             if encaje.group("ruta") else cwd_orden)
     if ruta is None:
