@@ -57,8 +57,7 @@ def bloqueo_registro():
         except ImportError:  # pragma: no cover - rama Windows
             import msvcrt
 
-            if os.fstat(descriptor).st_size == 0:
-                os.write(descriptor, b"0")
+            inicializar = os.fstat(descriptor).st_size == 0
             os.lseek(descriptor, 0, os.SEEK_SET)
             # LK_LOCK abandona a los ~10 s con EDEADLK; varios procesos registrando a
             # la vez pueden esperar más. Se sondea sin bloquear hasta un límite ancho.
@@ -75,6 +74,12 @@ def bloqueo_registro():
                         )
                     time.sleep(0.05)
                     os.lseek(descriptor, 0, os.SEEK_SET)
+
+            # El byte se escribe solo bajo el candado. Otro proceso puede haberlo
+            # creado mientras esperábamos, por lo que se comprueba otra vez.
+            if inicializar and os.fstat(descriptor).st_size == 0:
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                os.write(descriptor, b"0")
 
             def liberar():
                 os.lseek(descriptor, 0, os.SEEK_SET)
@@ -106,7 +111,18 @@ def guardar(datos):
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json.dump(datos, f, ensure_ascii=False, indent=2, sort_keys=True)
             f.write("\n")
-        os.replace(temporal, REGISTRO)
+        limite = time.monotonic() + 2
+        while True:
+            try:
+                os.replace(temporal, REGISTRO)
+                break
+            except OSError as exc:
+                if os.name != "nt" or getattr(exc, "winerror", None) not in (5, 32):
+                    raise
+                restante = limite - time.monotonic()
+                if restante <= 0:
+                    raise
+                time.sleep(min(0.05, restante))
     finally:
         if os.path.exists(temporal):
             os.unlink(temporal)
