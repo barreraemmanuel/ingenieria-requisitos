@@ -881,9 +881,12 @@ def estado_frontmatter(ruta):
     return encontrada.group(1) if encontrada else ""
 
 
-def fecha_iso_valida(valor):
+def fecha_iso_valida(valor, *, con_hora=False):
     try:
-        datetime.date.fromisoformat(valor)
+        if con_hora:
+            datetime.datetime.fromisoformat(valor)
+        else:
+            datetime.date.fromisoformat(valor)
     except (TypeError, ValueError):
         return False
     return True
@@ -1151,7 +1154,7 @@ def validar_proceso_canonico(tipo, ref, terminal, metadata=None):
         if terminal and not (
             recibo.get("estado") == "aprobado"
             and recibo.get("huella") == huella_planos_actual()
-            and fecha_iso_valida(recibo.get("fecha"))
+            and fecha_iso_valida(recibo.get("fecha"), con_hora=True)
             and isinstance(recibo.get("por"), str)
             and recibo.get("por").strip()
         ):

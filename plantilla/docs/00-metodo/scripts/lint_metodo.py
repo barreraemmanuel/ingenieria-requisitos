@@ -524,9 +524,12 @@ def rama_fusionada(repo, rama, principal, metadata):
     return False
 
 
-def fecha_iso_valida(valor):
+def fecha_iso_valida(valor, *, con_hora=False):
     try:
-        datetime.date.fromisoformat(valor)
+        if con_hora:
+            datetime.datetime.fromisoformat(valor)
+        else:
+            datetime.date.fromisoformat(valor)
     except (TypeError, ValueError):
         return False
     return True
@@ -805,7 +808,7 @@ def revisar_cola_peticiones():
                     recibo = {}
                 if recibo.get("estado") != "aprobado" \
                         or recibo.get("huella") != huella_planos_actual() \
-                        or not fecha_iso_valida(recibo.get("fecha")) \
+                        or not fecha_iso_valida(recibo.get("fecha"), con_hora=True) \
                         or not isinstance(recibo.get("por"), str) \
                         or not recibo.get("por").strip():
                     fail(f"{pid}: flujos terminal sin recibo aprobado", id_='flujos-terminal-recibo-aprobado')
