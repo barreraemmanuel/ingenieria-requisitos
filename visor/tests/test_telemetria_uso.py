@@ -38,12 +38,15 @@ def cargar():
 
 class Receptor(http.server.BaseHTTPRequestHandler):
     requests = []
+    observed = []
     digest_correcto = True
     status_code = 200
 
     def do_POST(self):
         body = self.rfile.read(int(self.headers["Content-Length"]))
         self.requests.append(body)
+        self.observed.append({"method": self.command, "path": self.path,
+                              "host": self.headers["Host"], "body": body})
         digest = hashlib.sha256(body).hexdigest()
         self.send_response(self.status_code)
         if self.status_code == 302:
@@ -76,6 +79,7 @@ class TelemetriaUso(unittest.TestCase):
     @contextlib.contextmanager
     def receptor(self):
         Receptor.requests = []
+        Receptor.observed = []
         Receptor.digest_correcto = True
         Receptor.status_code = 200
         server = http.server.ThreadingHTTPServer(("127.0.0.1", 0), Receptor)
@@ -264,9 +268,20 @@ class TelemetriaUso(unittest.TestCase):
             # previa a la caída; reconciliar sólo lee este recibo local.
             connection = http.client.HTTPConnection("127.0.0.1", int(url.split(":")[2].split("/")[0]))
             connection.request("POST", "/uso", body=prepared["cuerpo"])
-            self.assertEqual(connection.getresponse().status, 200)
+            response = connection.getresponse()
+            status = response.status
+            reported = json.loads(response.read())["sha256"]
             connection.close()
             self.assertEqual(Receptor.requests, [prepared["cuerpo"]])
+            captured = Receptor.observed[0]
+            self.assertEqual((captured["method"], captured["path"], status), ("POST", "/uso", 200))
+            self.assertEqual(captured["body"], prepared["cuerpo"])
+            self.assertEqual(reported, hashlib.sha256(captured["body"]).hexdigest())
+            observed = {"schema": "telemetria-recepcion-observada-v1", "metodo": captured["method"],
+                        "http_status": status, "sha256": reported,
+                        "destino": "http://" + captured["host"] + captured["path"],
+                        "cuerpo_base64": base64.b64encode(captured["body"]).decode()}
+            self.assertEqual(observed["destino"], url)
             receipt.write_text(json.dumps(observed))
             result = self.mod.reconciliar(self.repo, prepared["sha256"], receipt)
             self.assertEqual(result["estado"], "compartido")
@@ -274,6 +289,88 @@ class TelemetriaUso(unittest.TestCase):
             with self.assertRaises(ValueError):
                 self.mod.confirmar(self.repo, prepared["sha256"], "si", "sintetico")
             self.assertEqual(Receptor.requests, [prepared["cuerpo"]])
+
+    def test_reconciliar_rechaza_metadata_y_reserva_inconsistentes(self):
+        row = self.evento()
+        source = self.repo / ".runtime/telemetria/eventos.jsonl"
+        first = "http://127.0.0.1:1/first"
+        second = "http://127.0.0.1:2/second"
+        cases = (
+            ("meta-destino", "meta", "destino", second),
+            ("meta-sha", "meta", "sha256", "0" * 64),
+            ("meta-ids", "meta", "ids", [str(uuid.uuid4())]),
+            ("meta-ids-ausentes", "meta", "ids", None),
+            ("meta-schema", "meta", "schema", "otro"),
+            ("reserva-destino", "reserva", "destino", second),
+            ("reserva-destino-ausente", "reserva", "destino", None),
+            ("reserva-sha", "reserva", "sha256", "0" * 64),
+            ("reserva-schema", "reserva", "schema", "otro"),
+            ("observado-sha", "observado", "sha256", "0" * 64),
+            ("observado-destino-ausente", "observado", "destino", None),
+        )
+        for name, which, key, value in cases:
+            with self.subTest(name=name):
+                repo = self.repo / name
+                target = repo / ".runtime/telemetria/eventos.jsonl"
+                target.parent.mkdir(parents=True)
+                shutil.copyfile(source, target)
+                prepared = self.mod.preparar(repo, [row["id"]], first)
+                self.mod.reservar(repo, prepared["sha256"], "sintetico")
+                _, meta_path, reserve_path, receipt_path = self.mod._paths(repo, prepared["sha256"])
+                if which != "observado":
+                    path = meta_path if which == "meta" else reserve_path
+                    state = json.loads(path.read_bytes())
+                    if value is None:
+                        state.pop(key)
+                    else:
+                        state[key] = value
+                    path.write_text(json.dumps(state), encoding="utf-8")
+                # Prueba adversarial incompleta; no hubo HTTP. El destino
+                # observado acompaña la metadata alterada en el caso crítico.
+                observed = {"schema": "telemetria-recepcion-observada-v1", "metodo": "POST",
+                            "http_status": 200, "sha256": prepared["sha256"],
+                            "destino": second if name == "meta-destino" else first,
+                            "cuerpo_base64": base64.b64encode(prepared["cuerpo"]).decode()}
+                if which == "observado":
+                    if value is None:
+                        observed.pop(key)
+                    else:
+                        observed[key] = value
+                observed_path = repo / "observado.json"
+                observed_path.write_text(json.dumps(observed), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    self.mod.reconciliar(repo, prepared["sha256"], observed_path)
+                self.assertFalse(receipt_path.exists())
+
+    def test_reconciliar_rechaza_cuerpo_no_canonico_o_esquema_ajeno(self):
+        row = self.evento()
+        first = "http://127.0.0.1:1/first"
+        prepared = self.mod.preparar(self.repo, [row["id"]], first)
+        self.mod.reservar(self.repo, prepared["sha256"], "sintetico")
+        original_meta = json.loads(self.mod._paths(self.repo, prepared["sha256"])[1].read_bytes())
+        original_reserve = json.loads(self.mod._paths(self.repo, prepared["sha256"])[2].read_bytes())
+        for name, body in (
+            ("no-canonico", json.dumps(json.loads(prepared["cuerpo"]), indent=2).encode()),
+            ("esquema-ajeno", self.mod._canon({**json.loads(prepared["cuerpo"]), "schema": "otro"})),
+            ("campo-privado", self.mod._canon({**json.loads(prepared["cuerpo"]), "secreto": "clienteAcme"})),
+        ):
+            with self.subTest(name=name):
+                repo = self.repo / name
+                digest = hashlib.sha256(body).hexdigest()
+                body_path, meta_path, reserve_path, receipt_path = self.mod._paths(repo, digest)
+                body_path.parent.mkdir(parents=True)
+                reserve_path.parent.mkdir(parents=True)
+                body_path.write_bytes(body)
+                meta_path.write_text(json.dumps({**original_meta, "sha256": digest}), encoding="utf-8")
+                reserve_path.write_text(json.dumps({**original_reserve, "sha256": digest}), encoding="utf-8")
+                observed_path = repo / "observado.json"
+                observed_path.write_text(json.dumps({
+                    "schema": "telemetria-recepcion-observada-v1", "metodo": "POST", "http_status": 200,
+                    "sha256": digest, "destino": first, "cuerpo_base64": base64.b64encode(body).decode(),
+                }), encoding="utf-8")
+                with self.assertRaises(ValueError):
+                    self.mod.reconciliar(repo, digest, observed_path)
+                self.assertFalse(receipt_path.exists())
 
     def test_bootstrap_inventario(self):
         from visor import bootstrap

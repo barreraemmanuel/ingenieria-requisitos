@@ -292,23 +292,47 @@ def reconciliar(repo, digest, observado):
         raise ValueError("no existe entrega incierta para reconciliar")
     try:
         body = body_path.read_bytes()
+        parsed_body = _json(body)
         meta = _json(meta_path.read_bytes())
         reservation = _json(reserve_path.read_bytes())
         observed = _json(Path(observado).read_bytes())
-        if not isinstance(meta, dict) or not isinstance(reservation, dict) or not isinstance(observed, dict):
+        if (not isinstance(parsed_body, dict) or not isinstance(meta, dict)
+                or not isinstance(reservation, dict) or not isinstance(observed, dict)):
             raise ValueError("recibo no es un objeto")
         seen = base64.b64decode(observed["cuerpo_base64"], validate=True)
-        if not isinstance(reservation.get("actor"), str):
-            raise ValueError("reserva incompleta")
+        if (set(parsed_body) != {"schema", "destino", "eventos"}
+                or parsed_body["schema"] != BODY_SCHEMA
+                or not isinstance(parsed_body["eventos"], list)
+                or not 1 <= len(parsed_body["eventos"]) <= MAX_EVENTOS
+                or _canon(parsed_body) != body):
+            raise ValueError("cuerpo no canónico")
+        _destino(parsed_body["destino"])
+        ids = []
+        for event in parsed_body["eventos"]:
+            clean, omitted = _evento(event)
+            if omitted or clean != event:
+                raise ValueError("evento no proyectado")
+            ids.append(clean["id"])
+        if len(set(ids)) != len(ids) or credencial_residual(body.decode("utf-8")):
+            raise ValueError("eventos repetidos o credencial residual")
+        if (set(meta) != {"schema", "sha256", "origen_sha256", "ids", "destino", "estado"}
+                or set(reservation) != {"schema", "sha256", "destino", "actor", "estado"}
+                or meta["schema"] != "telemetria-preparacion-v1"
+                or reservation["schema"] != "telemetria-reserva-v1"
+                or meta["estado"] != "preparado" or reservation["estado"] != "incierto"
+                or meta["ids"] != ids or not isinstance(reservation["actor"], str)
+                or not reservation["actor"].strip()):
+            raise ValueError("preparación o reserva incompleta")
+        _digest(meta["origen_sha256"])
     except (OSError, ValueError, KeyError, TypeError, base64.binascii.Error) as exc:
         raise ValueError("recibo observado incompleto; entrega sigue incierta") from exc
     if (seen != body or _sha(body) != digest or observed.get("sha256") != digest
+            or meta["sha256"] != digest or reservation["sha256"] != digest
             or observed.get("schema") != "telemetria-recepcion-observada-v1"
             or observed.get("metodo") != "POST"
             or type(observed.get("http_status")) is not int
             or not 200 <= observed["http_status"] < 300
-            or observed.get("destino") != meta.get("destino")
-            or reservation.get("sha256") != digest):
+            or not parsed_body["destino"] == meta["destino"] == reservation["destino"] == observed.get("destino")):
         raise ValueError("recibo observado discrepante; entrega sigue incierta")
     receipt = {"schema": "telemetria-recibo-v1", "sha256": digest,
                "destino": meta["destino"], "actor": reservation["actor"],
