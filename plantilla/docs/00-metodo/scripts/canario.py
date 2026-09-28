@@ -726,7 +726,8 @@ def _base_mktemp(expresion, entorno, cwd):
     cuerpo = re.fullmatch(r'\$\(mktemp\b(.*)\)', expresion, re.S)
     if not cuerpo:
         return None
-    palabras = re.findall(r'"[^"]*"|\x27[^\x27]*\x27|\S+', cuerpo.group(1))
+    palabras = re.findall(r'(?:[^\s"\x27]|"[^"]*"|\x27[^\x27]*\x27)+',
+                          cuerpo.group(1))
     plantilla = None
     base_p = None
     base_tmpdir = None
