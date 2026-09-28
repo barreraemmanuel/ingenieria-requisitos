@@ -7,6 +7,7 @@
 """
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -45,6 +46,19 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         return subprocess.run([sys.executable, str(SCRIPT), "--raiz", str(self.raiz)],
                               capture_output=True, text=True, encoding="utf-8")
 
+    def git_local(self, carpeta, *args):
+        return subprocess.run(
+            ["git", "-C", str(carpeta), *args], check=True,
+            capture_output=True, text=True, encoding="utf-8",
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        ).stdout.strip()
+
+    def commit_local(self, carpeta, asunto):
+        self.git_local(carpeta, "-c", "user.name=Test", "-c",
+                       "user.email=test@example.com", "commit", "-q",
+                       "--allow-empty", "-m", asunto)
+        return self.git_local(carpeta, "rev-parse", "HEAD")
+
     def test_la_ficha_de_despliegue_en_archivo_es_un_proceso_deploy_valido(self):
         ref = "docs/05-trabajo/archivo/013-flask-a-django/despliegue.md"
         self.ficha_despliegue(ref)
@@ -77,11 +91,39 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
         datos = json.loads(ruta.read_text(encoding="utf-8"))
         datos["procesos"][0].update(tipo="expres", metadata={"base_sha": "a" * 40})
         ruta.write_text(json.dumps(datos), encoding="utf-8")
-        (self.raiz / "main").mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=self.raiz, check=True)
+        # Ausente y vacío: ambos dejan la comprobación pendiente.
+        for estado in ("ausente", "vacio"):
+            if estado == "vacio":
+                (self.raiz / "main").mkdir()
+            with self.subTest(estado=estado):
+                salida = self.lint()
+                self.assertIn("verificación Git pendiente", salida.stdout)
+                self.assertNotIn("exprés terminal sin cambio fusionado", salida.stdout)
+
+        # El Git padre tiene una rama main real, pero su raíz no es main/.
+        self.git_local(self.raiz, "init", "-q", "-b", "main")
+        self.commit_local(self.raiz, "base ajena")
         salida = self.lint()
         self.assertIn("verificación Git pendiente", salida.stdout)
         self.assertNotIn("exprés terminal sin cambio fusionado", salida.stdout)
+
+        # Con el clon correcto, el squash que cita la petición acredita el cierre.
+        clon = self.raiz / "main"
+        self.git_local(clon, "init", "-q", "-b", "main")
+        base = self.commit_local(clon, "base")
+        self.commit_local(clon, f"expres P-20260101-abcd1234: cambio ({ref})")
+        datos["procesos"][0]["metadata"]["base_sha"] = base
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+        salida = self.lint()
+        self.assertNotIn("verificación Git pendiente", salida.stdout)
+        self.assertNotIn("exprés terminal sin cambio fusionado", salida.stdout)
+
+        # Git disponible vuelve a aplicar el rechazo estricto.
+        datos["procesos"][0]["metadata"]["base_sha"] = "f" * 40
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+        salida = self.lint()
+        self.assertIn("exprés terminal sin cambio fusionado", salida.stdout)
+        self.assertNotIn("verificación Git pendiente", salida.stdout)
 
     def test_identidad_git_exige_raiz_configurada_y_rama_principal(self):
         import importlib.util
@@ -142,9 +184,33 @@ class DeployDeUnidadArchivadaTest(unittest.TestCase):
             "- **Anotado en `conocimiento/plano-deploy.md`:** registro actualizado\n",
             encoding="utf-8",
         )
+        for estado in ("ausente", "vacio"):
+            if estado == "vacio":
+                (self.raiz / "main").mkdir()
+            with self.subTest(estado=estado):
+                salida = self.lint()
+                self.assertIn("verificación Git pendiente", salida.stdout)
+                self.assertNotIn("terminal sin ficha desplegada y completa", salida.stdout)
+
+        self.git_local(self.raiz, "init", "-q", "-b", "main")
+        self.commit_local(self.raiz, "base ajena")
         salida = self.lint()
         self.assertIn("verificación Git pendiente", salida.stdout)
         self.assertNotIn("terminal sin ficha desplegada y completa", salida.stdout)
+
+        clon = self.raiz / "main"
+        self.git_local(clon, "init", "-q", "-b", "main")
+        commit = self.commit_local(clon, "commit desplegado")
+        texto = ruta.read_text(encoding="utf-8")
+        ruta.write_text(texto.replace(sha, commit), encoding="utf-8")
+        salida = self.lint()
+        self.assertNotIn("verificación Git pendiente", salida.stdout)
+        self.assertNotIn("terminal sin ficha desplegada y completa", salida.stdout)
+
+        ruta.write_text(texto, encoding="utf-8")
+        salida = self.lint()
+        self.assertIn("terminal sin ficha desplegada y completa", salida.stdout)
+        self.assertNotIn("verificación Git pendiente", salida.stdout)
 
     def test_carpeta_ajena_sigue_denunciada(self):
         (self.raiz / "docs/05-trabajo/no-es-unidad").mkdir()

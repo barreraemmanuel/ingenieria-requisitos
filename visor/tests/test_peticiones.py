@@ -66,6 +66,13 @@ class PeticionesTest(unittest.TestCase):
             capture_output=True,
         )
 
+    def git_aux(self, carpeta, *args):
+        return subprocess.run(
+            ["git", "-C", str(carpeta), *args], check=True,
+            text=True, encoding="utf-8", capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        ).stdout.strip()
+
     def capturar(self, resumen="Adoptar la guía v5", texto="aplica esta nueva guía"):
         resultado = self.ejecutar(
             "capturar",
@@ -901,19 +908,28 @@ else:
             encoding="utf-8",
         )
 
-        # Un clon ausente (incluso si main/ hereda el Git del workspace) deja
-        # la petición abierta y conserva el diagnóstico documental ya comprobado.
+        # Los tres estados sin clon de código conservan la petición y la ficha.
         (self.ws / "main").rename(self.ws / "codigo-guardado")
+        def comprobar_pendiente(estado):
+            with self.subTest(estado=estado):
+                pendiente = self.ejecutar(
+                    "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
+                    "--ref", "docs/05-trabajo/001-release/despliegue.md",
+                    "--evidencia", "ficha completa y etapa verificada",
+                )
+                self.assertEqual(pendiente.returncode, 1)
+                self.assertIn("verificación Git pendiente", pendiente.stderr)
+                self.assertEqual(self.datos(pid)["estado"], "encaminada")
+                self.assertEqual(self.datos(pid)["procesos"][0]["estado"], "pendiente")
+
+        comprobar_pendiente("ausente")
         (self.ws / "main").mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=self.ws, check=True)
-        pendiente = self.ejecutar(
-            "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
-            "--ref", "docs/05-trabajo/001-release/despliegue.md",
-            "--evidencia", "ficha completa y etapa verificada",
-        )
-        self.assertEqual(pendiente.returncode, 1)
-        self.assertIn("verificación Git pendiente", pendiente.stderr)
-        self.assertEqual(self.datos(pid)["estado"], "encaminada")
+        comprobar_pendiente("vacio")
+        self.git_aux(self.ws, "init", "-q", "-b", "main")
+        self.git_aux(self.ws, "-c", "user.name=Test", "-c",
+                     "user.email=test@example.com", "commit", "-q",
+                     "--allow-empty", "-m", "base ajena")
+        comprobar_pendiente("ajeno")
         (self.ws / "main").rmdir()
         (self.ws / "codigo-guardado").rename(self.ws / "main")
 
@@ -926,6 +942,22 @@ else:
         )
         self.assertEqual(sha_inexistente.returncode, 1)
         self.assertIn("commit/tag existente", sha_inexistente.stderr)
+        self.assertEqual(self.datos(pid)["estado"], "encaminada")
+
+        self.git_aux(self.ws / "main", "checkout", "-q", "-b", "ajena")
+        self.git_aux(self.ws / "main", "-c", "user.name=Test", "-c",
+                     "user.email=test@example.com", "commit", "-q",
+                     "--allow-empty", "-m", "commit fuera de main")
+        sha_ajeno = self.git_aux(self.ws / "main", "rev-parse", "HEAD")
+        self.git_aux(self.ws / "main", "checkout", "-q", "main")
+        ficha.write_text(texto_bueno.replace(self.sha, sha_ajeno), encoding="utf-8")
+        fuera_de_main = self.ejecutar(
+            "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
+            "--ref", "docs/05-trabajo/001-release/despliegue.md",
+            "--evidencia", "commit ajeno a main",
+        )
+        self.assertEqual(fuera_de_main.returncode, 1)
+        self.assertIn("todavía no pertenece a main", fuera_de_main.stderr)
         self.assertEqual(self.datos(pid)["estado"], "encaminada")
         ficha.write_text(texto_bueno, encoding="utf-8")
 
@@ -952,15 +984,48 @@ else:
         ruta = self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json"
         ruta.write_text(json.dumps(datos), encoding="utf-8")
         (self.ws / "main").rename(self.ws / "codigo-guardado")
+        def comprobar_pendiente(estado):
+            with self.subTest(estado=estado):
+                resultado = self.ejecutar("reconciliar", pid, "--revision", "1",
+                                          "--tipo", "expres", "--ref", ref,
+                                          "--evidencia", "afirmación de fusión")
+                self.assertEqual(resultado.returncode, 1)
+                self.assertIn("verificación Git pendiente", resultado.stderr)
+                self.assertEqual(self.datos(pid)["estado"], "encaminada")
+                self.assertEqual(self.datos(pid)["procesos"][0]["estado"], "pendiente")
+
+        comprobar_pendiente("ausente")
         (self.ws / "main").mkdir()
-        subprocess.run(["git", "init", "-q"], cwd=self.ws, check=True)
-        resultado = self.ejecutar("reconciliar", pid, "--revision", "1",
-                                  "--tipo", "expres", "--ref", ref,
-                                  "--evidencia", "afirmación de fusión")
-        self.assertEqual(resultado.returncode, 1)
-        self.assertIn("verificación Git pendiente", resultado.stderr)
+        comprobar_pendiente("vacio")
+        self.git_aux(self.ws, "init", "-q", "-b", "main")
+        self.git_aux(self.ws, "-c", "user.name=Test", "-c",
+                     "user.email=test@example.com", "commit", "-q",
+                     "--allow-empty", "-m", "base ajena")
+        comprobar_pendiente("ajeno")
+        (self.ws / "main").rmdir()
+        (self.ws / "codigo-guardado").rename(self.ws / "main")
+
+        # El clon correcto vuelve a exigir un testigo real de fusión.
+        self.git_aux(self.ws / "main", "-c", "user.name=Test", "-c",
+                     "user.email=test@example.com", "commit", "-q",
+                     "--allow-empty", "-m", "cambio sin testigo")
+        sin_testigo = self.ejecutar("reconciliar", pid, "--revision", "1",
+                                    "--tipo", "expres", "--ref", ref,
+                                    "--evidencia", "fusión alegada")
+        self.assertEqual(sin_testigo.returncode, 1)
+        self.assertIn("no contiene un cambio fusionado", sin_testigo.stderr)
+        self.assertNotIn("verificación Git pendiente", sin_testigo.stderr)
         self.assertEqual(self.datos(pid)["estado"], "encaminada")
-        self.assertEqual(self.datos(pid)["procesos"][0]["estado"], "pendiente")
+
+        self.git_aux(self.ws / "main", "-c", "user.name=Test", "-c",
+                     "user.email=test@example.com", "commit", "-q",
+                     "--allow-empty", "-m", f"expres {pid}: cambio fusionado")
+        reconciliada = self.ejecutar("reconciliar", pid, "--revision", "1",
+                                      "--tipo", "expres", "--ref", ref,
+                                      "--evidencia", "fusión comprobada")
+        self.assertEqual(reconciliada.returncode, 0, reconciliada.stderr)
+        self.assertEqual(self.datos(pid)["estado"], "cerrada")
+        self.assertEqual(self.datos(pid)["procesos"][0]["estado"], "terminal")
 
     def test_deploy_minimo_inventado_no_puede_declararse_entregado(self):
         pid = self.capturar("Desplegar")
