@@ -856,9 +856,11 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False,
             self._via = None
             self._enlace = None
             if es_escritura(pedida) and solo_lectura:
-                return self._json(405, {"error": (
+                self._json(405, {"error": (
                     "esta web se lanzó en solo lectura (--solo-lectura): aquí no se "
                     "aprueba nada. SALIDA: relánzala sin ese flag y vuelve a pulsar")})
+                self._drenar_cuerpo_rechazado()
+                return None
             # Unidad 162: la frontera se comprueba para CUALQUIER método que escriba,
             # no sólo para las rutas de `es_escritura`. Con la web en `0.0.0.0` una
             # ruta nueva que escribiera quedaría abierta a toda la red sin que nadie
@@ -1002,6 +1004,46 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False,
                                  % (", ".join(sobra), ", ".join(sorted(permitidos))))
             return datos
 
+        def _drenar_cuerpo_rechazado(self):
+            """Tras responder 403/405, consume solo el cuerpo crudo y acotado.
+
+            Un cliente lento no retrasa la decisión de permiso. Ninguna lectura
+            nueva comienza tras vencer el plazo de 250 ms.
+            """
+            if self.headers.get_all("Transfer-Encoding") is not None:
+                return
+            largos = self.headers.get_all("Content-Length") or []
+            if len(largos) != 1:
+                return
+            valor = largos[0].strip(" \t")
+            if re.fullmatch(r"[0-9]+", valor) is None:
+                return
+            cifras = valor.lstrip("0") or "0"
+            if len(cifras) > 5:
+                return
+            largo = int(cifras)
+            if largo > 40_000 or largo == 0:
+                return
+
+            plazo = time.monotonic() + 0.250
+            try:
+                anterior = self.connection.gettimeout()
+                try:
+                    while largo:
+                        restante = plazo - time.monotonic()
+                        if restante <= 0:
+                            break
+                        self.connection.settimeout(restante)
+                        trozo = self.rfile.read1(min(largo, 8192))
+                        if not trozo:
+                            break
+                        largo -= len(trozo)
+                finally:
+                    self.connection.settimeout(anterior)
+            except (OSError, ValueError):
+                # La respuesta ya se emitió. Un cuerpo cortado no puede cambiarla.
+                pass
+
         def _cliente(self):
             direccion = getattr(self, "client_address", None)
             return direccion[0] if direccion else "desconocido"
@@ -1078,6 +1120,7 @@ def hacer_handler(workspace, estado=None, planos=None, solo_lectura=False,
             """
             def no(error):
                 self._json(403, {"error": error})
+                self._drenar_cuerpo_rechazado()
                 return True
 
             if not lan:
