@@ -1,4 +1,31 @@
-#!/usr/bin/env python3
+#!/bin/sh
+""":"
+# Git aporta sh también en Windows. Este prólogo es una cadena para Python:
+# sigue siendo posible ejecutar el mismo fichero con sys.executable.
+# Solo rutas absolutas de PATH: ni sus entradas vacías/relativas ni la búsqueda
+# implícita de Windows pueden seleccionar un ejecutable del directorio actual.
+resto=${PATH-}
+while [ -n "$resto" ]; do
+    carpeta=${resto%%:*}
+    case "$resto" in *:*) resto=${resto#*:} ;; *) resto= ;; esac
+    case "$carpeta" in /*) ;; *) continue ;; esac
+    for nombre in python3 python py; do
+        candidato=$carpeta/$nombre
+        # No ejecutar los alias App Installer: incluso la sonda puede abrir Store.
+        case "$candidato" in */[Ww][Ii][Nn][Dd][Oo][Ww][Ss][Aa][Pp][Pp][Ss]/*) continue ;; esac
+        [ -x "$candidato" ] || continue
+        if [ "$nombre" = py ]; then
+            if "$candidato" -3 -I -c 'import sys; sys.exit(sys.version_info < (3, 9))' </dev/null >/dev/null 2>&1; then
+                exec "$candidato" -3 -I "$0" "$@"
+            fi
+        elif "$candidato" -I -c 'import sys; sys.exit(sys.version_info < (3, 9))' </dev/null >/dev/null 2>&1; then
+            exec "$candidato" -I "$0" "$@"
+        fi
+    done
+done
+printf '%s\n' 'PUSH BLOQUEADO: no hay Python 3.9+ funcional en PATH. Instala Python y añade su carpeta absoluta a PATH; vuelve a intentar el push.' >&2
+exit 1
+":"""
 """Hook de git AGNÓSTICO al agente (lo ejecuta git, no el agente): bloquea el push de
 ramas de unidad (NNN-slug) cuya especificación no exista o sea de plantilla.
 

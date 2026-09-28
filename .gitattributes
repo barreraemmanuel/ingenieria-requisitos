@@ -1,0 +1,2 @@
+# El prólogo shell del hook distribuido requiere LF también en Windows.
+plantilla/githooks/pre-push text eol=lf

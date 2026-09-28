@@ -10,6 +10,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -250,6 +251,194 @@ class AvisoPostCierreTest(WorkspaceGitTest):
         with contextlib.redirect_stdout(buffer):
             modulo.avisar_principal_sin_empujar(self.repo, "main")
         return buffer.getvalue()
+
+
+class ArranquePrePushTest(unittest.TestCase):
+    """El fichero distribuido se ejecuta por un shell real, sin simular el hook."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory(prefix="hook con espacios ")
+        self.addCleanup(self.tmp.cleanup)
+        self.base = Path(self.tmp.name)
+        self.hook = self.base / "workspace/.githooks/pre-push"
+        self.hook.parent.mkdir(parents=True)
+        shutil.copy2(HOOK, self.hook)
+        self.cwd = self.base / "directorio actual"
+        self.cwd.mkdir()
+        self.bin = self.base / "interpretes compatibles"
+        self.bin.mkdir()
+        if os.name == "nt":
+            git = Path(shutil.which("git")).resolve()
+            candidatos = [padre / "usr/bin/sh.exe" for padre in git.parents]
+            self.shell = next((str(p) for p in candidatos if p.is_file()), None)
+        else:
+            self.shell = "/bin/sh"
+        self.assertTrue(self.shell, "Esta prueba necesita el sh que utiliza Git")
+        self.log = self.base / "invocaciones.txt"
+
+    @staticmethod
+    def ruta_shell(ruta):
+        texto = Path(ruta).as_posix()
+        return "/" + texto[0].lower() + texto[2:] if os.name == "nt" else texto
+
+    def candidato(self, nombre="python", carpeta=None, modo="compatible"):
+        carpeta = carpeta or self.bin
+        carpeta.mkdir(parents=True, exist_ok=True)
+        ruta = carpeta / nombre
+        texto = "#!/bin/sh\n"
+        texto += "printf '%s\\n' \"$PWD\" \"$@\" >> " + shlex.quote(self.log.as_posix()) + "\n"
+        if modo == "roto":
+            texto += "exit 127\n"
+        else:
+            if nombre == "py":
+                texto += '[ "$1" = -3 ] || exit 99\nshift\n'
+            if modo == "viejo":
+                texto += "exec " + shlex.quote(Path(sys.executable).as_posix())
+                texto += " -I -c 'import sys; sys.version_info=(3,8); exec(sys.argv[1])' \"$3\"\n"
+            else:
+                texto += "exec " + shlex.quote(Path(sys.executable).as_posix()) + ' "$@"\n'
+        ruta.write_bytes(texto.encode("utf-8"))
+        ruta.chmod(ruta.stat().st_mode | 0o111)
+        return ruta
+
+    def ejecutar(self, path, entrada="", args=(), hook=None):
+        # PATH se fija dentro del shell para no depender de la conversión MSYS
+        # del entorno Windows ni de perfiles personales.
+        return subprocess.run(
+            [self.shell, "-c", 'PATH=$1; export PATH; shift; exec /bin/sh "$@"',
+             "arranque", path, str(hook or self.hook), *args],
+            cwd=self.cwd, input=entrada, text=True, encoding="utf-8", errors="replace",
+            capture_output=True, timeout=15,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+
+    def test_python_compatible_sin_python3(self):
+        self.candidato()
+        resultado = self.ejecutar(self.ruta_shell(self.bin))
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_alias_roto_y_version_antigua_no_impiden_fallback(self):
+        for modo in ("roto", "viejo"):
+            with self.subTest(modo=modo):
+                self.candidato("python3", modo=modo)
+                self.candidato()
+                resultado = self.ejecutar(self.ruta_shell(self.bin))
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_launcher_py_recibe_selector_3(self):
+        self.candidato("py")
+        resultado = self.ejecutar(self.ruta_shell(self.bin))
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        self.assertEqual(self.log.read_text(encoding="utf-8").count("\n-3\n"), 2)
+
+    def test_no_ejecuta_alias_store(self):
+        for nombre in ("WindowsApps", "WINDOWSAPPS"):
+            with self.subTest(nombre=nombre):
+                aliases = self.base / nombre
+                self.candidato("python3", aliases, "roto")
+                resultado = self.ejecutar(self.ruta_shell(aliases))
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertFalse(self.log.exists(), "El alias Store no debe ni sondearse")
+                self.assertIn("Instala Python", resultado.stderr)
+
+    def test_sin_compatible_falla_con_salida_concreta(self):
+        self.candidato("python3", modo="viejo")
+        resultado = self.ejecutar(self.ruta_shell(self.bin))
+        self.assertNotEqual(resultado.returncode, 0)
+        self.assertIn("PUSH BLOQUEADO", resultado.stderr)
+        self.assertIn("Python 3.9+", resultado.stderr)
+
+    def test_path_vacio_o_relativo_no_ejecuta_cwd(self):
+        self.candidato("python3", self.cwd)
+        for path in ("", ":", ".", ":.:", "../directorio actual"):
+            with self.subTest(path=path):
+                resultado = self.ejecutar(path)
+                self.assertNotEqual(resultado.returncode, 0)
+                self.assertFalse(self.log.exists(), "No ejecutar Python del cwd")
+
+    def test_conserva_stdin_argumentos_cwd_y_salida(self):
+        self.candidato()
+        linea = "refs/heads/sin-contrato " + "a" * 40 + " refs/heads/sin-contrato " + "0" * 40 + "\n"
+        resultado = self.ejecutar(self.ruta_shell(self.bin), linea, ("origen con espacios", "destino con espacios"))
+        self.assertEqual(resultado.returncode, 1)
+        self.assertIn("rama de trabajo desconocida 'sin-contrato'", resultado.stderr)
+        log = self.log.read_text(encoding="utf-8")
+        self.assertIn("\norigen con espacios\ndestino con espacios\n", log)
+        cwd_shell = subprocess.run([self.shell, "-c", "pwd"], cwd=self.cwd,
+                                   capture_output=True, text=True, check=True,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0)).stdout.strip()
+        self.assertEqual(log.splitlines()[0], cwd_shell)
+        # La sonda no ha consumido referencias; la misma entrada con Python
+        # explícito llega a la misma decisión y conserva esta API histórica.
+        directo = subprocess.run([sys.executable, str(self.hook)], input=linea,
+                                 cwd=self.cwd, text=True, encoding="utf-8", capture_output=True,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+        self.assertEqual((directo.returncode, directo.stderr), (resultado.returncode, resultado.stderr))
+
+    def test_bootstrap_y_actualizacion_distribuyen_hook_autocontenido(self):
+        sys.path.insert(0, str(RAIZ / "visor"))
+        self.addCleanup(sys.path.remove, str(RAIZ / "visor"))
+        bootstrap = cargar("bootstrap_146", BOOTSTRAP)
+        actualizar = cargar("actualizar_146", RAIZ / "visor/actualizar.py")
+        destino = self.base / "copia bootstrap"
+        bootstrap.copiar_arbol(HOOK.parent, destino)
+        esperado, _ = actualizar.contenido_esperado(self.base)
+        publicado = actualizar.preparar_publicado(
+            self.base, [".githooks/pre-push"], [], esperado,
+            {".githooks/pre-push": None}, "", [])
+        contenido, modo = publicado[".githooks/pre-push"]
+        self.assertEqual(modo, 0o755)
+        actualizado = self.base / "copia actualizada"
+        actualizado.write_bytes(contenido)
+        self.candidato()
+        for copia in (destino / "pre-push", actualizado):
+            with self.subTest(copia=copia.name):
+                self.assertEqual(copia.read_text(encoding="utf-8"), HOOK.read_text(encoding="utf-8"))
+                resultado = self.ejecutar(self.ruta_shell(self.bin), hook=copia)
+                self.assertEqual(resultado.returncode, 0, resultado.stderr)
+
+    def test_checkout_autocrlf_conserva_hook_ejecutable_por_git(self):
+        semilla = self.base / "semilla"
+        semilla.mkdir()
+        remoto = self.base / "remoto.git"
+        clon = self.base / "checkout con espacios"
+
+        def git(cwd, *args, ok=True):
+            resultado = subprocess.run(
+                ["git", "-C", str(cwd), *args], capture_output=True, text=True,
+                encoding="utf-8", errors="replace", timeout=15,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            if ok:
+                self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+            return resultado
+
+        git(semilla, "init", "-b", "main")
+        git(semilla, "config", "core.autocrlf", "true")
+        git(semilla, "config", "user.name", "Test")
+        git(semilla, "config", "user.email", "test@example.com")
+        hook = semilla / "plantilla/githooks/pre-push"
+        hook.parent.mkdir(parents=True)
+        shutil.copy2(HOOK, hook)
+        shutil.copy2(RAIZ / ".gitattributes", semilla / ".gitattributes")
+        git(semilla, "add", ".gitattributes", "plantilla/githooks/pre-push")
+        git(semilla, "commit", "-m", "Distribucion real del hook")
+        git(semilla, "init", "--bare", str(remoto))
+        git(semilla, "clone", "-c", "core.autocrlf=true", str(semilla), str(clon))
+        git(clon, "remote", "set-url", "origin", str(remoto))
+        distribuido = clon / "plantilla/githooks/pre-push"
+        self.assertNotIn(b"\r\n", distribuido.read_bytes())
+        distribuido.chmod(distribuido.stat().st_mode | 0o111)
+        git(clon, "config", "core.hooksPath", str(distribuido.parent))
+        # El tag está permitido por el hook; una rama desconocida está vetada.
+        # Ambos pasan por Git, no por sys.executable ni --no-verify.
+        git(clon, "tag", "fixture")
+        git(clon, "push", "origin", "refs/tags/fixture")
+        self.assertEqual(git(remoto, "rev-parse", "refs/tags/fixture").stdout,
+                         git(clon, "rev-parse", "HEAD").stdout)
+        bloqueado = git(clon, "push", "origin", "HEAD:refs/heads/intruso", ok=False)
+        self.assertNotEqual(bloqueado.returncode, 0)
+        self.assertIn("PUSH BLOQUEADO", bloqueado.stderr)
+        self.assertNotEqual(git(remoto, "show-ref", "--verify", "refs/heads/intruso", ok=False).returncode, 0)
 
 
 class HookPostCierreDeadlockTest(WorkspaceGitTest):
