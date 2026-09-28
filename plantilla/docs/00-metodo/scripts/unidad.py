@@ -4069,6 +4069,32 @@ def base_principal(repo, principal):
     return None
 
 
+def punta_borrada_en_reflog(repo, rama):
+    """Última punta observada al salir de una rama ya borrada en este checkout."""
+    codigo, salida = git(repo, "reflog", "show", "HEAD", "--format=%H%x00%gs",
+                         silencioso=True)
+    if codigo:
+        return None
+    entradas = [linea.partition("\x00") for linea in salida.splitlines()]
+    for indice, (base_salida, _, asunto) in enumerate(entradas[:-1]):
+        if not asunto.startswith(f"checkout: moving from {rama} to "):
+            continue
+        punta = sha_de(repo, entradas[indice + 1][0])
+        if not punta:
+            continue
+        base_salida = sha_de(repo, base_salida)
+        if not base_salida:
+            continue
+        codigo, comun = git(repo, "merge-base", base_salida, punta, silencioso=True)
+        if codigo or comun.strip() == punta:
+            continue
+        codigo, cambio = git(repo, "diff", "--quiet", comun.strip(), punta,
+                             silencioso=True)
+        if codigo == 1:
+            return punta
+    return None
+
+
 def rama_mergeada(repo, rama, principal, fusion_declarada=""):
     """(mergeada, motivo, prueba_fuerte, sha). Prueba de que el trabajo está en la principal.
 
@@ -4082,10 +4108,9 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
 
       1. la rama local,
       2. `origin/<rama>` — que ya no se borra en el cierre, justo para esto,
-      3. el SHA que este mismo cierre anotó (`fusion:`) o el que declara `--fusion`,
-      4. como último recurso, un commit de la principal que NOMBRE a la unidad: es la huella
-         que deja un squash merge, donde el commit original no queda como ancestro de nada.
-         Es prueba débil y se dice que lo es; sirve para no bloquear un flujo legítimo.
+      3. el SHA declarado, cotejado con la punta de la rama o su recibo Git,
+      4. tras borrar la rama sin recibo, su última punta observada en el reflog;
+         un squash solo cuenta si main conserva exactamente el mismo árbol.
 
     Sin ninguna de las cuatro, FAIL: cerrar ahí es firmar una entrega que no existe.
     """
@@ -4100,6 +4125,10 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
         problemas, _ = entrega.validar_recuperacion(WORKTREES / rama, rama, recuperacion)
         if problemas:
             return False, problemas[0], False, ""
+    rama_local = sha_de(repo, f"refs/heads/{rama}")
+    rama_remota = sha_de(repo, f"refs/remotes/origin/{rama}")
+    punta_reflog = (punta_borrada_en_reflog(repo, rama)
+                    if not rama_local and not rama_remota and not recuperacion else None)
 
     if fusion_declarada:
         if not re.fullmatch(r"[0-9a-f]{40}", fusion_declarada):
@@ -4109,7 +4138,7 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
             return False, "fusion: el SHA no designa un commit existente", False, ""
         if not es_ancestro(repo, declarado, base):
             return False, "fusion: el commit no está en la rama principal", False, ""
-        rama_declarada = sha_de(repo, f"refs/heads/{rama}") or sha_de(repo, f"refs/remotes/origin/{rama}")
+        rama_declarada = rama_local or rama_remota
         if rama_declarada:
             codigo, arbol_rama = git(repo, "rev-parse", f"{rama_declarada}^{{tree}}", silencioso=True)
             codigo_fusion, arbol_fusion = git(repo, "rev-parse", f"{declarado}^{{tree}}", silencioso=True)
@@ -4125,18 +4154,23 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
                          or (codigo == 0 and arbol_fusion.strip() == datos.get("tree")))):
                 return False, "fusion: commit sin relación verificable con base y rama", False, ""
         if not rama_declarada and not recuperacion:
-            # Históricos sin rama conservan la ruta manual solo si el SHA introduce
-            # contenido. La base sola y los commits vacíos jamás son una entrega.
-            codigo, padre = git(repo, "rev-parse", f"{declarado}^", silencioso=True)
-            if codigo or git(repo, "diff", "--quiet", padre.strip(), declarado,
-                            silencioso=True)[0] != 1:
-                return False, "fusion: el commit no acredita cambios de la unidad", False, ""
+            if not punta_reflog:
+                return False, ("fusion: falta un anclaje Git de la punta de la unidad. "
+                               "SALIDA: recupera la rama con git reflog y acredita su entrega"), False, ""
+            codigo, arbol_punta = git(repo, "rev-parse", f"{punta_reflog}^{{tree}}",
+                                      silencioso=True)
+            codigo_fusion, arbol_fusion = git(repo, "rev-parse", f"{declarado}^{{tree}}",
+                                             silencioso=True)
+            if not (es_ancestro(repo, punta_reflog, declarado)
+                    or (codigo == codigo_fusion == 0
+                        and arbol_punta.strip() == arbol_fusion.strip())):
+                return False, "fusion: el commit no corresponde a la punta borrada de la unidad", False, ""
 
     # Si la rama LOCAL existe, manda ella y nadie más: es la que tiene el trabajo más nuevo.
     # Mirar además `origin/<rama>` aquí bendeciría un cierre con la foto vieja del remoto
     # mientras quedan commits locales sin fusionar. Los otros dos rastros solo entran en juego
     # cuando la rama ya no está, que es justo el agujero que se está tapando.
-    if sha_de(repo, f"refs/heads/{rama}"):
+    if rama_local:
         candidatos = [(f"refs/heads/{rama}", f"la rama {rama}")]
     else:
         candidatos = [(f"refs/remotes/origin/{rama}", f"origin/{rama}")]
@@ -4176,25 +4210,31 @@ def rama_mergeada(repo, rama, principal, fusion_declarada=""):
                               f"{etiqueta}: el trabajo completo está dentro (huella de squash "
                               f"merge), se titulara como se titulara el PR"), True, csha
 
-    # Y como último recurso, la huella DÉBIL del squash: el método exige NNN-slug en el
-    # título del PR, y el squash lo hereda como asunto.
-    codigo, salida = git(repo, "log", base, f"--grep={rama}", "--format=%H %s", "-1",
-                         silencioso=True)
-    if codigo == 0 and salida.strip() and not recuperacion and not sha_de(repo, f"refs/heads/{rama}"):
-        sha, _, asunto = salida.strip().partition(" ")
-        return True, (f"prueba INDIRECTA: {base} tiene «{sha[:8]} {asunto}», que nombra a "
-                      f"{rama} (huella típica de un squash merge). Ninguna referencia de la "
-                      f"unidad es ancestro de {base}"), False, sha
+    # Sin rama ni recibo, el reflog identifica la punta que se dejó al volver a main.
+    # Su árbol debe existir completo en un commit posterior de main; un asunto que
+    # solo mencione la unidad no acredita contenido y no participa en esta puerta.
+    if punta_reflog:
+        codigo, arbol = git(repo, "rev-parse", f"{punta_reflog}^{{tree}}", silencioso=True)
+        codigo_base, comun = git(repo, "merge-base", punta_reflog, base, silencioso=True)
+        if codigo == codigo_base == 0:
+            codigo_log, historial = git(repo, "log", base, f"^{comun.strip()}",
+                                        "--format=%H %T", silencioso=True)
+            if codigo_log == 0:
+                for linea in historial.splitlines():
+                    csha, _, carbol = linea.strip().partition(" ")
+                    if carbol.strip() == arbol.strip():
+                        return True, (f"prueba INDIRECTA contrastada: {csha[:8]} conserva el "
+                                      f"árbol exacto de la punta {punta_reflog[:8]} observada "
+                                      f"en el reflog de {rama}"), False, csha
 
     if vivos:
         etiquetas = " ni ".join(etiqueta for _, etiqueta in vivos)
         return False, (f"{etiquetas} NO está fusionada en {base}: cerrar ahora dejaría el "
                        f"trabajo fuera de la rama principal (que es perderlo)"), False, ""
     return False, (f"no queda NI UNA prueba de que {rama} se fusionara en {base}: ni la rama "
-                   f"local, ni origin/{rama}, ni un 'fusion:' anotado en la ficha, ni un "
-                   f"commit de {base} que la nombre. Una rama que ya no existe NO prueba que "
-                   f"se fusionara: prueba que alguien la borró. Recupérala (git reflog) o, si "
-                   f"sabes con qué commit entró, cierra con --fusion <sha>"), False, ""
+                   f"local, ni origin/{rama}, ni una punta recuperada y cotejada con main. "
+                   f"Una rama que ya no existe NO prueba que se fusionara. SALIDA: recupera "
+                   f"su punta con git reflog, acredita la entrega y vuelve a revisar"), False, ""
 
 
 def anotar_fusion(ruta, sha):

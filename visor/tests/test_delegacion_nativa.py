@@ -516,6 +516,37 @@ class NativoTest(unittest.TestCase):
         self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name,
                                                "main", self.wt.base_head)[0])
 
+    def test_R3_base_con_padre_no_acredita_rama_borrada(self):
+        git(self.wt.ruta, "checkout", "main")
+        (self.wt.ruta / "base-adicional.txt").write_text("preexistente", encoding="utf-8")
+        git(self.wt.ruta, "add", "base-adicional.txt")
+        git(self.wt.ruta, "commit", "-m", "base real no raíz")
+        base = git(self.wt.ruta, "rev-parse", "HEAD").strip()
+        ficha = self.docs / "especificacion.md"
+        ficha.write_text(ficha.read_text().replace(self.wt.base_head, base), encoding="utf-8")
+        git(self.wt.ruta, "checkout", self.name)
+        git(self.wt.ruta, "merge", "--ff-only", "main")
+        head = self.wt.commitear("trabajo que no entra en main")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "branch", "-D", self.name)
+        self.assertNotEqual(base, head)
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", base)[0])
+
+    def test_R3_rama_borrada_fusionada_con_base_no_raiz_exige_testigo_git(self):
+        git(self.wt.ruta, "checkout", "main")
+        (self.wt.ruta / "base-adicional.txt").write_text("preexistente", encoding="utf-8")
+        git(self.wt.ruta, "add", "base-adicional.txt")
+        git(self.wt.ruta, "commit", "-m", "base real no raíz")
+        git(self.wt.ruta, "checkout", self.name)
+        git(self.wt.ruta, "merge", "--ff-only", "main")
+        head = self.wt.commitear("trabajo entregado")
+        git(self.wt.ruta, "checkout", "main")
+        git(self.wt.ruta, "merge", "--ff-only", self.name)
+        git(self.wt.ruta, "branch", "-d", self.name)
+        self.assertTrue(unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)[0])
+        git(self.wt.ruta, "reflog", "expire", "--expire=now", "--all")
+        self.assertFalse(unidad.rama_mergeada(self.wt.ruta, self.name, "main", head)[0])
+
     def test_R2_nativo_posterior_sustituye_recuperacion_antigua_en_cierre(self):
         head = self.wt.commitear()
         self.h.write_text(self.h.read_text().replace("[ ]", "[x]"))
