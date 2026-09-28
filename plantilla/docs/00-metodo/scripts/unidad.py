@@ -2425,18 +2425,13 @@ def _cmd_despachar(args, autoridad, snapshot=None):
                 carril=(fm.get("carril") or "normal").strip(),
                 ejecucion="documental",
                 ficheros=sorted(ficheros_de(fm)),
+                paralelo=not getattr(args, "serie", False),
             )
         except gestion_peticiones.ErrorPeticion as exc:
             fail(f"no pude registrar el despacho documental; no toco la ficha: {exc}")
             return 1
         if getattr(args, "serie", False):
-            try:
-                anotar_serie_en_el_despacho(
-                    revalidar_origenes(fm, proceso=(tipo_proceso, nombre)),
-                    tipo_proceso, nombre)
-                ok("registro de despacho: paralelo: no (--serie)")
-            except gestion_peticiones.ErrorPeticion as exc:
-                warn(f"no pude anotar `paralelo: no` en el registro de despacho: {exc}")
+            ok("registro de despacho: paralelo: no (--serie)")
         marcar_en_obra(ruta, documental=True)
         ok(f"{rel(ruta)}: estado → en_obra · ejecución documental (sin rama ni worktree)")
         print(
@@ -2585,6 +2580,7 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             principal=rama_principal,
             base_ref=base,
             base_motivo=motivo_base,
+            paralelo=not getattr(args, "serie", False),
         )
     except gestion_peticiones.ErrorPeticion as exc:
         git(repo, "worktree", "remove", "--force", str(destino), silencioso=True)
@@ -2593,12 +2589,7 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         return 1
     ok(f"origen de rama registrado: {base_sha[:8]} en {rama_principal}")
     if getattr(args, "serie", False):
-        try:
-            anotar_serie_en_el_despacho(
-                revalidar_origenes(fm, proceso=(tipo_proceso, nombre)), tipo_proceso, nombre)
-            ok("registro de despacho: paralelo: no (--serie, la excepción del ADR-036)")
-        except gestion_peticiones.ErrorPeticion as exc:
-            warn(f"no pude anotar `paralelo: no` en el registro de despacho: {exc}")
+        ok("registro de despacho: paralelo: no (--serie, la excepción del ADR-036)")
     marcar_en_obra(ruta)
     ok(f"{rel(ruta)}: estado → en_obra · actualizado → {HOY}")
 
@@ -2627,32 +2618,6 @@ def _cmd_despachar(args, autoridad, snapshot=None):
           f"    3. python3 {rel(RAIZ / 'docs/00-metodo/scripts/lint_metodo.py')}")
     return 0
 
-
-def anotar_serie_en_el_despacho(referencias, tipo_proceso, nombre):
-    """`paralelo: no` en el registro de despacho: la excepción del ADR-036 deja rastro.
-
-    Desde el ADR-036 el paralelismo es el defecto, así que lo que hay que poder auditar
-    después no es quién paralelizó, sino quién pidió ir de UNO EN UNO y sobre qué. Se
-    escribe donde el cierre ya mira —la metadata del proceso, dentro de su petición— y no
-    en el frontmatter, que lo teclea el mismo agente al que las puertas vigilan.
-
-    Usa el cerrojo y el cargar/guardar de `peticion.py` en vez de una API propia: el
-    despacho ya escribió ahí hace dos líneas, y duplicar el fichero de peticiones con otro
-    mecanismo sería inventarse un segundo camino a la misma verdad. Un fallo aquí NO
-    deshace el despacho: la rama y el worktree ya existen, y perder la nota es más barato
-    que dejar el entorno a medias — se avisa y se sigue.
-    """
-    for pid, revision in gestion_peticiones.parsear_referencias(referencias):
-        with gestion_peticiones.lock(pid):
-            datos = gestion_peticiones.cargar(pid)
-            tocado = False
-            for proceso in datos.get("procesos", []):
-                if (proceso.get("tipo") == tipo_proceso and proceso.get("ref") == nombre
-                        and proceso.get("revision") == revision):
-                    proceso.setdefault("metadata", {})["paralelo"] = "no"
-                    tocado = True
-            if tocado:
-                gestion_peticiones.guardar(datos)
 
 
 def encargo_subagente_del_padre(nombre, fm, destino, ruta_ficha):

@@ -94,6 +94,93 @@ class PeticionesTest(unittest.TestCase):
         ruta = self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json"
         return json.loads(ruta.read_text(encoding="utf-8"))
 
+    def test_registrar_despacho_en_serie_escribe_metadata_en_la_misma_operacion(self):
+        pid = self.capturar("Despacho en serie")
+        self.evaluar_ninguna(pid)
+        self.unidad("001-serie", peticiones=pid)
+        enlace = self.ejecutar("enlazar", pid, "--tipo", "unidad", "--ref", "001-serie")
+        self.assertEqual(enlace.returncode, 0, enlace.stderr)
+        codigo = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(self.script.parent)!r})\n"
+            "import peticion\n"
+            f"peticion.registrar_despacho(['{pid}@1'], 'unidad', '001-serie', "
+            "carril='normal', ejecucion='documental', ficheros=[], paralelo=False)\n"
+        )
+        resultado = subprocess.run(
+            [sys.executable, "-c", codigo], cwd=self.ws, text=True,
+            encoding="utf-8", capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        metadata = self.datos(pid)["procesos"][0]["metadata"]
+        self.assertEqual(metadata["paralelo"], "no")
+        self.assertEqual(metadata["carril"], "normal")
+
+    def test_registrar_despacho_ordinario_no_agrega_paralelo(self):
+        pid = self.capturar("Despacho ordinario")
+        self.evaluar_ninguna(pid)
+        self.unidad("001-ordinaria", peticiones=pid)
+        enlace = self.ejecutar("enlazar", pid, "--tipo", "unidad", "--ref", "001-ordinaria")
+        self.assertEqual(enlace.returncode, 0, enlace.stderr)
+        codigo = (
+            "import sys\n"
+            f"sys.path.insert(0, {str(self.script.parent)!r})\n"
+            "import peticion\n"
+            f"peticion.registrar_despacho(['{pid}@1'], 'unidad', '001-ordinaria', "
+            "carril='normal', ejecucion='documental', ficheros=[])\n"
+        )
+        resultado = subprocess.run(
+            [sys.executable, "-c", codigo], cwd=self.ws, text=True,
+            encoding="utf-8", capture_output=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        self.assertNotIn("paralelo", self.datos(pid)["procesos"][0]["metadata"])
+
+    def test_reencuadrar_orden_conserva_metadata_y_el_proceso_historico(self):
+        pid = self.capturar("Reencuadre")
+        self.evaluar_ninguna(pid)
+        self.unidad("001-reencuadre", peticiones=pid)
+        enlace = self.ejecutar("enlazar", pid, "--tipo", "unidad", "--ref", "001-reencuadre")
+        self.assertEqual(enlace.returncode, 0, enlace.stderr)
+        ruta = self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json"
+        datos = self.datos(pid)
+        metadata = {
+            "carril": "normal", "ejecucion": "documental", "ficheros": [],
+            "base_sha": self.sha, "principal": "main", "base_ref": "main",
+            "base_motivo": "base local", "otro": "conservar",
+        }
+        datos["procesos"][0]["metadata"] = metadata
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+        aclarada = self.ejecutar("aclarar", pid, "--texto", "Cambio material", "--autor", "Nate")
+        self.assertEqual(aclarada.returncode, 0, aclarada.stderr)
+        self.evaluar_ninguna(pid)
+        for presente in (False, True):
+            datos = self.datos(pid)
+            anterior = datos["procesos"][0]
+            if presente:
+                anterior["metadata"]["paralelo"] = "no"
+            ruta.write_text(json.dumps(datos), encoding="utf-8")
+            resultado = self.ejecutar(
+                "reencuadrar-orden", pid, "--desde-revision", "1",
+                "--tipo", "unidad", "--ref", "001-reencuadre",
+            )
+            self.assertEqual(resultado.returncode, 0, resultado.stderr)
+            procesos = self.datos(pid)["procesos"]
+            esperado = {**metadata, **({"paralelo": "no"} if presente else {})}
+            self.assertEqual(procesos[0]["metadata"], esperado)
+            self.assertEqual(procesos[1]["metadata"], esperado)
+            self.assertEqual(procesos[0]["estado"], "sustituido")
+            if not presente:
+                # Restaurar solo el fixture para cubrir ambas formas de metadata.
+                datos = self.datos(pid)
+                datos["procesos"] = [datos["procesos"][0]]
+                datos["procesos"][0]["estado"] = "pendiente"
+                ruta.write_text(json.dumps(datos), encoding="utf-8")
+                ficha = self.ws / "docs/05-trabajo/001-reencuadre/especificacion.md"
+                ficha.write_text(ficha.read_text(encoding="utf-8").replace(f"{pid}@2", f"{pid}@1"), encoding="utf-8")
+
     def unidad(self, nombre, estado="planificada", peticiones=None):
         ruta = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
         ruta.parent.mkdir(parents=True, exist_ok=True)

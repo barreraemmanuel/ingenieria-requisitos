@@ -661,7 +661,8 @@ def enlazar_procesos(referencias, tipo, ref, relacion="satisface",
 
 
 def registrar_despacho(referencias, tipo, ref, *, carril, ejecucion, ficheros,
-                      base_sha=None, principal=None, base_ref=None, base_motivo=None):
+                      base_sha=None, principal=None, base_ref=None, base_motivo=None,
+                      paralelo=True):
     """Escribe en la petición TODO lo que el despacho decidió sobre este proceso.
 
     Fija de qué principal nació la rama —el pre-push lo usa para distinguir una rama creada
@@ -684,6 +685,8 @@ def registrar_despacho(referencias, tipo, ref, *, carril, ejecucion, ficheros,
         "ejecucion": (ejecucion or "").strip().lower(),
         "ficheros": [str(ruta).strip() for ruta in (ficheros or []) if str(ruta).strip()],
     }
+    if not paralelo:
+        registro["paralelo"] = "no"
     if base_sha is not None:
         repo, principal_configurada = repo_codigo()
         if principal != principal_configurada:

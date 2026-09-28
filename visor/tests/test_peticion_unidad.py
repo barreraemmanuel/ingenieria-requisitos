@@ -952,6 +952,27 @@ class PeticionUnidadTest(unittest.TestCase):
         self.assertTrue(procesos, datos)
         self.assertEqual((procesos[0].get("metadata") or {}).get("paralelo"), "no", procesos)
 
+    def test_documental_en_serie_registra_paralelo_no(self):
+        nombre = self.preparar_bug_aprobado(
+            "documental-serie", ficheros=["docs/00-metodo/runbooks/bug.md"]
+        )
+        ficha = (self.ws / "docs/bugs" / f"{nombre}.md").read_text(encoding="utf-8")
+        pid = re.search(r"P-\d{8}-[a-f0-9]{8}", ficha).group(0)
+
+        resultado = self.ejecutar(
+            self.unidad, "despachar", nombre, "--documental", "--serie"
+        )
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        datos = json.loads(
+            (self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json")
+            .read_text(encoding="utf-8")
+        )
+        proceso = next(p for p in datos["procesos"] if p.get("ref") == nombre)
+        self.assertEqual(proceso["metadata"]["paralelo"], "no")
+        self.assertEqual(proceso["metadata"]["ejecucion"], "documental")
+        self.assertIn("registro de despacho: paralelo: no", resultado.stdout)
+
     def test_fichero_compartido_bloquea_tambien_sin_flags(self):
         """099 R2: el defecto en paralelo NO relaja el cruce de `ficheros:` — sigue
         bloqueando, y nombra la otra unidad y el fichero compartido."""
