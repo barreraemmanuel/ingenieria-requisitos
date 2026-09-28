@@ -536,7 +536,8 @@ class ServidoPorLosCuatroTest(unittest.TestCase):
         """081: ya no hay cuatro servidores que puedan servir cuatro hojas
         distintas. Hay uno, y `/base.css` es la misma para los cuatro
         apartados — que es lo que la 076 quería asegurar."""
-        esperado = BASE_CSS.read_text(encoding="utf-8")
+        # HTTP conserva los bytes: la referencia tampoco convierte CRLF en LF.
+        esperado = BASE_CSS.read_bytes().decode("utf-8")
         respuesta, puerto = self._arrancar(
             ["web/servir.py", "--workspace", str(self._workspace())])
         self.assertEqual(esperado, self._comprobar(respuesta),
