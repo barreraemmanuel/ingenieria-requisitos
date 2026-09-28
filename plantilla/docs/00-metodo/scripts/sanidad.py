@@ -556,7 +556,7 @@ def eje_papeles(ctx):
 # -------------------------------------------------------------- 4 · rutas (meta)
 
 RE_RUTA = re.compile(
-    r"(?<![\w./-])((?:docs|main|scripts)/[\w.@+-]+(?:/[\w.@+-]+)*\.[A-Za-z0-9]{1,6})"
+    r"(?<![\w./-])((?:docs|main|scripts)/[\w.@+-]+(?:/[\w.@+-]+)*\.[A-Za-z0-9]+)"
 )
 FORMULARIO = ("NNN", "AAAA", "nnn", "<", ">", "*", "?", "slug", "MM-DD")
 

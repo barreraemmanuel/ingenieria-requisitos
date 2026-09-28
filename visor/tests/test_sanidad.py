@@ -599,6 +599,23 @@ class AtrasoTest(BaseSanidad):
 class FalsosPositivosTest(BaseSanidad):
     """R8: precisión antes que volumen. Ninguno de estos sale con confianza alta."""
 
+    def test_rutas_con_extension_larga_y_puntuacion_se_extraen_completas(self):
+        rutas = ["main/.env.example", "main/corto.py"]
+        rutas.extend("main/fichero." + "x" * n for n in (16, 17, 40))
+        citas = []
+        for ruta in rutas:
+            self.w.escribir(ruta, "ejemplo sintético\n")
+            citas.extend((f"`{ruta}`", f"[ejemplo]({ruta})", f'"{ruta}"',
+                          f"Existe {ruta}.", f"Existe {ruta},", f"Existe {ruta};"))
+        ausente = "main/ausente.extensionrealmentelarga"
+        citas.append(f"Falta `{ausente}`.")
+        self.w.escribir("docs/conocimiento/rutas.md", "\n".join(citas))
+        resultado = self.w.correr("medir", "--eje", "rutas", "--json")
+        self.assertEqual(resultado.returncode, 0, resultado.stderr)
+        fila = self.w.eje(json.loads(resultado.stdout), "rutas")
+        self.assertEqual(fila["valor"], 1, fila["hallazgos"])
+        self.assertIn(ausente, str(fila["hallazgos"]))
+
     def hallazgos_altos(self, informe, eje):
         return [h for h in self.w.eje(informe, eje)["hallazgos"]
                 if h["confianza"] == "alta"]
