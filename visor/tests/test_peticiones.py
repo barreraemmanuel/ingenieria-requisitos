@@ -901,6 +901,34 @@ else:
             encoding="utf-8",
         )
 
+        # Un clon ausente (incluso si main/ hereda el Git del workspace) deja
+        # la petición abierta y conserva el diagnóstico documental ya comprobado.
+        (self.ws / "main").rename(self.ws / "codigo-guardado")
+        (self.ws / "main").mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.ws, check=True)
+        pendiente = self.ejecutar(
+            "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
+            "--ref", "docs/05-trabajo/001-release/despliegue.md",
+            "--evidencia", "ficha completa y etapa verificada",
+        )
+        self.assertEqual(pendiente.returncode, 1)
+        self.assertIn("verificación Git pendiente", pendiente.stderr)
+        self.assertEqual(self.datos(pid)["estado"], "encaminada")
+        (self.ws / "main").rmdir()
+        (self.ws / "codigo-guardado").rename(self.ws / "main")
+
+        texto_bueno = ficha.read_text(encoding="utf-8")
+        ficha.write_text(texto_bueno.replace(self.sha, "f" * 40), encoding="utf-8")
+        sha_inexistente = self.ejecutar(
+            "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
+            "--ref", "docs/05-trabajo/001-release/despliegue.md",
+            "--evidencia", "commit declarado en ficha",
+        )
+        self.assertEqual(sha_inexistente.returncode, 1)
+        self.assertIn("commit/tag existente", sha_inexistente.stderr)
+        self.assertEqual(self.datos(pid)["estado"], "encaminada")
+        ficha.write_text(texto_bueno, encoding="utf-8")
+
         completada = self.ejecutar(
             "reconciliar", pid, "--revision", "1", "--tipo", "deploy",
             "--ref", "docs/05-trabajo/001-release/despliegue.md",
@@ -909,6 +937,30 @@ else:
 
         self.assertEqual(completada.returncode, 0, completada.stderr)
         self.assertEqual(self.datos(pid)["estado"], "cerrada")
+
+    def test_expres_sin_clon_no_reconcilia_ni_confunde_git_padre(self):
+        pid = self.capturar("Cambiar texto")
+        ref = f"expres-{pid}-texto"
+        datos = self.datos(pid)
+        datos["estado"] = "encaminada"
+        datos["procesos"] = [{
+            "tipo": "expres", "ref": ref, "revision": 1,
+            "relacion": "satisface", "estado": "pendiente",
+            "contrato_terminal": "rama-expres-v1",
+            "metadata": {"base_sha": self.sha},
+        }]
+        ruta = self.ws / "docs/05-trabajo/peticiones" / pid / "peticion.json"
+        ruta.write_text(json.dumps(datos), encoding="utf-8")
+        (self.ws / "main").rename(self.ws / "codigo-guardado")
+        (self.ws / "main").mkdir()
+        subprocess.run(["git", "init", "-q"], cwd=self.ws, check=True)
+        resultado = self.ejecutar("reconciliar", pid, "--revision", "1",
+                                  "--tipo", "expres", "--ref", ref,
+                                  "--evidencia", "afirmación de fusión")
+        self.assertEqual(resultado.returncode, 1)
+        self.assertIn("verificación Git pendiente", resultado.stderr)
+        self.assertEqual(self.datos(pid)["estado"], "encaminada")
+        self.assertEqual(self.datos(pid)["procesos"][0]["estado"], "pendiente")
 
     def test_deploy_minimo_inventado_no_puede_declararse_entregado(self):
         pid = self.capturar("Desplegar")

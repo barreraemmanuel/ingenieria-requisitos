@@ -379,3 +379,27 @@ def repo_code(workspace, *, require_file=False):
     if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._/-]*", branch) or ".." in branch.split("/"):
         raise RepoConfigError("repos.yaml: rama_principal inválida")
     return canonical_local_path(root, raw_path.rstrip("/")), branch
+
+
+def clon_codigo_disponible(repo, principal):
+    """El Git de la ruta configurada es suyo y tiene la rama principal local."""
+    ruta = Path(repo).resolve()
+    if not ruta.is_dir():
+        return False
+    try:
+        cima = subprocess.run(
+            ["git", "-C", str(ruta), "rev-parse", "--show-toplevel"],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            check=False, creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        if cima.returncode or Path(cima.stdout.strip()).resolve() != ruta:
+            return False
+        rama = subprocess.run(
+            ["git", "-C", str(ruta), "rev-parse", "--verify", "--quiet",
+             f"refs/heads/{principal}^{{commit}}"],
+            capture_output=True, check=False,
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        return rama.returncode == 0
+    except OSError:
+        return False

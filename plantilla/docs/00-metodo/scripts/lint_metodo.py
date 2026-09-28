@@ -558,7 +558,7 @@ def campos_ficha_deploy(texto):
     return campos
 
 
-def ficha_deploy_terminal_valida(ruta):
+def ficha_deploy_terminal_valida(ruta, *, comprobar_git=True):
     fm = frontmatter(ruta) or {}
     texto = ruta.read_text(encoding="utf-8")
     if fm.get("proceso") != "deploy" or fm.get("estado") != "desplegado":
@@ -574,9 +574,7 @@ def ficha_deploy_terminal_valida(ruta):
         return False
     commit = fm.get("commit", "")
     repo, principal = repo_codigo()
-    if not commit or git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")[0]:
-        return False
-    if git(repo, "merge-base", "--is-ancestor", commit, principal)[0] != 0:
+    if not commit:
         return False
     ok_previo = re.match(
         r"OK\s*\((\d{4}-\d{2}-\d{2}),\s*([^)]+)\)",
@@ -586,7 +584,7 @@ def ficha_deploy_terminal_valida(ruta):
         r"OK\s*\((\d{4}-\d{2}-\d{2})\)",
         campos["Validación del usuario sobre la etapa desplegada"],
     )
-    return bool(
+    documental = bool(
         re.match(rf"{re.escape(commit)}\b", campos["Commit/tag"])
         and ok_previo and fecha_iso_valida(ok_previo.group(1)) and ok_previo.group(2).strip()
         and re.match(r"VERDE\b.*\.runtime/pre-deploy/full-suite\.log", campos["Suite completa sobre este commit"])
@@ -595,6 +593,10 @@ def ficha_deploy_terminal_valida(ruta):
         and campos["Resultado"].startswith("DESPLEGADO")
         and re.search(r"\b\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\b", campos["Quién y cuándo"])
     )
+    if not documental or not comprobar_git:
+        return documental
+    return (git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")[0] == 0
+            and git(repo, "merge-base", "--is-ancestor", commit, principal)[0] == 0)
 
 
 def frontmatter(path):
@@ -799,8 +801,12 @@ def revisar_cola_peticiones():
                         f"{fm.get('estado') or 'sin estado'}", id_='proceso-terminal-pero-artefacto-estado-estado'
                     )
             if proceso.get("estado") == "terminal" and tipo == "deploy" and canonica:
-                if not ficha_deploy_terminal_valida(canonica):
+                repo, principal = repo_codigo()
+                disponible = repo_config.clon_codigo_disponible(repo, principal)
+                if not ficha_deploy_terminal_valida(canonica, comprobar_git=disponible):
                     fail(f"{pid}: deploy {ref} terminal sin ficha desplegada y completa", id_='deploy-terminal-ficha-desplegada-completa')
+                elif not disponible:
+                    warn(f"{pid}: deploy {ref}: verificación Git pendiente; falta el clon de código configurado", id_='deploy-terminal-git-pendiente')
             if proceso.get("estado") == "terminal" and tipo == "flujos" and canonica:
                 try:
                     recibo = json.loads(canonica.read_text(encoding="utf-8"))
@@ -843,7 +849,9 @@ def revisar_cola_peticiones():
             if proceso.get("estado") == "terminal" and tipo == "expres":
                 repo, principal = repo_codigo()
                 metadata = proceso.get("metadata") or {}
-                if not rama_fusionada(repo, ref, principal, metadata):
+                if not repo_config.clon_codigo_disponible(repo, principal):
+                    warn(f"{pid}: exprés {ref}: verificación Git pendiente; falta el clon de código configurado", id_='expres-terminal-git-pendiente')
+                elif not rama_fusionada(repo, ref, principal, metadata):
                     fail(f"{pid}: exprés terminal sin cambio fusionado en {principal}", id_='expres-terminal-cambio-fusionado')
         abiertos = [
             proceso.get("ref", "?")
@@ -1194,7 +1202,7 @@ elif not wt:
 # todo el código sin commitear dentro de su worktree, que es la única forma de perder trabajo
 # de verdad (nada más lo respalda). Estas dos comprobaciones cruzan las dos señales con git.
 repo_cod, rama_principal = repo_codigo()
-hay_repo = git(repo_cod, "rev-parse", "--is-inside-work-tree")[0] == 0
+hay_repo = repo_config.clon_codigo_disponible(repo_cod, rama_principal)
 for nombre in sorted(en_obra):
     estado_unidad = unidades[nombre].get("estado")
     if nombre in wt:

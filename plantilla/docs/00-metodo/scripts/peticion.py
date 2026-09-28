@@ -1013,11 +1013,8 @@ def validar_ficha_deploy_terminal(ruta):
     if not fecha_iso_valida(fecha):
         raise ErrorPeticion("la ficha de deploy no declara una fecha válida")
     commit = valor_frontmatter(ruta, "commit")
-    repo, principal = repo_codigo()
-    if not commit or git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")[0]:
-        raise ErrorPeticion("la ficha de deploy no referencia un commit/tag existente")
-    if git(repo, "merge-base", "--is-ancestor", commit, principal)[0] != 0:
-        raise ErrorPeticion(f"el commit desplegado todavía no pertenece a {principal}")
+    if not commit:
+        raise ErrorPeticion("la ficha de deploy no referencia un commit/tag")
     if re.search(r"<[^>]+>|PENDIENTE|DESPLEGADO\s*\|", texto):
         raise ErrorPeticion("la ficha de deploy conserva huecos o decisiones pendientes")
     campos = campos_ficha_deploy(texto)
@@ -1051,6 +1048,13 @@ def validar_ficha_deploy_terminal(ruta):
         raise ErrorPeticion("la ficha de deploy no declara resultado DESPLEGADO")
     if not re.search(r"\b\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}\b", campos["Quién y cuándo"]):
         raise ErrorPeticion("la ficha no identifica quién desplegó y cuándo")
+    repo, principal = repo_codigo()
+    if not repo_config.clon_codigo_disponible(repo, principal):
+        raise ErrorPeticion("verificación Git pendiente: falta el clon de código configurado")
+    if git(repo, "rev-parse", "--verify", "--quiet", f"{commit}^{{commit}}")[0]:
+        raise ErrorPeticion("la ficha de deploy no referencia un commit/tag existente")
+    if git(repo, "merge-base", "--is-ancestor", commit, principal)[0] != 0:
+        raise ErrorPeticion(f"el commit desplegado todavía no pertenece a {principal}")
     return True
 
 
@@ -1134,6 +1138,8 @@ def validar_enlace_canonico(tipo, ruta, pid, revision):
 def validar_proceso_canonico(tipo, ref, terminal, metadata=None):
     if tipo == "expres" and terminal:
         repo, principal = repo_codigo()
+        if not repo_config.clon_codigo_disponible(repo, principal):
+            raise ErrorPeticion("verificación Git pendiente: falta el clon de código configurado")
         if evidencia_rama_fusionada(repo, ref, principal, metadata) is None:
             raise ErrorPeticion(
                 f"la rama exprés {ref} todavía no está fusionada en {principal}"
@@ -1309,6 +1315,8 @@ def reconciliar_ids(referencias, tipo, ref, evidencia):
             raise ErrorPeticion("la evidencia terminal no puede estar vacía")
         if tipo == "expres":
             repo, principal = repo_codigo()
+            if not repo_config.clon_codigo_disponible(repo, principal):
+                raise ErrorPeticion("verificación Git pendiente: falta el clon de código configurado")
             for _, proceso in lote:
                 prueba = evidencia_rama_fusionada(
                     repo, ref, principal, proceso.get("metadata") or {}
