@@ -76,8 +76,17 @@ def bundle_planos(mapa):
 
 
 def huella_bundle(bundle):
+    # Congelar solo cambia la fase del mismo contenido aprobado. Copiar para
+    # conservar el bundle original que se guarda en el historial.
+    canonico = {}
+    for nombre, datos in bundle.items():
+        if isinstance(datos, dict) and isinstance(datos.get("definicion"), dict) \
+                and datos["definicion"].get("estado") == "congelado":
+            datos = dict(datos)
+            datos["definicion"] = dict(datos["definicion"], estado="aprobado")
+        canonico[nombre] = datos
     bruto = json.dumps(
-        bundle,
+        canonico,
         ensure_ascii=False,
         sort_keys=True,
         separators=(",", ":"),

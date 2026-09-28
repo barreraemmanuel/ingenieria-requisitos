@@ -1204,6 +1204,12 @@ def huella_planos_actual():
             )
             for ruta in rutas
         }
+        for nombre, datos in bundle.items():
+            if isinstance(datos, dict) and isinstance(datos.get("definicion"), dict) \
+                    and datos["definicion"].get("estado") == "congelado":
+                datos = dict(datos)
+                datos["definicion"] = dict(datos["definicion"], estado="aprobado")
+                bundle[nombre] = datos
     except (OSError, KeyError, TypeError, json.JSONDecodeError) as exc:
         raise ErrorPeticion(f"no puedo calcular la huella vigente de los planos: {exc}") from exc
     bruto = json.dumps(

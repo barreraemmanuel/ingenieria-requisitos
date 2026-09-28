@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 RAIZ = Path(__file__).resolve().parents[2]
@@ -1123,6 +1124,102 @@ else:
         )
 
         self.assertEqual(vigente.returncode, 0, vigente.stderr)
+
+    def test_recibo_emitido_antes_de_congelar_reconcilia_y_detecta_cambio_real(self):
+        sys.path.insert(0, str(RAIZ / "visor"))
+        self.addCleanup(lambda: sys.path.remove(str(RAIZ / "visor")))
+        import finalizar
+        import revision
+
+        pid = self.capturar("Aprobar planos y congelar")
+        evaluada = self.ejecutar(
+            "evaluar", pid, "--ruta", "flujos", "--investigacion", "ninguna",
+            "--motivo", "validar los planos", "--flujo", "REC-1",
+            "--huella-flujo", "planos-v1", "--sha", self.sha,
+            "--ruta-codigo", "app/terminal.py", "--conocimiento",
+            "docs/decisiones/004-paleta.md",
+        )
+        self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
+        planos = self.ws / "docs/02-flujos/planos"
+        actividad = planos / "actividades/lista/planos.json"
+        actividad.parent.mkdir(parents=True)
+        mapa = planos / "planos.json"
+        mapa.write_text(json.dumps({
+            "definicion": {"estado": "borrador"},
+            "actividades": [{"id": "lista", "estado": "especificada"}],
+        }), encoding="utf-8")
+        actividad.write_text(json.dumps({
+            "definicion": {"estado": "borrador"},
+            "requisitos": [{"id": "R-1", "texto": "Lista visible"}],
+        }), encoding="utf-8")
+        with patch.object(revision, "estado_revision", return_value={
+            "feedback_pendiente": 0, "validacion": {"valido": True, "errores": []},
+        }), patch.object(revision, "ejecutar_validador", return_value={
+            "valido": True, "errores": [],
+        }), patch.object(revision, "exigir_visor_visto"):
+            recibo = revision.aprobar(mapa, "Actor sintético 133")
+        ref = "docs/02-flujos/planos/aprobacion.json"
+        original = (planos / "aprobacion.json").read_bytes()
+        enlace = self.ejecutar("enlazar", pid, "--tipo", "flujos", "--ref", ref)
+        self.assertEqual(enlace.returncode, 0, enlace.stderr)
+        finalizar.congelar_planos(mapa)
+        vigente = self.ejecutar(
+            "reconciliar", pid, "--revision", "1", "--tipo", "flujos",
+            "--ref", ref, "--evidencia", "recibo sintético 133",
+        )
+        self.assertEqual(vigente.returncode, 0, vigente.stderr)
+        self.assertEqual((planos / "aprobacion.json").read_bytes(), original)
+        self.assertEqual(recibo["por"], "Actor sintético 133")
+        lint_vigente = subprocess.run(
+            [sys.executable, str(SCRIPTS / "lint_metodo.py"), "--raiz", str(self.ws)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        self.assertNotIn("flujos terminal sin recibo aprobado", lint_vigente.stdout)
+        datos = json.loads(actividad.read_text(encoding="utf-8"))
+        datos["requisitos"][0]["texto"] = "Lista oculta"
+        actividad.write_text(json.dumps(datos), encoding="utf-8")
+        otro = self.capturar("Comprobar aprobación tras cambio")
+        huella_actual = self.ejecutar("huella-planos").stdout.strip()
+        evaluada = self.ejecutar(
+            "evaluar", otro, "--ruta", "flujos", "--investigacion", "ninguna",
+            "--motivo", "validar los planos", "--flujo", "REC-1",
+            "--huella-flujo", huella_actual, "--sha", self.sha,
+            "--ruta-codigo", "app/terminal.py", "--conocimiento",
+            "docs/decisiones/004-paleta.md",
+        )
+        self.assertEqual(evaluada.returncode, 0, evaluada.stderr)
+        enlace = self.ejecutar("enlazar", otro, "--tipo", "flujos", "--ref", ref)
+        self.assertEqual(enlace.returncode, 0, enlace.stderr)
+        obsoleto = self.ejecutar(
+            "reconciliar", otro, "--revision", "1", "--tipo", "flujos",
+            "--ref", ref, "--evidencia", "recibo obsoleto",
+        )
+        self.assertEqual(obsoleto.returncode, 1)
+        self.assertIn("no acredita aprobación vigente", obsoleto.stderr)
+        lint = subprocess.run(
+            [sys.executable, str(SCRIPTS / "lint_metodo.py"), "--raiz", str(self.ws)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        self.assertIn("flujos terminal sin recibo aprobado", lint.stdout)
+        self.assertEqual((planos / "aprobacion.json").read_bytes(), original)
+        actividad.write_text(json.dumps({
+            "definicion": {"estado": "congelado"},
+            "requisitos": [{"id": "R-1", "texto": "Lista visible"}],
+        }), encoding="utf-8")
+        mapa_datos = json.loads(mapa.read_text(encoding="utf-8"))
+        mapa_datos["actividades"][0]["estado"] = "entregada"
+        mapa.write_text(json.dumps(mapa_datos), encoding="utf-8")
+        lint_mapa = subprocess.run(
+            [sys.executable, str(SCRIPTS / "lint_metodo.py"), "--raiz", str(self.ws)],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+        )
+        self.assertIn("flujos terminal sin recibo aprobado", lint_mapa.stdout)
+        mapa_obsoleto = self.ejecutar(
+            "reconciliar", otro, "--revision", "1", "--tipo", "flujos",
+            "--ref", ref, "--evidencia", "mapa cambiado",
+        )
+        self.assertEqual(mapa_obsoleto.returncode, 1)
+        self.assertIn("no acredita aprobación vigente", mapa_obsoleto.stderr)
 
     def test_una_actividad_a_medias_de_entrevista_no_revienta_la_huella(self):
         # Bug 026 (visto en mindi-agents): planos.json declara una actividad cuyo

@@ -9,9 +9,15 @@ firma y lo que el linter contrasta.
 """
 
 import json
+import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import finalizar
+import revision
 
 SCRIPTS = Path(__file__).resolve().parent.parent.parent / "plantilla/docs/00-metodo/scripts"
 
@@ -55,6 +61,25 @@ class HuellaConActividadSinPlanosTest(unittest.TestCase):
         lint = cargar("lint_metodo", self.raiz)
         peticion = cargar("peticion", self.raiz)
         self.assertEqual(lint.huella_planos_actual(), peticion.huella_planos_actual())
+
+    def test_recibo_del_emisor_sigue_vigente_tras_congelar(self):
+        mapa = self.raiz / "docs/02-flujos/planos/planos.json"
+        actividad = self.raiz / "docs/02-flujos/planos/actividades/hecha/planos.json"
+        for ruta in (mapa, actividad):
+            datos = json.loads(ruta.read_text(encoding="utf-8"))
+            datos["definicion"] = {"estado": "borrador"}
+            ruta.write_text(json.dumps(datos), encoding="utf-8")
+        with patch.object(revision, "estado_revision", return_value={
+            "feedback_pendiente": 0, "validacion": {"valido": True, "errores": []},
+        }), patch.object(revision, "ejecutar_validador", return_value={
+            "valido": True, "errores": [],
+        }), patch.object(revision, "exigir_visor_visto"):
+            recibo = revision.aprobar(mapa, "Actor sintético 133")
+        self.assertEqual(recibo["huella"], revision.huella_planos(mapa))
+        finalizar.congelar_planos(mapa)
+        self.assertEqual(recibo["huella"], revision.huella_planos(mapa))
+        self.assertEqual(recibo["huella"], cargar("peticion", self.raiz).huella_planos_actual())
+        self.assertEqual(recibo["huella"], cargar("lint_metodo", self.raiz).huella_planos_actual())
 
 
 if __name__ == "__main__":
