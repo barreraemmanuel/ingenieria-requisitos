@@ -986,6 +986,163 @@ class PeticionUnidadTest(unittest.TestCase):
         ruta.write_text(texto, encoding="utf-8")
         return nombre
 
+    def test_despachar_incluye_entrega_local_posterior_al_remoto(self):
+        """103 R1: el trabajo nace del commit local aún sin publicar."""
+        remoto = self.ws / "remoto.git"
+        subprocess.run(["git", "clone", "--bare", str(self.repo), str(remoto)],
+                       check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(remoto)],
+                       cwd=self.repo, check=True, capture_output=True)
+        nombre = self.preparar_feature_aprobada("base-local-adelantada")
+        (self.repo / "app/solo-local.txt").write_text("entrega local\n", encoding="utf-8")
+        subprocess.run(["git", "add", "app/solo-local.txt"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "entrega local"], cwd=self.repo,
+                       check=True, capture_output=True)
+        sha_local = subprocess.check_output(["git", "rev-parse", "main"],
+                                            cwd=self.repo).decode().strip()
+
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        worktree = self.ws / "worktrees" / nombre
+        self.assertEqual((worktree / "app/solo-local.txt").read_text(encoding="utf-8"),
+                         "entrega local\n")
+        self.assertEqual(subprocess.check_output(["git", "rev-parse", "HEAD"],
+                                                 cwd=worktree).decode().strip(), sha_local)
+        metadata = self.metadata_unico_despacho()
+        self.assertEqual(metadata["base_sha"], sha_local)
+        self.assertEqual(metadata["base_ref"], "main")
+        self.assertEqual(metadata["base_motivo"], "local_adelantada")
+        self.assertIn("sin publicar", resultado.stdout + resultado.stderr)
+
+    def git_prueba(self, *args, cwd=None):
+        return subprocess.check_output(["git", *args], cwd=cwd or self.repo,
+                                       stderr=subprocess.STDOUT).decode().strip()
+
+    def remoto_local(self):
+        remoto = self.ws / "remoto.git"
+        self.git_prueba("clone", "--bare", str(self.repo), str(remoto))
+        self.git_prueba("remote", "add", "origin", str(remoto))
+        return remoto
+
+    def commit_prueba(self, repo, texto):
+        archivo = repo / "app/cambio.txt"
+        archivo.write_text(texto + "\n", encoding="utf-8")
+        self.git_prueba("add", "app/cambio.txt", cwd=repo)
+        self.git_prueba("commit", "-m", texto, cwd=repo)
+        return self.git_prueba("rev-parse", "HEAD", cwd=repo)
+
+    def metadata_unico_despacho(self):
+        peticion = next((self.ws / "docs/05-trabajo/peticiones").glob("P-*/peticion.json"))
+        datos = json.loads(peticion.read_text(encoding="utf-8"))
+        return datos["procesos"][0]["metadata"]
+
+    def comprobar_rechazo_base(self, nombre, resultado, fragmento):
+        self.assertEqual(resultado.returncode, 1, resultado.stdout + resultado.stderr)
+        self.assertIn(fragmento, resultado.stdout + resultado.stderr)
+        self.assertFalse((self.ws / "worktrees" / nombre).exists())
+        self.assertNotIn(nombre, self.git_prueba("branch", "--list", nombre))
+        self.assertNotIn("metadata", self.metadata_proceso(nombre))
+        ficha = self.ws / "docs/05-trabajo" / nombre / "especificacion.md"
+        self.assertIn("estado: planificada", ficha.read_text(encoding="utf-8"))
+
+    def metadata_proceso(self, nombre):
+        peticion = next((self.ws / "docs/05-trabajo/peticiones").glob("P-*/peticion.json"))
+        datos = json.loads(peticion.read_text(encoding="utf-8"))
+        return next(p for p in datos["procesos"] if p["ref"] == nombre)
+
+    def test_despachar_base_igual_al_remoto(self):
+        self.remoto_local()
+        nombre = self.preparar_feature_aprobada("base-igual")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.metadata_unico_despacho()["base_sha"], self.sha)
+        self.assertEqual(self.metadata_unico_despacho()["base_motivo"], "iguales")
+
+    def test_despachar_base_remota_adelantada(self):
+        remoto = self.remoto_local()
+        otro = self.ws / "otro"
+        self.git_prueba("clone", str(remoto), str(otro))
+        self.git_prueba("config", "user.name", "Test", cwd=otro)
+        self.git_prueba("config", "user.email", "test@example.com", cwd=otro)
+        sha = self.commit_prueba(otro, "entrega remota")
+        self.git_prueba("push", "origin", "main", cwd=otro)
+        nombre = self.preparar_feature_aprobada("base-remota-adelantada")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        worktree = self.ws / "worktrees" / nombre
+        self.assertEqual(self.git_prueba("rev-parse", "HEAD", cwd=worktree), sha)
+        self.assertEqual((worktree / "app/cambio.txt").read_text(encoding="utf-8"),
+                         "entrega remota\n")
+        self.assertEqual(self.metadata_unico_despacho()["base_motivo"],
+                         "remota_adelantada")
+
+    def test_despachar_rechaza_principales_divergentes(self):
+        remoto = self.remoto_local()
+        otro = self.ws / "otro"
+        self.git_prueba("clone", str(remoto), str(otro))
+        self.git_prueba("config", "user.name", "Test", cwd=otro)
+        self.git_prueba("config", "user.email", "test@example.com", cwd=otro)
+        self.commit_prueba(otro, "remoto")
+        self.git_prueba("push", "origin", "main", cwd=otro)
+        self.commit_prueba(self.repo, "local")
+        local = self.git_prueba("rev-parse", "main")
+        nombre = self.preparar_feature_aprobada("base-divergente")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.comprobar_rechazo_base(nombre, resultado, "divergen")
+        self.assertEqual(self.git_prueba("rev-parse", "main"), local)
+
+    def test_despachar_solo_referencia_remota(self):
+        self.remoto_local()
+        self.git_prueba("checkout", "--detach")
+        self.git_prueba("branch", "-D", "main")
+        nombre = self.preparar_feature_aprobada("solo-remota")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.metadata_unico_despacho()["base_sha"], self.sha)
+        self.assertEqual(self.metadata_unico_despacho()["base_motivo"], "solo_remota")
+
+    def test_despachar_solo_referencia_local(self):
+        nombre = self.preparar_feature_aprobada("solo-local")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        self.assertEqual(self.metadata_unico_despacho()["base_motivo"], "solo_local")
+
+    def test_despachar_sin_principal_no_deja_efectos(self):
+        self.git_prueba("checkout", "--detach")
+        self.git_prueba("branch", "-D", "main")
+        nombre = self.preparar_feature_aprobada("sin-principal")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.comprobar_rechazo_base(nombre, resultado, "no existe la rama principal")
+
+    def test_despachar_fetch_fallido_no_deja_efectos(self):
+        self.git_prueba("remote", "add", "origin", str(self.ws / "ausente.git"))
+        nombre = self.preparar_feature_aprobada("fetch-fallido")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.comprobar_rechazo_base(nombre, resultado, "no pude actualizar")
+
+    def test_despachar_referencia_no_resoluble_no_deja_efectos(self):
+        nombre = self.preparar_feature_aprobada("principal-rota")
+        self.git_prueba("checkout", "--detach")
+        self.git_prueba("branch", "-D", "main")
+        ref = self.repo / ".git/refs/heads/main"
+        ref.parent.mkdir(parents=True, exist_ok=True)
+        ref.write_text("a" * 40 + "\n", encoding="ascii")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.comprobar_rechazo_base(nombre, resultado, "no pude consultar")
+
+    def test_despachar_respecta_principal_configurada(self):
+        self.git_prueba("branch", "-m", "trunk")
+        (self.ws / "repos.yaml").write_text(
+            "codigo:\n  ruta_local: main/\n  rama_principal: trunk\n", encoding="utf-8")
+        nombre = self.preparar_feature_aprobada("principal-trunk")
+        resultado = self.ejecutar(self.unidad, "despachar", nombre)
+        self.assertEqual(resultado.returncode, 0, resultado.stdout + resultado.stderr)
+        metadata = self.metadata_unico_despacho()
+        self.assertEqual(metadata["principal"], "trunk")
+        self.assertEqual(metadata["base_ref"], "trunk")
+        self.assertEqual(metadata["base_sha"], self.sha)
+
     def test_fichero_declarado_sin_carpeta_madre_bloquea_el_despacho(self):
         """089 R1: `ficheros:` con una ruta que no existe y cuya carpeta madre tampoco,
         es una omisión del contrato que hoy solo se descubría en la revisión."""

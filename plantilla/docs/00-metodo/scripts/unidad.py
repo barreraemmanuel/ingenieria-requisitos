@@ -1309,11 +1309,10 @@ def modo_push():
 def avisar_principal_sin_empujar(repo, principal):
     """Camino B del cierre: la rama principal local fusionada y todavía sin publicar.
 
-    Con `push: agente` es un descuido y se avisa: al despachar, la rama de cada unidad nace
-    de `origin/<principal>`, así que si el merge se queda en local la SIGUIENTE unidad parte
-    de una base vieja y su merge ya no será fast-forward. Con `push: usuario` es exactamente
-    lo que el workspace pidió (007, R2 punto 6): mismo comando, pero como recibo del cierre,
-    no como alarma. Sin remoto no hay nada que decir.
+    Con `push: agente` se avisa de la publicación pendiente. El siguiente despacho toma
+    estos commits locales si son descendientes del remoto. Con `push: usuario` la publicación
+    pendiente es lo que el workspace pidió (007, R2 punto 6): mismo comando, pero como recibo
+    del cierre, no como alarma. Sin remoto no hay nada que decir.
     """
     if git(repo, "remote", "get-url", "origin", silencioso=True)[0] != 0:
         return
@@ -1328,8 +1327,7 @@ def avisar_principal_sin_empujar(repo, principal):
            f"quieras → {comando}")
     else:
         warn(f"la rama principal local va {salida.strip()} commit(s) por delante de "
-             f"origin/{principal}: empújala o la siguiente unidad partirá de una base "
-             f"vieja → {comando}")
+             f"origin/{principal}: publicación pendiente → {comando}")
 
 
 def git(repo, *args, silencioso=False):
@@ -2466,6 +2464,8 @@ def _cmd_despachar(args, autoridad, snapshot=None):
                 f"no pude actualizar origin/{rama_principal}; no creo trabajo desde "
                 f"una referencia posiblemente antigua:\n{salida}"
             )
+            err(f"  SALIDA: comprueba el acceso con git -C {rel(repo)} fetch origin "
+                f"{rama_principal} y repite el despacho.")
             return 1
         ok(f"origin/{rama_principal} actualizado antes de crear la rama")
     destino = WORKTREES / nombre
@@ -2475,22 +2475,67 @@ def _cmd_despachar(args, autoridad, snapshot=None):
     if git(repo, "rev-parse", "--verify", "--quiet", f"refs/heads/{nombre}", silencioso=True)[0] == 0:
         fail(f"la rama '{nombre}' ya existe en {rel(repo)} — el NNN no se reutiliza")
         return 1
-    base_remota = f"origin/{rama_principal}"
-    if git(repo, "rev-parse", "--verify", "--quiet",
-           f"refs/remotes/{base_remota}", silencioso=True)[0] == 0:
-        base = base_remota
-    elif git(repo, "rev-parse", "--verify", "--quiet",
-             f"refs/heads/{rama_principal}", silencioso=True)[0] == 0:
-        base = rama_principal
-    else:
+    local_ref = f"refs/heads/{rama_principal}"
+    remoto_ref = f"refs/remotes/origin/{rama_principal}"
+    referencias = {}
+    for etiqueta, ref in ((rama_principal, local_ref),
+                          (f"origin/{rama_principal}", remoto_ref)):
+        codigo_ref, _ = git(repo, "show-ref", "--verify", "--quiet", ref,
+                            silencioso=True)
+        if codigo_ref == 1:
+            continue
+        if codigo_ref != 0:
+            fail(f"no pude consultar {etiqueta}; no creé trabajo. "
+                 "Revisa las referencias Git y repite el despacho.")
+            err(f"  SALIDA: comprueba el repositorio con git -C {rel(repo)} fsck.")
+            return 1
+        codigo, salida = git(repo, "rev-parse", "--verify", "--quiet",
+                             f"{ref}^{{commit}}", silencioso=True)
+        if codigo != 0 or not salida.strip():
+            base = etiqueta
+            fail(f"no pude fijar el SHA base de {base}")
+            err(f"  SALIDA: repara la referencia con git -C {rel(repo)} fsck "
+                "y repite el despacho.")
+            return 1
+        referencias[etiqueta] = salida.strip()
+    local = referencias.get(rama_principal)
+    remoto = referencias.get(f"origin/{rama_principal}")
+    if not local and not remoto:
         fail(f"no existe la rama principal '{rama_principal}' en {rel(repo)}")
         err("\n  Crea o recupera la rama principal antes de despachar trabajo.")
         return 1
-    ok(f"repo de código listo en {rel(repo)} (base: {base})")
-    base_sha = git(repo, "rev-parse", base, silencioso=True)[1].strip()
-    if not base_sha:
-        fail(f"no pude fijar el SHA base de {base}")
-        return 1
+    if local and remoto and local != remoto:
+        codigo_local, _ = git(repo, "merge-base", "--is-ancestor", remoto, local,
+                              silencioso=True)
+        codigo_remoto, _ = git(repo, "merge-base", "--is-ancestor", local, remoto,
+                               silencioso=True)
+        if codigo_local not in (0, 1) or codigo_remoto not in (0, 1) or (
+                codigo_local == codigo_remoto == 0):
+            fail(f"no pude determinar la relación entre {rama_principal} y "
+                 f"origin/{rama_principal}; no creé trabajo. Revisa las referencias y el "
+                 "repositorio Git antes de repetir el despacho.")
+            err(f"  SALIDA: comprueba el repositorio con git -C {rel(repo)} fsck.")
+            return 1
+        if codigo_local == 0:
+            base, base_sha, motivo_base = rama_principal, local, "local_adelantada"
+        elif codigo_remoto == 0:
+            base, base_sha, motivo_base = f"origin/{rama_principal}", remoto, "remota_adelantada"
+        elif codigo_local == codigo_remoto == 1:
+            fail(f"{rama_principal} y origin/{rama_principal} divergen; no creé trabajo. "
+                 "Integra o resuelve ambas historias en la principal local y repite el despacho.")
+            err(f"  SALIDA: inspecciona ambas historias con git -C {rel(repo)} log "
+                f"--left-right {rama_principal}...origin/{rama_principal}.")
+            return 1
+    elif local and remoto:
+        base, base_sha, motivo_base = rama_principal, local, "iguales"
+    elif local:
+        base, base_sha, motivo_base = rama_principal, local, "solo_local"
+    else:
+        base, base_sha, motivo_base = f"origin/{rama_principal}", remoto, "solo_remota"
+    ok(f"repo de código listo en {rel(repo)} (base: {base} @ {base_sha[:8]})")
+    if motivo_base == "local_adelantada":
+        warn(f"{rama_principal} contiene entregas locales aún sin publicar; "
+             "la nueva rama incluirá esos commits")
 
     # --- Acción: rama + worktree ------------------------------------------------------------
     gestion_leases.failpoint("despachar_antes_accion")
@@ -2502,7 +2547,7 @@ def _cmd_despachar(args, autoridad, snapshot=None):
         )
         return 1
     WORKTREES.mkdir(parents=True, exist_ok=True)
-    codigo, salida = git(repo, "worktree", "add", str(destino), "-b", nombre, base)
+    codigo, salida = git(repo, "worktree", "add", str(destino), "-b", nombre, base_sha)
     if codigo != 0:
         fail(f"git worktree add falló:\n{salida}")
         return 1
@@ -2538,6 +2583,8 @@ def _cmd_despachar(args, autoridad, snapshot=None):
             ficheros=sorted(ficheros_de(fm)),
             base_sha=base_sha,
             principal=rama_principal,
+            base_ref=base,
+            base_motivo=motivo_base,
         )
     except gestion_peticiones.ErrorPeticion as exc:
         git(repo, "worktree", "remove", "--force", str(destino), silencioso=True)
@@ -3519,7 +3566,7 @@ def es_ancestro(repo, posible, descendiente):
 def base_de_medida(repo, punta, principal, base_registrada):
     """(sha, de dónde salió) — contra qué se mide DE VERDAD el trabajo de una rama (066, R1).
 
-    `metadata.base_sha` es el `origin/<principal>` del día del despacho, y ahí se quedaba.
+    `metadata.base_sha` conserva la base elegida el día del despacho, y ahí se quedaba.
     Pero con la principal por delante toda rama se rebasa para poder fusionar por ff, y
     entonces medir desde aquel SHA cuenta como propios los commits AJENOS que el rebase metió
     por debajo: el 25-08 la 055 aportaba 14 ficheros y 993 líneas a la medida de una unidad

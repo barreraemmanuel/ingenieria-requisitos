@@ -377,10 +377,6 @@
    "fichero": "unidad.py",
    "mensaje": "preparación bloqueada: … no es ejecutable; recibo …"
   },
-  "unidad.py::35d09ca2f4a0d88f": {
-   "fichero": "unidad.py",
-   "mensaje": "FAIL no pude actualizar origin/…; no creo trabajo desde una referencia posiblemente antigua: …"
-  },
   "unidad.py::39c3c0fd99255e70": {
    "fichero": "unidad.py",
    "mensaje": "despacho bloqueado por preparación fallida; rama y worktree deshechos"
@@ -552,10 +548,6 @@
   "unidad.py::fd9e16e1c0fa3cd0": {
    "fichero": "unidad.py",
    "mensaje": "FAIL la unidad o uno de sus recursos ya tiene propietario: …"
-  },
-  "unidad.py::fece4394960b435b": {
-   "fichero": "unidad.py",
-   "mensaje": "FAIL no pude fijar el SHA base de …"
   }
  }
 }

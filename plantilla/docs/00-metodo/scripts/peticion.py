@@ -661,7 +661,7 @@ def enlazar_procesos(referencias, tipo, ref, relacion="satisface",
 
 
 def registrar_despacho(referencias, tipo, ref, *, carril, ejecucion, ficheros,
-                      base_sha=None, principal=None):
+                      base_sha=None, principal=None, base_ref=None, base_motivo=None):
     """Escribe en la petición TODO lo que el despacho decidió sobre este proceso.
 
     Fija de qué principal nació la rama —el pre-push lo usa para distinguir una rama creada
@@ -695,6 +695,10 @@ def registrar_despacho(referencias, tipo, ref, *, carril, ejecucion, ficheros,
             raise ErrorPeticion(f"SHA base de despacho inexistente: {base_sha}")
         registro["base_sha"] = base_sha
         registro["principal"] = principal
+        if base_ref is not None:
+            registro["base_ref"] = base_ref
+        if base_motivo is not None:
+            registro["base_motivo"] = base_motivo
     with contextlib.ExitStack() as locks:
         for pid, _ in sorted(parsed):
             locks.enter_context(lock(pid))
