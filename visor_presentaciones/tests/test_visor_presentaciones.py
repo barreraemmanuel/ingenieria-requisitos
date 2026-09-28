@@ -1,5 +1,6 @@
 import http.client
 import json
+import shutil
 import urllib.request
 import tempfile
 import threading
@@ -7,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from visor_presentaciones import manifestar, servir
+from visor.tests import ayuda_windows
 
 
 def manifiesto_valido():
@@ -290,7 +292,8 @@ class PruebasServidor(unittest.TestCase):
         exterior = Path(self.tmp.name + "-exterior")
         exterior.mkdir()
         self.addCleanup(exterior.rmdir)
-        (self.datos / "recibos").symlink_to(exterior, target_is_directory=True)
+        ayuda_windows.enlazar_o_saltar(
+            self, self.datos / "recibos", exterior, directorio=True)
         decision = {
             "presentacion": "propuesta-uno", "version": "3",
             "contenido_revisado": "Construir cuatro superficies locales con una plantilla fija.",
@@ -302,6 +305,25 @@ class PruebasServidor(unittest.TestCase):
         self.assertEqual(estado, 400, cuerpo)
         self.assertEqual(list(exterior.iterdir()), [])
 
+    def test_deniega_post_si_recibos_es_junction_exterior(self):
+        exterior = Path(tempfile.mkdtemp(prefix="recibos-externos-"))
+        self.addCleanup(shutil.rmtree, exterior)
+        testigo = exterior / "testigo.bin"
+        testigo.write_bytes(b"RECIBOS EXTERNOS INTACTOS")
+        antes = {p.name: p.read_bytes() for p in exterior.iterdir()}
+        ayuda_windows.enlazar_directorio(self.datos / "recibos", exterior)
+        decision = {
+            "presentacion": "propuesta-uno", "version": "3",
+            "contenido_revisado": "Construir cuatro superficies locales con una plantilla fija.",
+            "eleccion": "aprobar", "comentario": "Adelante", "confirmado": True,
+        }
+
+        estado, _, cuerpo = self.pedir("POST", "/decisiones", decision)
+
+        self.assertEqual(estado, 400, cuerpo)
+        self.assertNotIn(b"RECIBOS EXTERNOS", cuerpo)
+        self.assertEqual({p.name: p.read_bytes() for p in exterior.iterdir()}, antes)
+
     def test_deniega_get_si_recibo_json_es_symlink_exterior(self):
         carpeta = self.datos / "recibos"
         carpeta.mkdir()
@@ -309,12 +331,26 @@ class PruebasServidor(unittest.TestCase):
             json.dump({"secreto": "exterior"}, salida)
             exterior = Path(salida.name)
         self.addCleanup(exterior.unlink)
-        (carpeta / "escape.json").symlink_to(exterior)
+        ayuda_windows.enlazar_o_saltar(self, carpeta / "escape.json", exterior)
 
         estado, _, cuerpo = self.pedir("GET", "/recibos.json")
 
         self.assertEqual(estado, 400, cuerpo)
         self.assertNotIn(b"secreto", cuerpo)
+
+    def test_deniega_get_si_recibos_es_junction_exterior(self):
+        exterior = Path(tempfile.mkdtemp(prefix="lectura-externa-"))
+        self.addCleanup(shutil.rmtree, exterior)
+        testigo = exterior / "escape.json"
+        testigo.write_bytes(b'{"secreto": "TESTIGO EXTERNO"}')
+        antes = {p.name: p.read_bytes() for p in exterior.iterdir()}
+        ayuda_windows.enlazar_directorio(self.datos / "recibos", exterior)
+
+        estado, _, cuerpo = self.pedir("GET", "/recibos.json")
+
+        self.assertEqual(estado, 400, cuerpo)
+        self.assertNotIn(b"TESTIGO EXTERNO", cuerpo)
+        self.assertEqual({p.name: p.read_bytes() for p in exterior.iterdir()}, antes)
 
 
 if __name__ == "__main__":

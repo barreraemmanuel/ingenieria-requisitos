@@ -26,6 +26,43 @@ if str(SCRIPTS) not in sys.path:
 import ejecucion  # noqa: E402  (el REAL, sin mutar)
 
 
+class EnlacesDePruebaTest(unittest.TestCase):
+    def test_symlink_permitido_se_conserva(self):
+        enlace, destino = Path("enlace"), Path("destino")
+        with mock.patch.object(Path, "symlink_to") as crear:
+            self.assertEqual(
+                ayuda_windows.enlazar_o_saltar(self, enlace, destino), enlace)
+        crear.assert_called_once_with(destino, target_is_directory=False)
+
+    def test_posix_usa_symlink_real_de_directorio(self):
+        enlace, destino = Path("alias"), Path("destino")
+        with mock.patch.object(ayuda_windows.os, "name", "posix"), mock.patch.object(
+            Path, "symlink_to"
+        ) as crear:
+            self.assertEqual(ayuda_windows.enlazar_directorio(enlace, destino), enlace)
+        crear.assert_called_once_with(destino, target_is_directory=True)
+
+    def test_symlink_con_ruta_erronea_no_se_omite(self):
+        with mock.patch.object(Path, "symlink_to", side_effect=FileNotFoundError("ruta mala")):
+            with self.assertRaises(FileNotFoundError):
+                ayuda_windows.enlazar_o_saltar(self, Path("enlace"), Path("destino"))
+
+    def test_symlink_con_error_ajeno_no_se_omite(self):
+        with mock.patch.object(Path, "symlink_to", side_effect=PermissionError("otro permiso")):
+            with self.assertRaisesRegex(PermissionError, "otro permiso"):
+                ayuda_windows.enlazar_o_saltar(self, Path("enlace"), Path("destino"))
+
+    def test_junction_fallido_es_error_y_auxiliar_windows_oculto(self):
+        fallo = subprocess.CompletedProcess([], 1, "", "fallo sintético")
+        enlace, destino = Path("alias"), Path("destino")
+        with mock.patch.object(ayuda_windows.os, "name", "nt"), mock.patch.object(
+            ayuda_windows.subprocess, "run", return_value=fallo
+        ) as ejecutar:
+            with self.assertRaisesRegex(OSError, "fallo sintético"):
+                ayuda_windows.enlazar_directorio(enlace, destino)
+        self.assertEqual(ejecutar.call_args.kwargs["creationflags"], subprocess.CREATE_NO_WINDOW)
+
+
 
         # Unidad 012 retira el tercer tramo (MUTANTE) de este test: verificaba que un
         # `cwd` de arranque incorrecto fallara en claro, pero esa verificación vivía en
@@ -139,7 +176,7 @@ class CompatibilidadWindowsTest(unittest.TestCase):
         # existe) porque el alias ya está ahí sin que nadie lo pida; en ese
         # caso el propio SO nos regala el segundo nombre que el test necesita.
         if not alias.exists():
-            alias.symlink_to(real_dir)
+            ayuda_windows.enlazar_directorio(alias, real_dir)
         self.assertNotEqual(str(alias), str(real_dir), "el test no aísla nada si ya son iguales")
         self.assertEqual(ejecucion._real(alias), ejecucion._real(real_dir))
 
@@ -155,7 +192,7 @@ class CompatibilidadWindowsTest(unittest.TestCase):
         # Ver el comentario equivalente en test_real_normaliza_...: en Windows
         # de verdad NTFS ya se adelanta y crea este alias 8.3 solo.
         if not alias.exists():
-            alias.symlink_to(base / "runneradmin")
+            ayuda_windows.enlazar_directorio(alias, base / "runneradmin")
         destino_via_alias = alias / "worktrees" / "001-demo"
         destino_via_alias.parent.mkdir()
         destino_via_alias.mkdir()

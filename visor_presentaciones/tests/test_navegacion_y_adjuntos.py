@@ -19,6 +19,7 @@ Cubre los seis criterios del contrato:
 
 import http.client
 import json
+import os
 import re
 import shutil
 import subprocess
@@ -29,6 +30,7 @@ import unittest
 from pathlib import Path
 
 from visor_presentaciones import manifestar, servir
+from visor.tests import ayuda_windows
 
 BASE = Path(__file__).resolve().parent.parent
 PLANTILLA = BASE / "plantilla.html"
@@ -221,12 +223,29 @@ class NavegacionYAdjuntosTest(unittest.TestCase):
         secreto = exterior / "secreto.md"
         secreto.write_text("CONTENIDO SECRETO", encoding="utf-8")
         (self.workspace / "docs" / "detectores.md").unlink()
-        (self.workspace / "docs" / "detectores.md").symlink_to(secreto)
+        ayuda_windows.enlazar_o_saltar(
+            self, self.workspace / "docs" / "detectores.md", secreto)
 
         estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/detectores.md")
 
         self.assertEqual(403, estado)
         self.assertNotIn(b"SECRETO", cuerpo)
+
+    def test_adjunto_por_junction_exterior_da_403_y_conserva_destino(self):
+        exterior = Path(tempfile.mkdtemp(prefix="fuera-junction-"))
+        self.addCleanup(shutil.rmtree, exterior)
+        secreto = exterior / "detectores.md"
+        secreto.write_bytes(b"TESTIGO EXTERNO SIN FILTRAR")
+        antes = {p.name: p.read_bytes() for p in exterior.iterdir()}
+        shutil.rmtree(self.workspace / "docs")
+        ayuda_windows.enlazar_directorio(self.workspace / "docs", exterior)
+        self.addCleanup(os.rmdir, self.workspace / "docs")
+
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/detectores.md")
+
+        self.assertEqual(403, estado)
+        self.assertNotIn(b"TESTIGO EXTERNO", cuerpo)
+        self.assertEqual({p.name: p.read_bytes() for p in exterior.iterdir()}, antes)
 
     def test_manifiesto_con_adjunto_con_puntos_o_absoluto_no_valida(self):
         for ruta_mala in ("../fuera.md", "/etc/passwd", "~/secreto.md", "docs/../../fuera.md"):
@@ -414,14 +433,6 @@ class AdjuntosFiltradosTest(unittest.TestCase):
         # imagen embebida o un `.min.js` — ficheros que un alumno adjunta.
         (self.workspace / "main" / "tira.txt").write_text(
             "a" * (1024 * 1024) + "\n", encoding="utf-8")
-        # `.private/` es la carpeta de evidencia sensible del método: aunque
-        # `manifestar` ya rechaza declararla (empieza por punto), un enlace
-        # dentro del workspace la alcanzaba igual.
-        (self.workspace / ".private").mkdir()
-        (self.workspace / ".private" / "secreto.md").write_text(
-            "credencial del usuario\n", encoding="utf-8")
-        (self.workspace / "docs" / "notas.md").symlink_to(
-            self.workspace / ".private" / "secreto.md")
         self.servidor = ServidorDePrueba(self.datos, self.workspace)
         self.addCleanup(self.servidor.parar)
 
@@ -466,9 +477,35 @@ class AdjuntosFiltradosTest(unittest.TestCase):
     def test_un_adjunto_que_acaba_en_private_nunca_se_sirve(self):
         """R3: `.private/` queda fuera aunque se llegue por un enlace que no
         sale del workspace (la guarda de la 056 sólo mira la frontera)."""
+        # El manifiesto no permite declarar .private, pero un enlace desde docs
+        # alcanza esa carpeta sin que la ruta declarada empiece por punto.
+        (self.workspace / ".private").mkdir()
+        secreto = self.workspace / ".private" / "secreto.md"
+        secreto.write_bytes(b"credencial del usuario\n")
+        ayuda_windows.enlazar_o_saltar(
+            self, self.workspace / "docs" / "notas.md", secreto)
         estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/notas.md")
         self.assertEqual(403, estado)
         self.assertNotIn(b"credencial", cuerpo)
+        self.assertEqual(secreto.read_bytes(), b"credencial del usuario\n")
+
+    def test_adjunto_por_junction_a_private_da_403_y_conserva_destino(self):
+        privado = self.workspace / ".private"
+        privado.mkdir()
+        secreto = privado / "secreto.md"
+        secreto.write_bytes(b"TESTIGO PRIVADO SIN FILTRAR")
+        antes = {p.name: p.read_bytes() for p in privado.iterdir()}
+        ayuda_windows.enlazar_directorio(self.workspace / "docs" / "oculto", privado)
+        manifiesto = manifiesto_con_adjuntos()
+        manifiesto["presentaciones"][2]["adjuntos"] = ["docs/oculto/secreto.md"]
+        (self.datos / "manifiesto.json").write_text(
+            json.dumps(manifiesto), encoding="utf-8")
+
+        estado, _, cuerpo = self.servidor.pedir("/adjunto/docs/oculto/secreto.md")
+
+        self.assertEqual(403, estado)
+        self.assertNotIn(b"TESTIGO PRIVADO", cuerpo)
+        self.assertEqual({p.name: p.read_bytes() for p in privado.iterdir()}, antes)
 
 
 if __name__ == "__main__":

@@ -7,25 +7,33 @@ que pone esa carpeta en sys.path. Ya hay precedente en la suite —
 import os
 import shutil
 import stat
+import subprocess
 import sys
 
 
 def enlazar_o_saltar(test, enlace, destino, *, directorio=False):
-    """Crea un symlink; si esta máquina no deja, salta el test diciendo por qué.
-
-    Crear symlinks en Windows exige Modo Desarrollador o privilegio de
-    administrador: sin él, `symlink_to` muere con WinError 1314 y un test de una
-    guarda anti-symlink ni siquiera puede montar su escenario. Se salta, con el
-    motivo escrito — nunca en silencio.
-
-    OJO: saltar aquí NO quiere decir que la guarda esté cubierta en Windows. Un
-    *junction* (`mklink /J`) redirige igual, no exige privilegio, y las guardas
-    que solo miran `is_symlink()` no lo ven. Eso es la unidad 043.
-    """
+    """Conserva la prueba de symlink nativo; sólo omite falta de privilegio real."""
     try:
         enlace.symlink_to(destino, target_is_directory=directorio)
-    except (OSError, NotImplementedError):
-        test.skipTest("este sistema no permite crear symlinks (Windows sin privilegio)")
+    except OSError as exc:
+        if os.name == "nt" and getattr(exc, "winerror", None) == 1314:
+            test.skipTest("symlink nativo: Windows deniega el privilegio (WinError 1314)")
+        raise
+    return enlace
+
+
+def enlazar_directorio(enlace, destino):
+    """Crea dos nombres reales para un directorio; junction en Windows."""
+    if os.name != "nt":
+        enlace.symlink_to(destino, target_is_directory=True)
+        return enlace
+    hecho = subprocess.run(
+        ["cmd", "/c", "mklink", "/J", str(enlace), str(destino)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+        creationflags=subprocess.CREATE_NO_WINDOW,
+    )
+    if hecho.returncode:
+        raise OSError(f"No se pudo crear el junction {enlace}: {hecho.stdout}{hecho.stderr}")
     return enlace
 
 
