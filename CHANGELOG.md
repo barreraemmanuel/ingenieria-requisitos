@@ -4,6 +4,22 @@ La versión del método viaja con cada proyecto (en su `METODO.json`). Para llev
 estas mejoras a tus proyectos ya creados: abre tu agente aquí y dile «pon al día
 mis proyectos».
 
+## 1.9.5 — 2026-10-01
+
+**Correcciones de compatibilidad y del ciclo de trabajo.** En Windows se corrigen la
+contención del registro, la protección de rutas, la selección de Python y Bash para los
+hooks y la limpieza de procesos y archivos de las pruebas. Los documentos compilados
+conservan saltos de línea LF y los recibos de flujos admiten fechas con hora.
+
+**Actualización y comprobaciones locales.** La actualización usa el clon configurado
+sin retroceder la versión. El despacho toma la principal local vigente, la recuperación
+de entregas contrasta las pruebas de Git y el control E2E local conserva el resultado
+del ejecutor sin exigir infraestructura de CI remoto.
+
+**Web y registro de uso.** Se corrigen el cierre del registro web y la gestión del cuerpo
+de las peticiones HTTP rechazadas. Las acciones de petición dejan un registro local de
+uso; el envío de lotes exige consentimiento explícito.
+
 ## 1.9.4 — 2026-08-29
 
 **Inicio ya lee un taller real en Windows.** La versión instalada se obtiene de `METODO.json`
